@@ -22,6 +22,8 @@ The memory segmentation follows much how a memory mapper works but in a much sim
 
 The memory map is shown below:
 
+<img src="images/MemoryMapper.JPG" alt="Rotated Image" width="750" >
+
 <img src="Memory Structure/TMS9900 Memory Map.drawio.png" alt="Memory Structure" width="750" >
 
 #### Segmented Memory - Software Support
