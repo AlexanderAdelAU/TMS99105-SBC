@@ -22,8 +22,10 @@ The memory segmentation follows much how a memory mapper works but in a much sim
 
 The memory map is shown below:
 
-<img src="images/MemoryMapper.JPG" alt="Rotated Image" width="750" >
+<img src="images/MemoryMapper.png" alt="Rotated Image" width="750" >
 
+#### Overal Memory - Architecture
+The resulting SBC Memory Map is represented in the diagram below.
 <img src="Memory Structure/TMS9900 Memory Map.drawio.png" alt="Memory Structure" width="750" >
 
 #### Segmented Memory - Software Support
@@ -43,8 +45,7 @@ Here is an example:
 ;=================================================
 	SEG  0
 	MESG	@GREETM		;ASSUME DEFAULT IS SEGMENT 0
-	LI 	R9,0100H	;FAR CALLS ARE TO SEGMENT 1
-	SETSREG
+	LI 	R9,0100H	;FAR CALLS ARE TO SEGMENT 1 FROM SEGMENT 0
 	CALL_FAR @MOD1		;CALLS WILL BE MADE TO SEGMENT 1
 	CALL_FAR @MOD2		;
 	LDS			;REGISTER IS SET SO PSEL WILL TOGGLE PAGE
