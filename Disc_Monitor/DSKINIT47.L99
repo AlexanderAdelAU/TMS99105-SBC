@@ -1,0 +1,677 @@
+                        ;
+                        ;****************************************
+                        ;
+                        ;	DISK INITIALISER
+                        ;
+                        ;	THIS PROGRAMME WILL INITIALISE THE BAT ETC
+                        ;	VERSION 3 FOR IDE FIXED DISC INTERFACE
+                        ;	VERSION 4 COMPATIBLE WITH MODULE LOAD SECTOR, BUT NO CHANGE TO ACTUAL CODE
+                        ;	          VERSION REFLECTS THAT THIS IS PART OF THE 4 BASELINE.
+                        ;
+                        ;**************************************
+                        ;
+                        ;
+  0000                  R0	EQU	0
+  0001                  R1	EQU	1
+  0002                  R2	EQU	2
+  0003                  R3	EQU	3
+  0004                  R4	EQU	4
+  0005                  R5	EQU	5
+  0006                  R6	EQU	6
+  0007                  R7	EQU	7
+  0008                  R8	EQU	8
+  0009                  R9	EQU	9
+  000A                  SP	EQU	10
+  000B                  R11	EQU	11
+  000C                  PORT	EQU	12
+  000C                  R12	EQU	12
+  000D                  R13	EQU	13
+  000E                  R14	EQU	14
+  000F                  R15	EQU	15
+                        ;
+                        ;	DEFINE SOME XOP'S
+                        ;
+                        	DXOP	FAR_REF,0
+                        	DXOP	RETF,1
+                        	DXOP	SETREG,2
+                        	DXOP	CALL_FAR,3
+                        	DXOP 	CALL,6
+                        	DXOP 	RET,7
+                        	DXOP 	PUSH,8
+                        	DXOP 	POP,9
+                        	DXOP 	WHEX,10
+                        	DXOP 	READ,13
+                        	DXOP 	WRITE,12    ;WRITE CHAR IN MSB
+                        	DXOP 	MESG,14		;OUTPUT NULL TERMINATED MESSAG
+                        	DXOP	DEBUG,15
+                        
+                        ;  OPERATING SYSTEM EQUATES
+                        ;
+  F000                  MONITOR	EQU	0F000H
+  C300                  SHELL_ADDR	EQU	0C300H
+  E800                  LADDRESS	EQU	0E800H		;THIS IS THE TEMPORARY LOADER ADDRESS
+  0250                  WORKSP	EQU	0250H
+  0500                  STACKP  	EQU	0500H
+                        
+  0500                  	AORG	0500H
+  0500   1028           	JMP	START
+                        
+                        ;
+                        ;---FCB ENTRY EQUATES
+                        ;
+  0010                  FLA	EQU	16			;LOAD ADDRESS	
+  001A                  CRN	EQU	26			;NEXT RECORD TO READ
+  000C                  FSB	EQU	12			;TWO BYTES HOLD TRACK AND SECTOR
+  000E                  FSZ	EQU	14			;NUMBER OF SECTORS TO LOAD
+                        ;
+                        ;NOTE THERE ARE NOW 12 SECTORS PER BLOCK
+                        ;SO SECTOR 2 IS THE FIRST BLOCK AFTER THE BOOT SECTOR
+                        ;
+                        ;SO WORD BELOW IS INTERPRETED AS
+                        ; FSB, FSZ AND FLA
+                        ;
+                        
+                        ;
+                        ;--SYSTEM DIRECTORY ENTRY BLOCKS.   THESE FILE DO NOT NEED A MODULE LOCATION INDEX TABLE
+                        ;
+                        ;
+  0502   5348 454C      SHELLSYS	TEXT	'SHELL   SYS'
+  0506   4C20 2020      
+  050A   5359 53        
+  050D   00             	BYTE	0			;FILE TYPE
+  050E   0002 0007      	WORD	2,7,0C300H,0,0,0,0,0,0,0	;FSB,FSZ,FLA  4 SECT PER BLOCK MEANS 2 BATS IF 5
+  0512   C300 0000      
+  0516   0000 0000      
+  051A   0000 0000      
+  051E   0000 0000      
+                        ;
+  0522   4244 4F53      BDOSSYS	TEXT	'BDOS    SYS'
+  0526   2020 2020      
+  052A   5359 53        
+  052D   00             	BYTE	0
+  052E   0004 0007      	WORD	4,7,0D100H,0,0,0,0,0,0,0 	;TWO BAT ENTERIES
+  0532   D100 0000      
+  0536   0000 0000      
+  053A   0000 0000      
+  053E   0000 0000      
+                        ;
+                        ;SAVE	TEXT	'SAVE    EXE'		;NOTE, DON'T LOAD SAVE
+                        ;	BYTE	2			;TYPE 2 IS EXECUTABLE
+                        ;	WORD	6,2,0100H,0,0,0,0,0,0,0 	;SAVE COMMAND ONE BAT ENTERY
+                        
+                        ;DIR	TEXT	'DIR     EXE'		;NOTE, DON'T LOAD SAVE
+                        ;	BYTE	2			;TYPE 2 IS EXECUTABLE
+                        ;	WORD	7,2,0C400H,0,0,0,0,0,0,0 	;SAVE COMMAND ONE BAT ENTERY
+                        
+                        ;
+                        ;BAT INITIALISER 
+                        ;
+  0542   FF80 FF80      BATINT	WORD	0FF80H,0FF80H		;RESERVERD FOR BOOT,BAT AND DIRECTORY ENTRIES + FUTURE
+  0546   0002 FF80      	WORD	2,0FF80H		;SHELL [BLOCKS 2 AND 3]
+  054A   0004 FF80      	WORD	4,0FF80H		;BDOS [BLOCKS 4 AND 5]
+                        ;	WORD	0FFF8H		;SAVE [BLOCK 6]
+  054E   0000           	WORD	0		;END OF TABLE
+                        
+  0550   000A           RETRY	WORD	10		;RETRIES
+                        ;
+                        ; MONITOR AND SHELL EQUATES - THESE ARE ONLY USED BY LOADER
+                        ;
+                        ;WBOOT	EQU	MONITOR+10*4		;WARM BOOT
+                        ;SELDSK	EQU	MONITOR+4*4		;SELECT A DISK
+                        ;RECAL	EQU	MONITOR+5*4		;HOME THE DRIVE USED BY LOADER
+                        ;SEEK	EQU	MONITOR+6*4		;SEEK A TRACK - USED BY LOADER
+                        ;RDREC	EQU	MONITOR+7*4		;READ A SECTOR  USED BY LOADER
+                        ;WRREC	EQU	MONITOR+8*4		;WRITE A SECTOR
+                        ;RDID	EQU	MONITOR+9*4
+                        ;
+  0200                  BYTSEC	EQU	512			;BYTES PER SECTOR
+  0004                  SECBLK	EQU	4			;SECTOR PER BLOCK
+                        ;
+                        ;
+                        ;BATTRK	EQU	0			;START TRACK
+                        ;DIRTRK	EQU	0			;DIRECTORY STARTS HERE
+                        ;
+                        ; DEFINE LBA VALUES FOR DISK INIT
+                        ;
+                        
+  0000                  BOOT_LBA	EQU	0
+  0002                  BAT_LBA	EQU	2
+  0008                  DIR_LBA	EQU	8
+  0010                  FINAL_LBA	EQU	16
+  0012                  BLK2_LBA	EQU	18		; LBA = BLOCK_NUM* 4 * 2  FILES START AT BLOCK 2
+                        				;AND THERE ARE 4 SECTORS PER BLOCK, AND 2 LBAS PER SECTOR
+  0004                  NDIRSEC	EQU	4			;NUMBER OF DIRECTORY SECTORS
+  000B                  NAMSIZ	EQU	11			;DIRECTORY NAME SIZE
+                        
+                        ;LDS:	EQU	0780H	;        Long Distance Source instruction operand.
+                        ;LDD:	EQU	07C0H	;        Long Distance Destination instruction operand.
+                        ;
+                        ;
+                        ;
+                        ;	AS WE ARE USING LOCAL WORKSPACE
+                        ;
+  0552                  	EVEN
+  0552   02E0 0250      START	LWPI	WORKSP		;USE LOCAL WORKSPACE
+  0556   020A 0500      	LI	SP,STACKP
+  055A   0209 0000      	LI	R9,0000H		;THIS MEANS WE WILL BE EXECUTING IN SEGMENT 1
+  055E   2C00           	FAR_REF
+  0046                  XOP1V	EQU	4*1 + 42H
+  004E                  XOP3V	EQU	4*3 + 42H
+  005A                  XOP6V	EQU	4*6 + 42H
+  005E                  XOP7V	EQU	4*7 + 42H
+  0062                  XOP8V	EQU	4*8 + 42H
+  0066                  XOP9V	EQU	4*9 + 42H
+  0066                  XOP14V	EQU	4*9 + 42H
+                        
+  0560   2DA0 E890      	CALL	@IDE_READY
+  0564   2DA0 059E      	CALL	@INITBOOT		;INITIALISE BOOT SECTOR
+  0568   2DA0 05AC      	CALL	@INITBAT		;INITIALISE BAT
+  056C   2DA0 0606      	CALL	@INITDIR		;INITIALISE DIRECTORY
+  0570   2DA0 0630      	CALL	@INITSYS		;INITIALISE SYSTEM FILES
+  0574   2FA0 058E      	MESG	@SUCCESS
+  0578   0420 F000      	BLWP	@MONITOR		;RETURN TO MONITOR ENTRY
+                        	;
+  057C   C0E0 EC0A      COPY2IMAGE	MOV	@IMAGEPTR,R3
+  0580   2DA0 E8DA      	CALL	@READ_SECTOR
+  0584   0223 0200      	AI	R3,BYTSEC
+  0588   C803 EC0A      	MOV	R3,@IMAGEPTR
+  058C   2DC0           	RET
+  058E   0D0A           SUCCESS:	BYTE	0DH,0AH
+  0590   5355 4343      	TEXT	"SUCCESS..."
+  0594   4553 532E      
+  0598   2E2E           
+  059A   0D0A 00        	BYTE	0DH,0AH,0
+  059D   00             	EVEN
+                        ;
+                        ;RETURN TO MONITOR ENTRY
+                        ;
+                        ;--INITIALISE THE BOOT SECTOR.  PASS THE ADDRESS OF THE LOADER IN R3, LBA IN R5
+                        ;
+  059E   0203 E800      INITBOOT	LI	R3,LOADER		;ADDRESS OF LOADER MODULE
+  05A2   0205 0000      	LI	R5,BOOT_LBA		;BOOT LBA
+  05A6   2DA0 E8FC      	CALL	@WRITE_SECTOR		;WRITE OUT THE LOADER
+  05AA   2DC0           	RET		
+                        ;
+                        ;
+                        ;INITIALISE THE BAT
+                        ;
+                        ;
+  05AC   0201 EA06      INITBAT	LI	R1,IOBUF
+  05B0   0200 0200      	LI	R0,BYTSEC		;FLUSH BUFFER
+  05B4   04F1           IBAT1	CLR	*R1+		;CLEAR BAT ENTRY
+  05B6   0640           	DECT	R0		;FINISHED ?
+  05B8   16FD           	JNE	IBAT1
+                        ;
+                        ;--BAT INITIALISER TABLE TRANSFERRED
+                        ;
+  05BA   0200 0542      	LI	R0,BATINT		;BAT ALLOCATION TABLE
+  05BE   0201 EA06      	LI	R1,IOBUF
+  05C2   CC70           IBAT2	MOV	*R0+,*R1+		;ZERO INDICATES END OF TABLE
+  05C4   16FE           	JNE	IBAT2	
+  05C6   0205 0002      	LI	R5,BAT_LBA 		;GO TO NEXT LBA (REMEMBER INCREMENTS OF 2)
+  05CA   0203 EA06      	LI	R3,IOBUF
+  05CE   2DA0 E8FC      	CALL	@WRITE_SECTOR		;WRITE OUT THE BUFFER
+                        ;
+                        ;	NEXT BAT SECTOR
+                        ;
+  05D2   0201 EA06      	LI	R1,IOBUF
+  05D6   0200 0200      	LI	R0,BYTSEC		;INDEX TO LAST ENTRY
+  05DA   04F1           IBAT3	CLR	*R1+		;CLEAR BAT ENTRY
+  05DC   0640           	DECT	R0		;FINISHED ?
+  05DE   16FD           	JNE	IBAT3
+  05E0   05C5           	INCT	R5		; R5 SHOULD BE UNTOUCHED SO INCREMENT BY 2 FOR NEXT LBA
+  05E2   0203 EA06      	LI	R3,IOBUF
+  05E6   2DA0 E8FC      	CALL	@WRITE_SECTOR		;WRITE OUT THE BUFFER
+                        ;
+                        ; 	LAST BAT SECTOR
+                        ;
+  05EA   0201 EA06      	LI	R1,IOBUF
+  05EE   0200 00D0      	LI	R0,720-512 		;LAST BAT ENTRY
+  05F2   04F1           IBAT4	CLR	*R1+		;CLEAR BAT ENTRY
+  05F4   0640           	DECT	R0		;FINISHED ?
+  05F6   16FD           	JNE	IBAT4
+  05F8   0711           	SETO	*R1		;LAST LINK IS -1
+  05FA   05C5           	INCT	R5		;SEEK LAST LBA BAT
+  05FC   0203 EA06      	LI	R3,IOBUF
+  0600   2DA0 E8FC      	CALL	@WRITE_SECTOR
+  0604   2DC0           	RET
+                        ;
+                        ;--INITIALISE DIRECTORY SECTORS
+                        ;
+  0606   0200 E5E5      INITDIR	LI	R0,0E5E5H		;NULL ENTRY BYTE
+  060A   0201 EA06      	LI	R1,IOBUF
+  060E   0202 0200      	LI	R2,BYTSEC
+  0612   CC40           IDIR1	MOV	R0,*R1+		;FILL BUFFER
+  0614   0642           	DECT	R2
+  0616   16FD           	JNE	IDIR1
+  0618   04C4           	CLR	R4
+  061A   0205 0008      	LI	R5,DIR_LBA
+                        ;
+  061E   0203 EA06      IDIR2	LI	R3,IOBUF
+  0622   2DA0 E8FC      	CALL	@WRITE_SECTOR		;WRITE OUT FIRST DIRECTORY BLOCKS
+  0626   05C5           	INCT	R5		;GO TO NEXT LBA/SECTOR
+  0628   0285 0010      	CI	R5,FINAL_LBA
+  062C   12F8           	JLE	IDIR2
+  062E   2DC0           IDIR3	RET
+                        ;
+                        ;---INITIALISE SYSTEM FILES
+                        ;
+  0630   0208 EA06      INITSYS	LI	R8,IOBUF		;FCB ADDRESS
+  0634   0203 0502      	LI	R3,SHELLSYS
+  0638   0200 0040      	LI	R0,32*2		;FCB SIZE - JUST INIT SHELL and DOS
+  063C   C048           	MOV	R8,R1		;FCB ADDRESS
+  063E   DC73           INTSYS2	MOVB	*R3+,*R1+		;TRANSFER DIRECTOR ENTRIES
+  0640   0600           	DEC	R0
+  0642   16FD           	JNE	INTSYS2
+  0644   04C4           	CLR	R4
+  0646   0205 0008      	LI	R5,DIR_LBA		;FIRST DIRECTORY
+  064A   C0C8           	MOV	R8,R3		;DIRECTORY ENTRY ADDRESS
+  064C   2DA0 E8FC      	CALL	@WRITE_SECTOR
+                        ;
+                        ;--NOW WRITE THE SYSTEM FILES THAT ARE IN MEMORY TO DISC
+                        ;
+  0650   0208 EA06      	LI	R8,IOBUF		;BEGIN WITH SHELL
+  0654   04C4           	CLR	R4
+  0656   0205 0012      	LI	R5,BLK2_LBA		;BLOCK 2 IS WHERE FILES BEGIN
+  065A   2DA0 0668      	CALL	@WRTSYS
+  065E   0228 0020      	AI	R8,32		;Use DIR Offset to now point to BDOS
+  0662   2DA0 0668      	CALL	@WRTSYS
+  0666   2DC0           	RET			;ALL DONE
+                        ;
+                        ;--WRITE EACH SYSTEM FILE WHOSE FCB ADDRESS IS IN R8
+                        ;
+  0668   04E8 001A      WRTSYS:	CLR	@CRN(R8)
+  066C   C0E8 001A      WRTSYS1	MOV	@CRN(R8),R3		;GET CURRENT RECORD NUMBER (SECTOR)
+  0670   C168 000C      	MOV	@FSB(R8),R5		;GET FIRST BLOCK NUMBER NUMBER
+  0674   0A35           	SLA	R5,3		;MULTIPLY BY 8, BLOCK_NUM * 2 * 4 TO GET LBA
+  0676   0A13           	SLA	R3,1		;MULTIPLY BY 2 FOR TWO LBA RECORDS PER SECTOR (8 BIT ISSUE)
+  0678   A143           	A	R3,R5		;WE NOW HAVE THE LBA TO WRITE TO
+  067A   C0E8 0010      	MOV	@FLA(R8),R3		;LOAD ADDRESS
+  067E   2DA0 E8FC      	CALL	@WRITE_SECTOR		;READ IN A SECTOR
+  0682   0200 0200      	LI	R0,BYTSEC
+  0686   AA00 0010      	A	R0,@FLA(R8)		;INCREMENT LOAD ADDRESS POINTER
+  068A   05A8 001A      	INC	@CRN(R8)
+  068E   0628 000E      	DEC	@FSZ(R8)		;FINISHED ?
+  0692   16EC           	JNE	WRTSYS1		;NO
+  0694   2DC0           	RET
+                        ;
+                        ;--------------------------------------------------------------------
+                        ;
+                        ;	LOADER MODULE - IT IS LOCATED AT THE FIXED MEMO LOCATION OF 1000H
+                        ;
+                        ;	THIS MODULE WILL BE LOADED IN THE DISK BOOT SECTOR
+                        ;	AND WILL BE EXECUTED BY THE COLD BOOT MODULE WITHIN
+                        ;	THE MONITOR.  THE LOADER MODULE IS RESPONSIBLE FOR 
+                        ;	SEARCHING FOR, AND LOADING SHELL.SYS, BDOS.SYS AND BIOS.SYS.
+                        ;
+                        ;	IT ASSUMES THAT MONITOR HAS BEEN CALLED AN INITIALISED AND IS
+                        ;	CALLED FROM THE MONITOR AND WILL USE MONITOR'S WORKSPACE
+                        ;
+                        ;	MODULE CANNOT BE LARGER THAT 512 BYTES SO WE MUST USE MONITOR DISC ROUTINES
+                        ;
+                        ;-------------------------------------------------------------------
+                        ;	AORG	SHELL_ADDR - 512	;LOCATE LOADER JUST ABOVE THE SHELL
+  E800                  	AORG	LADDRESS		;LOADER ADDRESS
+  E800   02E0 0250      LOADER:	LWPI	WORKSP
+  E804   020A 0500      	LI	SP,STACKP
+  E808   2DA0 E890      	CALL	@IDE_READY
+  E80C   0205 0008       	LI	R5,DIR_LBA		;SEEK DIRECTORY TRACK USING LBA VALUE
+  E810   0203 EA06      	LI	R3,IOBUF
+  E814   2DA0 E8DA      	CALL	@READ_SECTOR		;READ IN THE DIRECTORY THROUGH MONITOR
+  E818   1137           	JLT	LOADERR	
+                        ;
+                        ;--LOOK FOR THE SYSTEM FILES, FIRST SHELL.
+                        ;
+                        
+  E81A   0208 EA06      	LI	R8,IOBUF		;SHELL SYSTEM FIRST
+  E81E   0204 E9BA      	LI	R4,SHELL		;NAME OF SYSTEM FILES
+  E822   2DA0 E872      	CALL	@MATCH
+  E826   1630           	JNE	LOADERR
+  E828   2DA0 E842      	CALL	@LOADSYS		;LOAD SHELL SYSTEM
+                        ;
+                        ;	NOW LOAD BDOS
+                        ;
+                        ;	LI	R1,0FFFFH
+                        ;	WHEX	R1
+  E82C   0228 0020      	AI	R8,32		;NEXT DIRECTORY ENTRY
+  E830   0204 E9C5      	LI	R4,BDOS		;NAME OF SYSTEM FILES
+  E834   2DA0 E872      	CALL	@MATCH
+  E838   1627           	JNE	LOADERR
+  E83A   2DA0 E842      	CALL	@LOADSYS		;LOAD BDOS SYSTEM
+  E83E   0460 C300      	B	@SHELL_ADDR		;INITAILISE INTERRUPT VECTORS ETC AND GO TO SHELL ENTRY RATHER THAN VECTOR
+                        	
+                        ;
+                        ;--LOAD SYSTEM FILE
+                        ;
+                        ;  R8 -> FCB
+                        ;
+  E842   04E8 001A      LOADSYS:	CLR	@CRN(R8)
+  E846   C0E8 001A      LOAD1	MOV	@CRN(R8),R3		;BEGIN AT FIRST RECORD	
+  E84A   C168 000C      	MOV	@FSB(R8),R5		;GET FILE STARTING BLOCK INDEX
+  E84E   0A35           	SLA	R5,3		;WE HAVE RELATIVE LBA NOW
+  E850   0A13           	SLA	R3,1		;2 LBA RECORDS PER SECTOR 8 BIT ISSUE
+  E852   A143           	A	R3,R5		;NOW HAVE LBA
+  E854   C0E8 0010      	MOV	@FLA(R8),R3		;LOAD ADDRESS
+  E858   2DA0 E8DA      	CALL	@READ_SECTOR		;READ IN A SECTOR IN R3
+  E85C   1615           	JNE	LOADERR
+  E85E   05A8 001A      	INC	@CRN(R8)		;UP RECORD COUNT
+  E862   0200 0200      	LI	R0,BYTSEC
+  E866   AA00 0010      	A	R0,@FLA(R8)		;INCREMENT LOAD ADDRESS POINTER
+  E86A   0628 000E      	DEC	@FSZ(R8)		;FINISHED ?
+  E86E   16EB           	JNE	LOAD1		;No
+  E870   2DC0           	RET
+                        ;
+                        ;--MATCH A DIRECTORY ENTRY
+                        ;	R4->NAME TO MATCH
+                        ;	R8->DIRECTORY ENTRY
+                        ;
+  E872   C0C8           MATCH	MOV	R8,R3
+  E874   0701           	SETO	R1		;ERROR FLAG
+  E876   0200 000B      	LI	R0,NAMSIZ 		;NUMBER OF CHARS TO MATCH
+  E87A   9CF4           MATCH1	CB	*R4+,*R3+		;CHECK FOR SYSTEM FILES
+  E87C   1603           	JNE	MATCH2		;MATCH ERROR
+  E87E   0600           	DEC	R0	
+  E880   16FC           	JNE	MATCH1	 	;CONTINUE
+  E882   04C1           	CLR	R1
+  E884   C041           MATCH2	MOV	R1,R1		;SET STATUS FLAGS
+  E886   2DC0           	RET
+                        
+  E888   2FA0 E9D0      LOADERR 	MESG	@LDMSG
+  E88C   0420 F000      	BLWP	@MONITOR
+                        ;
+                        ;=========START OF IDE INTERFACE ROUTINES====================
+                        ;
+                        ;
+                        ; IDE REGISTERS - REFERENCE SEE THE SEAGATE REFERENCE MANUAL
+                        ;
+  8040                  IDE_BASE_PORT:	EQU	8040H	;PARALLEL OUTPUT ADDRESS WITH MSB SET THIS IS CS0
+  0002                  BYTEWIDE:	EQU	2
+                        ;
+  804E                  IDE_COMMAND:	EQU	IDE_BASE_PORT+7*2
+  804E                  IDE_STATUS:	EQU	IDE_BASE_PORT+7*2
+  804C                  IDE_CONTROL:	EQU	IDE_BASE_PORT+6*2
+  8040                  IDE_DATA:	EQU	IDE_BASE_PORT
+  804C                  IDE_HEAD:	EQU	IDE_BASE_PORT + 6*2
+  8048                  IDE_CYL_LSB:	EQU	IDE_BASE_PORT + 4*2
+  804A                  IDE_CYL_MSB:	EQU	IDE_BASE_PORT + 5*2
+  8046                  IDE_SECTOR:	EQU	IDE_BASE_PORT + 3*2
+  8044                  IDE_SEC_CNT:	EQU	IDE_BASE_PORT + 2*2
+  8042                  IDE_ERROR:	EQU	IDE_BASE_PORT + 1*2
+                        ;
+                        ; IDE STATUS REGISTER AND BIT DEFINTIONS
+                        ;
+  0080                  IDE_BSY:	EQU	10000000B		;80H
+  0040                  IDE_DRDY:	EQU	01000000B		;40H
+  0001                  IDE_ERR:	EQU	00000001B		;01H
+  0020                  IDE_DWF:	EQU	00100000B		;20H  DRIVE WRITE FAULT
+  0010                  IDE_DSC:	EQU	00010000B		;01H  DRIVE SEEK COMPLETE
+  0010                  IDE_DRQ:	EQU	000010000B		;01H  DATA REQUEST BIT
+                        ;
+                        ; IDE COMMANDS - NOTE COMMAND IS IN THE MOST SIGNIFICANT BYTE
+                        ;
+  2000                  IDE_CMD_READ:	EQU	02000H
+  3000                  IDE_CMD_WRITE:	EQU	03000H	;R = 0 FOR NO RETRY
+  1000                  IDE_CMD_RECAL:	EQU	01000H	;R = 0 FOR NO RETRY
+  9100                  IDE_CMD_INIT:	EQU	09100H
+  EC00                  IDE_CMD_ID:	EQU	0EC00H	;GET THE DRIVE PROPERTIES
+  E000                  IDE_CMD_SDOWN:	EQU	0E000H	;R = 0 FOR NO RETRY
+  E100                  IDE_CMD_SUP:	EQU	0E100H	;R = 0 FOR NO RETRY
+                        
+                        ;
+                        ; CHECK THE IDE READY BIT.
+                        ;
+  E890   020C 804C      IDE_READY:	LI	PORT, IDE_HEAD		;DEVICE HEAD REGISTER
+  E894   0201 E000      	LI	R1, 11100000B*256	;SPECIFY LBA MODE
+  E898   3081           	LDCR	R1,BYTEWIDE		;WRITE THE COMMAND
+                        
+  E89A   020C 804E      	LI	PORT,IDE_COMMAND	;STATUS
+  E89E   3481           BSY1:	STCR	R1,BYTEWIDE			;GET STATUS REGISTER
+  E8A0   0241 8000      	ANDI	R1,10000000B * 256		;IF BUSY, THEN WAIT
+  E8A4   16FC           	JNE	BSY1
+                        
+  E8A6   020C 804E      	LI	PORT,IDE_COMMAND	;STATUS
+  E8AA   3481           RDY1:	STCR	R1,BYTEWIDE			;GET STATUS REGISTER
+  E8AC   0241 4000      	ANDI	R1,01000000B * 256		;WAIT FOR RDY TO BE SET
+  E8B0   13FC           	JEQ	RDY1
+  E8B2   2DC0           	RET
+                        
+                        ;when an error occurs, we get acc.0 set from a call to ide_drq
+                        ;or ide_wait_not_busy (which read the drive's status register).  If
+                        ;that error bit is set, we should jump here to read the drive's
+                        ;explaination of the error, to be returned to the user.  If for
+                        ;some reason the error code is zero (shouldn't happen), we'll
+                        ;return 255, so that the main program can always depend on a
+                        ;return of zero to indicate success.
+                        ;
+  E8B4   020C 8042      IDE_GET_ERROR:	LI	PORT, IDE_ERROR
+  E8B8   04C1           	CLR	R1
+  E8BA   3481           	STCR	R1,BYTEWIDE
+  E8BC   D041           	MOVB	R1,R1
+  E8BE   1303           	JEQ	IGE_X		;RETURN ERROR IN MSB OF R1
+  E8C0   2FA0 E8C8      	MESG	@IDE_MSG1
+  E8C4   2E81           	WHEX	R1
+  E8C6   2DC0           IGE_X	RET
+                        
+  E8C8   4944 4520      IDE_MSG1:	TEXT	"IDE ERROR: "
+  E8CC   4552 524F      
+  E8D0   523A 20        
+  E8D3   000D 000A      	WORD	0DH,0AH,0
+  E8D7   0000           
+  E8D9   00             	EVEN
+                        ;
+                        ; READ SECTOR.
+                        ; LBA ORGANISED AS
+                        ; LBA + 0 = MSB OR DRIVE/HEAD; LBA + 1 = CYL LSB; LBA + 2 = CYL MSB; LBA + 3 = SECTOR
+                        ; R3 CONTAINS POINTER TO BUFFER
+                        ; R5 HOLDS THE LBA
+                        ;
+  E8DA   C803 EA04      READ_SECTOR:	MOV	R3,@BUFPTR
+  E8DE   2DA0 E922      	CALL	@IDE_NOT_BUSY
+  E8E2   2DA0 E972      	CALL	@IDE_WR_LBA
+  E8E6   020C 804E      	LI	PORT, IDE_COMMAND	;COMMAND REGISTER6
+  E8EA   0201 2000      	LI	R1, IDE_CMD_READ	; READ BUFFER
+  E8EE   3081           	LDCR	R1,BYTEWIDE
+                        ;
+  E8F0   2DA0 E930      	CALL	@IDE_WAIT_DRQ
+  E8F4   13DF           	JEQ	IDE_GET_ERROR
+  E8F6   2DA0 E946      	CALL	@IDE_READ_DATA
+  E8FA   2DC0           	RET
+                        ;
+                        ;
+                        ; THE ADDRESS OF THE BUFFER IS IN R3 AND LBA IS IN R5
+                        ;
+  E8FC   C803 EA04      WRITE_SECTOR:	MOV	R3,@BUFPTR
+  E900   2DA0 E922      	CALL	@IDE_NOT_BUSY
+  E904   2DA0 E972      	CALL	@IDE_WR_LBA
+  E908   020C 804E      	LI	PORT, IDE_COMMAND	;COMMAND REGISTER6
+  E90C   0201 3000      	LI	R1, IDE_CMD_WRITE	; WRITE BUFFER
+  E910   3081           	LDCR	R1,BYTEWIDE
+                        ;
+  E912   2DA0 E930      	CALL	@IDE_WAIT_DRQ
+  E916   2DA0 E95C      	CALL	@IDE_WRITE_DATA
+  E91A   2DA0 057C      	CALL	@COPY2IMAGE
+  E91E   2DC0           	RET
+                        ;
+                        ;  ENTER WITH R3 CONTAINING THE SECTOR.   FOR LOW NUMBER SECTORS ON THE FIRST TRACK THIS
+                        ;  SIMPLE APPROACH WILL WORK.
+                        ;  LBA = 2 * SECTOR_NUMBER FOR TRACK 0
+                        ;
+  E920   2DC0           GET_LBA:	RET
+                        ;
+                        ; WAIT FOR THE IDE DRIVE TO NOT BE BUSY
+                        ;
+  E922   020C 804E      IDE_NOT_BUSY:	LI	PORT,IDE_COMMAND	;STATUS
+  E926   3481           BSY2	STCR	R1,BYTEWIDE			;GET STATUS REGISTER
+  E928   0241 8000      	ANDI	R1,10000000B * 256		;IF BUSY, THEN WAIT
+  E92C   16FC           	JNE	BSY2
+  E92E   2DC0           	RET
+                        ;
+                        ; WAIT FOR DRQ BEFORE READ DATA.  0 STATUS, ERROR
+                        ;
+  E930   0700           IDE_WAIT_DRQ:	SETO	R0		;VERY CRUDE TIMEOUT
+  E932   020C 804E      	LI	PORT, IDE_COMMAND
+  E936   04C1           	CLR	R1
+  E938   0600           DRQ1	DEC	R0
+  E93A   1304           	JEQ	DRQ_X
+  E93C   3481           	STCR	R1,BYTEWIDE
+  E93E   0241 0800      	ANDI	R1,00001000B * 256	;WAUT FOR DRQ  READT, THEN WAIT
+  E942   13FA           	JEQ	DRQ1
+  E944   2DC0           DRQ_X	RET
+                        ;
+                        ; IDE Status Register:
+                        ; bit 7: Busy 1=busy, 0=not busy
+                        ;  bit 6: Ready 1=ready for command, 0=not ready yet
+                        ; bit 5: DF 1=fault occured inside drive
+                        ; bit 4: DSC 1=seek complete
+                        ; bit 3: DRQ 1=data request ready, 0=not ready to xfer yet
+                        ; bit 2: CORR 1=correctable error occured
+                        ; bit 1: IDX vendor specific
+                        ; bit 0: ERR 1=error occured
+                        ;;------------------------------------------------------------------
+                        ;
+                        ; BECAUSE IDE TRANSFERS ARE IN 16 BIT WORDS AND WE ONLY HAVE ACCESS TO 8 BIT
+                        ; TRANSFERS, 256 BYTES REPRESENTS A SECTOR.
+                        ;
+                        ;
+                        ;
+  E946   C120 EA04      IDE_READ_DATA:	MOV	@BUFPTR,R4
+  E94A   0200 0200      	LI	R0,512
+  E94E   020C 8040      	LI	PORT,IDE_DATA	 	;DATA REG
+  E952   3481           RL11:	STCR	R1,BYTEWIDE		;
+  E954   DD01           	MOVB	R1,*R4+
+  E956   0600           	DEC	R0
+  E958   16FC           	JNE	RL11
+  E95A   2DC0           	RET
+                        ;
+                        ; BECAUSE IDE TRANSFERS ARE IN 16 BIT WORDS AND WE ONLY HAVE ACCESS TO 8 BIT
+                        ; TRANSFERS, 256 BYTES REPRESENTS A SECTOR.
+                        ;
+                        
+  E95C   C120 EA04      IDE_WRITE_DATA:	MOV	@BUFPTR,R4
+  E960   0200 0200      	LI	R0,512
+  E964   020C 8040      	LI	PORT,IDE_DATA	 	;DATA REG
+  E968   D074           WL11:	MOVB	*R4+,R1
+  E96A   3081           	LDCR	R1,BYTEWIDE		;
+  E96C   0600           	DEC	R0
+  E96E   16FC           	JNE	WL11
+  E970   2DC0           	RET
+                        
+                        ;
+                        ; WRITE THE LOGICAL BLOCK ADDRESS TO THE DRIVE'S REGISTERS
+                        ; ORGANISED AS:
+                        ; LBA	WORD	0,0
+                        ;
+                        ; LBA + 0 = HEAD   (MSB)
+                        ; LBA + 1 = CYL MSB
+                        ; LBA + 2 = CYL LSB
+                        ; LBA + 3 = SECTOR (LSB )
+                        ; LBA VALUE PASSED IN R4 AND R5 (LSB)
+                        ;
+  E972   04E0 EC06      IDE_WR_LBA:	CLR	@LBA
+  E976   04E0 EC08      	CLR	@LBA+2
+  E97A   C805 EC08      	MOV	R5,@LBA+2
+  E97E   D060 EC06      	MOVB	@LBA+0,R1		;GET THE FIRST MSB BYTE
+  E982   0241 0F00      	ANDI	R1,0FH*256
+  E986   0261 E000      	ORI	R1,0E0H*256		; 0EH IS JUST THE 1110 CODE FOR HEAD REGISTER
+  E98A   020C 804C      	LI	PORT,IDE_HEAD		; IDE HEAD
+  E98E   3081           	LDCR	R1,BYTEWIDE
+                        ;
+  E990   D060 EC07      	MOVB	@LBA+1,R1
+  E994   020C 804A      	LI	PORT,IDE_CYL_MSB	;CYLINDER MSB
+  E998   3081           	LDCR	R1,BYTEWIDE
+                        
+  E99A   D060 EC08      	MOVB	@LBA+2,R1
+  E99E   020C 8048      	LI	PORT,IDE_CYL_LSB	;CYLINDER LSB
+  E9A2   3081           	LDCR	R1,BYTEWIDE
+                        
+  E9A4   D060 EC09      	MOVB	@LBA+3,R1
+  E9A8   020C 8046      	LI	PORT,IDE_SECTOR		;CYLINDER LSB
+  E9AC   3081           	LDCR	R1,BYTEWIDE
+                        ;
+                        ; WE NEED TO READ TWO SECTORS TO GET 512 BYTES DUE TO THE FACT THAT WE CAN'T DO 16 BIT READS/WRITES
+                        ;
+  E9AE   0201 0200      	LI	R1,2*256		;
+  E9B2   020C 8044      	LI	PORT,IDE_SEC_CNT		;CYLINDER LSB
+  E9B6   3081           	LDCR	R1,BYTEWIDE
+  E9B8   2DC0           	RET
+                        ;
+                        ;
+                        ;--SYSTEM FILE NAMES
+                        ;
+  E9BA   5348 454C      SHELL	TEXT	'SHELL   SYS'
+  E9BE   4C20 2020      
+  E9C2   5359 53        
+  E9C5   4244 4F53      BDOS	TEXT	'BDOS    SYS'
+  E9C9   2020 2020      
+  E9CD   5359 53        
+                        ;
+                        ;--LOADER MESSAGES
+                        ;
+  E9D0   0D0A           LDMSG	BYTE	0DH,0AH,
+  E9D2   426F 6F74      	TEXT 	"Boot-no system files..."
+  E9D6   2D6E 6F20      
+  E9DA   7379 7374      
+  E9DE   656D 2066      
+  E9E2   696C 6573      
+  E9E6   2E2E 2E        
+  E9E9   0D0A 00        	BYTE	0DH,0AH,00
+  E9EC                  	EVEN
+                        
+  E9FE                  	AORG	LOADER + 510
+  E9FE   E800           	WORD	LOADER		;THIS WILL PUT THE LOAD ADDRESS AS THE LAST WORD
+  0200                  SIZE:	EQU	$-LOADER
+  EA00                  	BSS	512-SIZE
+                        ;
+                        ;---------END OF LOAD MODULE----SIZE < 512 BYTES -------------
+                        ;
+                        ;  BUFFER AND WORKSPACES REGIONS
+                        ;
+  EA00   0000           NAMPTR	WORD	0
+  EA02   0000           CDSEC	WORD	0		;CURRENT DIRECTORY SECTOR
+  EA04   0000           BUFPTR	WORD	0
+  EA06                  IOBUF	BSS	512
+                        ;
+  EC06                  LBA:	BSS	4
+  EC0A   2000           IMAGEPTR	WORD	2000H
+  2000                  	AORG	2000H
+  2000                  IMAGE:	BSS	2048
+                        
+  2800                  	END
+
+No error(s).
+FINAL_LBA        0010  IDE_STATUS       804E  IDE_CMD_SUP      E100  DEBUG            2FC0  
+IDE_GET_ERROR    E8B4  IDE_CMD_INIT     9100  LOADER           E800  IGE_X            E8C6  
+RDY1             E8AA  IDIR3            062E  WRTSYS           0668  CALL_FAR         2CC0  
+NDIRSEC          0004  RET              2DC0  IDE_WR_LBA       E972  LBA              EC06  
+LADDRESS         E800  R13              000D  BYTSEC           0200  IBAT3            05DA  
+IDIR1            0612  IDE_CMD_READ     2000  R1               0001  DRQ1             E938  
+R3               0003  INITSYS          0630  R4               0004  FAR_REF          2C00  
+R5               0005  IDE_CMD_SDOWN    E000  R7               0007  IDE_DRDY         0040  
+R8               0008  RETF             2C40  IDE_ERR          0001  INITBAT          05AC  
+BATINT           0542  MONITOR          F000  IDE_CMD_WRITE    3000  GET_LBA          E920  
+XOP7V            005E  NAMPTR           EA00  XOP9V            0066  INITDIR          0606  
+IBAT1            05B4  INTSYS2          063E  NAMSIZ           000B  IDE_HEAD         804C  
+BLK2_LBA         0012  LOAD1            E846  DRQ_X            E944  R14              000E  
+IDE_ERROR        8042  IBAT4            05F2  WRITE            2F00  IDE_READY        E890  
+IDE_DSC          0010  IDE_CONTROL      804C  IDIR2            061E  IMAGE            2000  
+R12              000C  STACKP           0500  BDOSSYS          0522  START            0552  
+WHEX             2E80  IDE_DWF          0020  SIZE             0200  LDMSG            E9D0  
+IDE_CMD_ID       EC00  IDE_CMD_RECAL    1000  READ_SECTOR      E8DA  SHELL_ADDR       C300  
+LOADERR          E888  BYTEWIDE         0002  PORT             000C  IDE_BSY          0080  
+WRTSYS1          066C  MATCH            E872  SHELLSYS         0502  R15              000F  
+R0               0000  IDE_NOT_BUSY     E922  BSY1             E89E  COPY2IMAGE       057C  
+R6               0006  IDE_WAIT_DRQ     E930  R9               0009  MATCH1           E87A  
+XOP3V            004E  MATCH2           E884  XOP8V            0062  POP              2E40  
+XOP14V           0066  FLA              0010  SUCCESS          058E  FSZ              000E  
+WRITE_SECTOR     E8FC  CALL             2D80  BUFPTR           EA04  IDE_COMMAND      804E  
+IBAT2            05C2  CDSEC            EA02  SP               000A  MESG             2F80  
+IDE_SEC_CNT      8044  BOOT_LBA         0000  IDE_READ_DATA    E946  IDE_CYL_LSB      8048  
+SHELL            E9BA  LOADSYS          E842  R2               0002  IDE_SECTOR       8046  
+PUSH             2E00  IDE_MSG1         E8C8  XOP6V            005A  FSB              000C  
+READ             2F40  IOBUF            EA06  IDE_WRITE_DATA   E95C  WL11             E968  
+IDE_DATA         8040  BAT_LBA          0002  INITBOOT         059E  IDE_CYL_MSB      804A  
+SETREG           2C80  DIR_LBA          0008  XOP1V            0046  SECBLK           0004  
+IDE_BASE_PORT    8040  CRN              001A  BSY2             E926  R11              000B  
+RL11             E952  WORKSP           0250  IDE_DRQ          0010  IMAGEPTR         EC0A  
+BDOS             E9C5  RETRY            0550  
+
