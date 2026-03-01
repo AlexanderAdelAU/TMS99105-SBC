@@ -29,6 +29,14 @@ Example merge command:
 
 ```bash
 mergehex SYSGEN.H99 BDOS47F.H99 SHELLV47.H99 DSKINIT47.H99
+
+Starting merge process...
+Output destination: SYSGEN.H99
+  Merging: BDOS47F.H99
+  Merging: SHELLV47.H99
+  Merging: DSKINIT47.H99
+Success: Processed 3 files.
+Final combined hex file saved as: SYSGEN.H99
 ```
 
 This produces a single merged Intel HEX output file suitable for upload to your SBC.
