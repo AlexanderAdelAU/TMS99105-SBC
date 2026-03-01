@@ -50,7 +50,7 @@ On the SBC monitor:
 1. Upload the merged HEX image:
 
     ```
-    U
+    U ->  Then From host machine select File->SYSGEN.H99 to upload.
     ```
 
 2. Execute the system generator:
