@@ -45,7 +45,7 @@ This produces a single merged Intel HEX output file suitable for upload to your 
 
 ## Upload to SBC
 
-On the SBC monitor:
+Within the SBC Disc-Monitor:
 
 1. Upload the merged HEX image:
 
