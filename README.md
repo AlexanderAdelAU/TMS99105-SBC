@@ -17,12 +17,9 @@ From the circuit diagram of the TMS99105 SBC it should be apparent that the boar
 
 The SBC memory is organised in three tiers.   The first is a Common SRAM (that is common to all memory segments), a 64k Word Paged DRAM, and ROM that contains a limited DISC-MONITOR and the XOP and IDE interface software.  The ROM monitor which is essentially a Disc Monitor and BIOS that contains all the IO routines include disc interfaces.  It has a HEX loader is the key to bootstrapping the IDE controller software and bootstrap routines. The structure of the FDC Monitor was taken, in part, from the BIOS listing that was used in the Fergusson Z80 Big Board II single board computers of the early 80s that used a WD1797 FDC Controller.   The IDE/SATA interface is a common board available on both eBay and Amazon. 
 
-#### Segmented Memory - Architecture
-The memory segmentation follows much how a memory mapper works but in a much simpler implementation.   At the moment there are just two memory pages 0, 1 which are set by the MSB of the data bus (A0), as shown in the diagram below.   It is important to understand that setting the memory map registers have no effect on determining when a page will be accessed as this is the role of the PSEL (bit 8) in the Status Register.   Thus a page context switch is easily carried by setting the PSEL bit in status Register 15, and setting the WorkSpace (R13) and Programme Counter (R14) before executing the RTWP instruction.   The SBC design has now been updated to include a Transparent Paged Memory implementation that can address 16 x 64kB pages, or 1MB.   The temporary repositor is here https://github.com/AlexanderAdelAU/TMS99105-SBC-V4-Paged-Memory-System
+#### Transparent Paaged Memory - Architecture
+The SBC design has now been updated to include a Transparent Paged Memory implementation that can address 16 x 64kB pages, or 1MB.   A 74LS612 Memory Mapper could have been used but I accepted the challenge to design my own using a spare single 6116 8k memory chip in which the segmen page maps could be stored.  Details of the architecture and how it works is described in this repository: https://github.com/AlexanderAdelAU/TMS99105-SBC-V4-Paged-Memory-System
 
-The memory map is shown below:
-
-<img src="images/MemoryMapper.png" alt="Rotated Image" width="750" >
 
 #### Overal Memory - Architecture
 The resulting SBC Memory Map is represented in the diagram below.
