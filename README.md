@@ -25,64 +25,6 @@ The SBC design has now been updated to include a Transparent Paged Memory implem
 The resulting SBC Memory Map is represented in the diagram below.
 <img src="Memory Structure/TMS9900 Memory Map.drawio.png" alt="Memory Structure" width="750" >
 
-#### Segmented Memory - Software Support
-Accessing the segmented memory is made relatively easy in the TMS99105A with the ability to programme the PSEL output signal using the status register's bit 8.  Whilst the LDD and LDS macro commands can be used to access data in other pages to call subroutines or functions you need to implement a calling routine.  This has been done using XOPs for CALL_FAR and RETF.  These routines can be found in the DISC_MONITOR source code.  
-
-Managing the segments is done through allocating Register R9 as the Segment Register and a call to the XOP function (SETSREG) which acts in a similar manner to the Memory Mapper (74LS612)  in that sets the  mapping address (contained in R9).  So when PSEL is high (bit 8 low) the normal 15 addresses are presented to the memory controller.  When PSEL signal goes low, in similar manner to the 74LS612 memory mapper, the previously set mapping address is presented to the memory controller.  This is effectivel a single register memory mapper, which just means that each time you want to select a memory segment, that you need to place the value into the upper byte of R9 and the call SETSREG. .  The segment address register contains 2 bytes.  The upper byte is the page that is in effect, and the lower byte is the page that is base page, in the event a long or far call is made.  The XOP CALL_FAR routine will push the value of the segment register (R9), and return Instruction pointer onto the stack before making the long call. 
-
-Here is an example:
-```
-;
-;================================================
-; MAIN IS RUNNING IN SEG 0
-; NOTE: R9 IS THE SEGMENT REGISTER.
-; UPPER BYTE SETS THE PAGE REGISTER, LOWER BYTE IS CALLING PAGE
-; ONCE SETSREG IS CALLED THE SEGMENT REGISTER WILL BE SET, AND ANY OPERATIONS USING PSEL WILL
-; ACCESS THE PAGE SET BY THE LAST CALL TO SETSREG
-;=================================================
-	SEG  0
-	MESG	@GREETM		;ASSUME DEFAULT IS SEGMENT 0
-	LI 	R9,0100H	;FAR CALLS ARE TO SEGMENT 1 FROM SEGMENT 0
-	CALL_FAR @MOD1		;CALLS WILL BE MADE TO SEGMENT 1
-	CALL_FAR @MOD2		;
-	LDS			;REGISTER IS SET SO PSEL WILL TOGGLE PAGE
-	MOV	@M2STATUS,R1	;STATUS WORD LOCATED IN SEG 1
-	WHEX	R1
-	B	@MONITOR
-;
-GREETM:	BYTE	0AH,0DH
-	TEXT	'Memory Segmentation Tests...'
-	BYTE 	0AH,0DH,0
-;
-;===================================================
-; MODULE 1 RUNNING IN SEG 1
-;===================================================
-	SEG  1
-	AORG	500H		;LOAD ADDRESS
-;
-; WRITE GREETING TO THE CONSOLE USING DISC-MONITOR
-;
-MOD1:	MESG	@M1G
-	RETF
-		
-M1G:	TEXT	"Hello from Module 1."
-	BYTE	0DH,0AH,0
-;
-;====================================================
-; MODULE 2 RUNNING IN SEG 1
-;====================================================
-	SEG	1
-MOD2:	AORG 	0E800H		;LOAD ADDRESS
-;
-; WRITE GREETING TO THE CONSOLE USING DISC-MONITOR
-;
-	MESG	@M2G
-	LI	R1,1		;RETURN SUCCESS
-	MOV	R1,@M2STATUS
-	RETF
-M2G:	TEXT	"Hello from Module 2."
-	BYTE	0DH,0AH,0
-``` 
 
 ### Terminal Communications Interface
 Communications Interface
