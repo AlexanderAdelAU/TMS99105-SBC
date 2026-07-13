@@ -17,12 +17,17 @@ From the circuit diagram of the TMS99105 SBC it should be apparent that the boar
 
 The SBC memory is organised in three tiers.   The first is a Common SRAM (that is common to all memory segments), a 64k Word Paged DRAM, and ROM that contains a limited DISC-MONITOR and the XOP and IDE interface software.  The ROM monitor which is essentially a Disc Monitor and BIOS that contains all the IO routines include disc interfaces.  It has a HEX loader is the key to bootstrapping the IDE controller software and bootstrap routines. The structure of the FDC Monitor was taken, in part, from the BIOS listing that was used in the Fergusson Z80 Big Board II single board computers of the early 80s that used a WD1797 FDC Controller.   The IDE/SATA interface is a common board available on both eBay and Amazon. 
 
-#### Transparent Paged Memory and Memory Mapping Unit (MMU)  - Summary
+## SBC - Schematic
+Below is a schematic of the SBC design  .
+
+<img src="TMS99105 SBC_Schematic.pdf" alt="SBC Schematic" width="750" >
+
+## Transparent Paged Memory and Memory Mapping Unit (MMU)  - Summary
 The SBC design has now been updated to include a Transparent Paged Memory implementation that can address 16 x 64kB pages, or 1MB.   Rather than using the standard 74LS612 Memory Mapper i felt it was easier just to a a single 6116 memory chip and to extend the GAL to include addtional timing logic.   The implementation is very simple in that it is just a matter of presenting four addtional bits that will select the 16 x 64k memory pages rather than having to rewire to support a 74LS612.  The MMU is programmed with the page segments with the Map Select signal going low and passing the lower 4 bits of the memory bus to the 6116 in order to programme the segment to page mapping.  One the Map Select signal goes high the registers values are presesnted to the MMU during all cycles when the CPU's PSEL signal is low. Details of the full architecture and how it is programmed  is described in this repository: https://github.com/AlexanderAdelAU/TMS99105-SBC-V4-Paged-Memory-System .
 
 <img src="Memory Mapping Schematic.png" alt="Memory Structure" width="750" >
 
-#### Overal Memory - Architecture
+## Overal Memory - Architecture
 The resulting SBC Memory Map is represented in the diagram below.
 <img src="Memory Structure/TMS9900 Memory Map.drawio.png" alt="Memory Structure" width="750" >
 
