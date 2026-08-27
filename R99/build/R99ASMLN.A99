@@ -1,0 +1,7837 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM R99ASMLN
+;/*
+; TMS9900/99105  Cross-Assembler  v. 1.0
+; January, 1985
+; Original 6800 version Copyright (c) 1980 William C. Colley, III.
+; Modified for the TMS9900/99105  Series by Alexander Cameron.
+; File:	a99asmln.c
+; Line assembly routine.
+; */
+;/*  Get globals:  */
+;#include "R99CFG.h"
+;/*
+; * R99 build-size configuration.
+; *
+; * TEMPORARY SBC TESTING PROFILE.
+; *
+; * Goal: keep the flat R99.COM image below >C000 when loaded at >0500.
+; * These reduced capacities are for initial board bring-up only.
+; */
+;#define LINLEN          128	/*  Must be at least 102: the 4-symbols-per-line table
+;                                dump at the end of main writes 4 * 25 + 2 bytes into
+;                                linbuf.  At 96 it spilled 6 bytes into binbuf.  */
+;#define BUFSIZE          16
+;#define SYMBOLS         101	/*  MUST BE ODD - slookup's probe step is d = 1, 3, 5, ...
+;                                and its "table full" test is d == SYMBOLS, which an even
+;                                SYMBOLS never reaches.  With a power of two the probe
+;                                only ever visits 4 of the slots (h advances by k*k).  */
+;#define INCLUDE_DEPTH     1
+;#define MAXXREF            4
+;#include "R99gbl.h"
+;/*
+; TMS990 Series Cross-Assembler  v. 1.0
+; January, 1985
+; Copyright (c) 1980 William C. Colley, III.
+; Modified for the 990 Series by Alexander Cameron.
+; File:	a99.gbl
+; Global macro substitutions and external variable declarations.
+; */
+;/*  Build-size profile.  */
+;/*  Define symbol table parameters:  REL files now allow 4 bits to define
+; * the SYMLEN. The original spec allowed 3 bits
+; *
+; */
+;#define	SYMLEN	16	/*  Symbol buffer size: 15 chars + terminating null. */
+;#define	PADDING	"               "	/*  SYMLEN - 1 blanks.	15		*/
+;#define ENTBIT 4	/* Sets ENTRY bit in symflg 			*/
+;#define EQUBIT 16	/* Equivalence - defined via an equate 		*/
+;#define DUPBIT 32	/* Equivalence - defined via an equate 		*/
+;#define EXTBIT 8	/* Sets EXTERNAL bit in symflg			*/
+;#define	DEFBIT	2	/* Sets DEFINED bit				*/
+;#define RELBIT 1	/* Sets RELOCATION bit in symflg		*/
+;#define COMBIT 12	/* Sets COMMON bits in symflg			*/
+;/*  Number of if statements that can be nested:  */
+;#define	IFDEPTH	16
+;/*  BDOS functions called directly:  */
+;#define	LISTOUT	5	/*  Put character to list device.		*/
+;#define	LOGDISK	14	/*  Log in disk drive.				*/
+;#define	GETDISK	25	/*  Get currently logged in disk.		*/
+;/*  Define flag values:  */
+;#define	TRUE	1	/*  General use.				*/
+;#define	FALSE	0
+;#define	SKIP	TRUE	/*  Used with skip flag in getchr.		*/
+;#define	NOSKIP	FALSE
+;#define	BIGST	TRUE	/*  Used to tell kind of string in getitem.	*/
+;#define	SMALST	FALSE
+;#define	NOCODE	0	/*  Used to tell the hex generator what to do.	*/
+;#define	PUTCODE	1
+;#define	FLUSH	2
+;#define	NOMORE	3
+;#define EXTADDR 4
+;/*  File descriptors:  */
+;#define	LODISK	0	/*  Lowest numbered disk.			*/
+;#define	NOFILE	-1	/*  No file specified.				*/
+;#define	CONO	-2	/*  Console output.				*/
+;#define	LST	   -3	/*  List device.				*/
+;/*  Items can have the following attributes:  */
+;#define	ALPHA	0	/*  Alphabetic character.			*/
+;#define	NUMERIC	1	/*  Numeric digit (0-9).			*/
+;#define	END_LIN	2	/*  End-of-Line marker (cr or ;).		*/
+;#define	COMMA	3	/*  Field separator (,).			*/
+;#define	OPERATR	4	/*  Operator (* - GE < ( SHR etc.).		*/
+;#define	BAS_DES	5	/*  Base designator ($ % @).			*/
+;#define	QUOTE	6	/*  String delimiter (" ').			*/
+;#define	TRASH	7
+;#define	VALUE	8	/*  Evaluated expression.			*/
+;#define	BLANK	10	/*  White space (spc tab).			*/
+;#define COLON	12
+;#define HATCH 	13
+;/*  Some tokens for composite operators:  */
+;#define GTTKN		'>'
+;#define EQTKN		'='
+;#define LTTKN		'<'
+;#define	NO_OPR	0	/*  No operator.				*/
+;#define	GRTEQ	1	/*  Greater than or equal to.			*/
+;#define	NOTEQ	2	/*  Not equal to.				*/
+;#define	LESEQ	3	/*  Less than or equal to.			*/
+;#define	AND	4	/*  And.					*/
+;#define	OR	5	/*  Or.						*/
+;#define	XOR	6	/*  Exclusive or.				*/
+;#define	NOT	7	/*  1's complement.				*/
+;#define	MOD	8	/*  Mod--divide and return remainder.		*/
+;#define	SHL	9	/*  Shift left.					*/
+;#define	SHR	10	/*  Shift right.				*/
+;#define	HIGH	11	/*  High byte of.				*/
+;#define	LOW	12	/*  Low byte of.				*/
+;/*  Operator precedence values:  */
+;#define	UOP1	0	/*  Unary +, unary -.				*/
+;#define	MULT	1	/*  *, /, MOD, SHL, SHR.			*/
+;#define	ADDIT	2	/*  Binary +, binary -.				*/
+;#define	RELAT	3	/*  >, =, <, >=, <>, <=.			*/
+;#define	UOP2	4	/*  NOT.					*/
+;#define	LOG1	5	/*  And.					*/
+;#define	LOG2	6	/*  OR, XOR.					*/
+;#define	UOP3	7	/*  HIGH, LOW.					*/
+;#define	RPREN	8	/*  ).						*/
+;#define	LPREN	9	/*  (.						*/
+;#define	ENDEX	10	/*  CR, ;, ,.					*/
+;#define	START	11	/*  Start of expression.			*/
+;/*  Bits of opcode attribute byte.  */
+;#define	PSOP	0x80	/*  Pseudo-op.					*/
+;#define	DIROK	0x40	/*  Non-pseudo-op is OK for direct addressing.	*/
+;#define	IFGROUP	0x40	/*  Pseudo-op is IF, ELSE, ENDI.		*/
+;/*  Address modes for the 9900 instruction set 				*/
+;#define WREG		0
+;#define	INDIRECT 	1
+;#define SYMBOLIC	2
+;#define INDEXED 	3
+;#define AUTOINC		4
+;/*  Misc control chars */
+;#define	LFCHAR	10	/*  Line feed.  NOTE: smallcp compiles '\n' as CR
+;			    (13), so the LF has to be spelled out.  Never use
+;			    '\r' either - smallcp reads it as the letter 'r'.  */
+;#define CPMEOF	0x1A
+;#define CTLS	19	/* Control S for stopping */
+;#define CTLC    0x03	/* Control C aborts */
+;#define NOSORT TRUE	/* Controls whether or not we want the table sorted */
+;#define SORT FALSE
+;#define INTEL8 TRUE    /* Generate Intel 16 or 32 Format */
+;#define FILE char
+;struct diskbuf {
+;	int fd;
+;	unsigned char *pointr;
+;	unsigned char *endpoint;
+;	unsigned char space[BUFSIZE];
+;	FILE *fp;
+;};
+;extern struct diskbuf sorbuf, lstbuf, hexbuf;
+;/*  Set up the symbol table: */
+;struct symbtbl {
+;	char symname[SYMLEN];
+;	unsigned symvalu;
+;	unsigned char symflg;
+;	unsigned char sympad;	/*  keeps the entry EVEN in length - see below  */
+;};
+;/*  sympad is not optional.  Without it an entry is 19 bytes, so every odd
+;    numbered slot starts on an ODD address and symvalu (offset 16) lands on
+;    an odd address too.  The 99105 forces word accesses even, so the store
+;    goes to offset 15/16 instead of 16/17 and wipes symname[15].  The value
+;    reads back consistently, but the name no longer matches, so symcmp fails
+;    and the same symbol gets added twice.  */
+;extern struct symbtbl symtbl[SYMBOLS], *symend, *sympoint;
+;/*  If stack and stack pointer.  */
+;extern unsigned ifsp;
+;extern unsigned ifstack[IFDEPTH + 1];
+;/*  Buffer to hold current line:  */
+;extern char *linptr, linbuf[LINLEN];
+;/*  Buffer to hold the code generated by a line.  */
+;extern unsigned char binbuf[LINLEN], *bptr;
+;extern int nbytes;
+;/*  Buffers for the hex generator.  */
+;extern char chksum, hxbytes, *hxlnptr, hxlnbuf[88];
+;/*  Miscellanious mailboxes:  */
+;extern unsigned char extflg; /*  Indicates external symbol			*/
+;extern unsigned char entflg; /*  Indicates and entry symbol			*/
+;extern unsigned char relflg; /*  Indicates whether inst operand need relocation */
+;extern int errcode; /*  Error records.				*/
+;extern int errcount;
+;extern int evalerr; /*  Flag to tell of error in eval.		*/
+;extern unsigned backflg, oldattr; /*  Item push-back buffer.			*/
+;extern unsigned oldvalu;
+;extern int curdrive; /*  Place to save drive that was current
+; disk when assembly started.		*/
+;extern int hexflg; /*  Flag for asmline to tell hex
+; generator what to do.			*/
+;extern int directok; /*  All symbols on line pre-defined.		*/
+;extern unsigned pc; /*  Assembly program counter.			*/
+;extern unsigned progsize;
+;extern unsigned address; /*  Address to be put into listed line.		*/
+;extern char pass; /*  Which pass the assembly is in.		*/
+;extern char addrmode;
+;extern char quitflag; /*  Used in eval to detect INDEXED expressions  */
+;/*added by [AC]  */
+;extern unsigned char quoteflg;
+;/*-----------
+; rel variables
+; ------------*/
+;extern unsigned char outchunk, /* current output chunk in REL file */
+;outrem, /* remaining bits in outchunk */
+;item, /* current item code */
+;type; /* type field */
+;extern unsigned field; /* current bit field */
+;extern char symbol[SYMLEN], /* current string */
+;progname[SYMLEN]; /* programme module's name */
+;extern unsigned nssymbols;
+;extern unsigned itemflg[3]; /* type of item found in getitem
+; itemflg[0] = current item found
+; itemflg[1] = operand 1 item type
+; itemflg[2] = operand 2 item type
+; */
+;extern unsigned symptr[3]; /* external or entry symbol pointer
+; symptr[0] -> current symbol
+; symptr[1] -> operand 1 symbol
+; symptr[2] -> operand 2 symbol
+; */
+;/* Missing symbols required by overlay modules */
+;extern int err_cnt;
+;extern int loc_ctr;
+;extern int parse_line();
+;extern int emit_code();
+;extern int list_line();
+;/*  Some trivial functions:  */
+;#define	backchr	linptr--		/*  Push back a character.	*/
+;#include "R99Ext.h"
+;/*
+; TMS9900/99105 Cross-Assembler external declarations.
+; Refactored for the Small C 2.2 declaration model.  Small C does not
+; implement ANSI prototypes, so these declarations intentionally carry
+; no parameter lists or return-type promises.
+; */
+;extern setfiles();
+;extern getopr();
+;extern getopc();
+;extern getopcod();
+;extern getattr();
+;extern entnam();
+;extern putlin();
+;extern ishex();
+;extern _aton();
+;extern putbits();
+;extern getchr();
+;extern putchr();
+;extern putbyt();
+;extern putrchr();
+;extern rputchr();
+;extern slookup();
+;extern addsym();
+;extern sortsym();
+;extern _psop();
+;extern _normop();
+;extern getname();
+;extern symcmp();
+;extern asmline();
+;extern getitem();
+;extern getlin();
+;extern source_rewind();
+;extern include_source();
+;extern push_source();
+;extern close_includes();
+;extern wipeout();
+;extern puthex2();
+;extern puthex4();
+;extern putdec();
+;extern getprec();
+;extern markerr();
+;extern hash();
+;extern toupper();
+;extern putabs2();
+;extern putabs();
+;extern eval();
+;extern chkoprat();
+;extern flush();
+;extern gflush();
+;extern rflush();
+;extern getnum();
+;extern relsyms();
+;extern putrel();
+;extern putfld();
+;extern putsym();
+;extern xref_add();
+;extern xref_reset();
+;extern xref_emit();
+;extern lineout();
+;extern relout();
+;extern relhead();
+;extern backitem();
+;extern bbsearch();
+;extern numopcs();
+;extern numoprs();
+;extern movchr();
+;extern seek();
+;extern flushlin();
+;extern puts2();
+;extern puts3();
+;extern putls();
+;extern cant();
+;extern error2();
+;extern error();
+;#include "REL99.h"
+;/*
+;** rel.h -- header for REL file processing
+;*/
+;			/* item-type codes */
+;#define ABS       0	/* absolute item */
+;#define PREL      1	/* program (code) relative item */
+;#define DREL      2	/* data relative item */
+;#define CREL      3	/* common relative item */
+;#define ENAME     4	/* entry name */
+;#define CNAME     5	/* common block name */
+;#define PNAME     6	/* program name */
+;#define LNAME     7	/* library name */
+;#define EXT       8	/* extension link-item */
+;#define CSIZE     9	/* common size & name */
+;#define XCHAIN   10	/* external-reference-chain head & name */
+;#define EPOINT   11	/* entry point location & name */
+;#define XMOFF    12	/* external - offset */
+;#define XPOFF    13	/* external + offset */
+;#define DSIZE    14	/* data area size */
+;#define SETLC    15	/* set location counter for loading */
+;#define CHAIN    16	/* chain address (fill chain with loc ctr)  */
+;#define PSIZE    17	/* program (code) size */
+;#define EPROG    18	/* end of program */
+;#define EFILE    19	/* end of file */
+;#define MAXSYM   15	/* maximum symbol length allowed in REL file */
+;#define ONES     0xffff	/* all one bits */
+;/* Extensions used by the current R99 source. */
+;#define BITPSYM          4
+;#define MAXSYM99        15
+;#define AORG_MARK        SETLC
+;#define REL99_EXT_XREFS  "XREFS           "
+;/*
+; This function is the workhorse of the assembler.  The routine
+; gets any labels off the line and processes them, gets the opcode
+; and builds the binary output as it evaluates the operand field.
+; */
+;asmline() {
+	EVEN
+asmline:
+;modstk(newsp,save)
+;	char c, d, label[2 * SYMLEN];
+;	unsigned char opattr;
+;	unsigned opcode, noopcode;
+;	nbytes = 0;
+;modstk(newsp,save)
+	AI SP,-42
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@nbytes
+;	address = pc;
+;getmem(sym)
+	MOV @pc,R4
+;putmem(sym)
+	MOV R4,@address
+;	entflg = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@entflg
+;	extflg = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@extflg
+;	relflg = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@relflg
+;	noopcode = FALSE;
+;const1(val)
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;	directok = TRUE;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOV R4,@directok
+;	evalerr = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@evalerr
+;	hexflg = NOCODE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@hexflg
+;	itemflg[0] = itemflg[1] = itemflg[2] = 0; /* max 3 possible operands */
+;address(ptr)
+	LI R4,itemflg
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,itemflg
+;inct()
+	INCT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,itemflg
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	label[0] = '\0';
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;	binbuf[0] = binbuf[2] = binbuf[4] = 0x10;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,binbuf
+;inct()
+	INCT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,binbuf
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,16
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;	binbuf[1] = binbuf[3] = binbuf[5] = 0; /* NOP = 0x1000  */
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,binbuf
+;const2(val)
+	LI R3,3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,binbuf
+;const2(val)
+	LI R3,5
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;	switch (getchr(&c, NOSKIP)) {
+;getloc(sym, off)
+;Char offset
+	LI R4,41
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getchr
+;modstk(newsp,save)
+	AI SP,4
+;jump(label)
+	B @cc4
+;	case ALPHA:
+;modstk(newsp,save)
+cc5:
+;		backchr;
+;getmem(sym)
+	MOV @linptr,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@linptr
+;inc()
+	INC R4
+;		getname(label);
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getname
+;modstk(newsp,save)
+	INCT SP
+;		if (lstbuf.fd == CONO)	/*  diagnostic: -LX only  */
+;address(ptr)
+	LI R4,lstbuf
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,-2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc6
+;			puts3("LABEL: [", label, "]\n");
+;constant(lval)
+	LI R4,cc1+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,9
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc1+9
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts3
+;modstk(newsp,save)
+	AI SP,6
+;		if (chkoprat(label) != NO_OPR) {
+cc6:
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @chkoprat
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc7
+;			markerr('L');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,76
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			label[0] = '\0';
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;		}
+;modstk(newsp,save)
+;		break;
+cc7:
+;modstk(newsp,save)
+;jump(label)
+	B @cc3
+;	case END_LIN:
+cc8:
+;		return;
+;modstk(newsp,save)
+	AI SP,42
+	RET
+;	case BLANK:
+cc9:
+;		break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc3
+;	default:
+cc10:
+;		markerr('L');
+;const1(val)
+	LI R4,76
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		while ((c = getchr(&c, NOSKIP)) != BLANK && c != END_LIN)
+cc11:
+;getloc(sym, off)
+;Char offset
+	LI R4,41
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,43
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getchr
+;modstk(newsp,save)
+	AI SP,4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc13
+;getloc(sym, off)
+;Char offset
+	MOVB @41(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc13
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc14
+cc13:
+;const1(val)
+	CLR R4
+cc14:
+	MOV R4,R4
+	JNE $+6
+	B @cc12
+;			;
+;jump(label)
+	B @cc11
+cc12:
+;		backchr;
+;getmem(sym)
+	MOV @linptr,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@linptr
+;inc()
+	INC R4
+;	}
+;modstk(newsp,save)
+;jump(label)
+	B @cc3
+cc4:
+	CALL @_ccswitc##
+	WORD cc5,0
+	WORD cc8,2
+	WORD cc9,10
+	WORD 0
+;jump(label)
+	B @cc10
+cc3:
+;	switch (getopcod(&opcode, &opattr)) {
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getopcod
+;modstk(newsp,save)
+	AI SP,4
+;jump(label)
+	B @cc17
+;	case 0:
+;modstk(newsp,save)
+cc18:
+;		nbytes = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@nbytes
+;		noopcode = TRUE;
+;const1(val)
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;	case -1:
+cc19:
+;		opcode = 255; /*  Set nil pseudo-op.	*/
+;const1(val)
+	LI R4,255
+;put2tos()
+	MOV R4,@2(SP)
+;		opattr = 0x80;
+;getloc(sym, off)
+;Char offset
+	LI R4,5
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,128
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;		/* Label */
+;	case 1:
+cc20:
+;		if ((opattr & (PSOP | IFGROUP)) == (PSOP | IFGROUP)) {
+;getloc(sym, off)
+;Char offset
+	MOVB @5(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,192
+;zand()
+	INV R3
+	SZC R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,192
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc21
+;			if (label[0] != '\0')
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc22
+;				markerr('L');
+;const1(val)
+	LI R4,76
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		} else {
+cc22:
+;modstk(newsp,save)
+;jump(label)
+	B @cc23
+cc21:
+;			if (ifstack[ifsp] == 0)
+;modstk(newsp,save)
+;address(ptr)
+	LI R4,ifstack
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @ifsp,R4
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc24
+;				return;
+;modstk(newsp,save)
+	AI SP,42
+	RET
+;			if (label[0] != '\0') {
+cc24:
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc25
+;				strcat(label, PADDING);
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc1+12
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @strcat
+;modstk(newsp,save)
+	AI SP,4
+;				if (pass == 1) {
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc26
+;					if (addsym(label)) {
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addsym
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc27
+;						sympoint->symvalu = pc;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @pc,R4
+;putstk - int
+	MOV R4,*R3
+;						sympoint->symflg |= RELBIT;
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;						if ((opattr & PSOP) && opcode == 0x000A)
+;getloc(sym, off)
+;Char offset
+	MOVB @5(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,128
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc29
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc29
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc30
+cc29:
+;const1(val)
+	CLR R4
+cc30:
+	MOV R4,R4
+	JNE $+6
+	B @cc28
+;							sympoint->symname[1] |= 0x80;
+;getmem(sym)
+	MOV @sympoint,R4
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,128
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					} else {
+cc28:
+;modstk(newsp,save)
+;jump(label)
+	B @cc31
+cc27:
+;						sympoint->symvalu = pc;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @pc,R4
+;putstk - int
+	MOV R4,*R3
+;						if ((sympoint->symflg & ENTBIT) == 0
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,4
+;zand()
+	INV R3
+	SZC R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc33
+;getmem(sym)
+	MOV @sympoint,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,progname
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @symcmp
+;modstk(newsp,save)
+	AI SP,4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc33
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc34
+cc33:
+;const1(val)
+	CLR R4
+cc34:
+	MOV R4,R4
+	JNE $+6
+	B @cc32
+;							sympoint->symflg |= DUPBIT;
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,32
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					}
+cc32:
+;modstk(newsp,save)
+cc31:
+;				} else {
+;modstk(newsp,save)
+;jump(label)
+	B @cc35
+cc26:
+;					if (slookup(label)) {
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @slookup
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc36
+;						markerr('P'); /* Phasing Error */
+;modstk(newsp,save)
+;const1(val)
+	LI R4,80
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;						label[0] = '\0';
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					} else {
+;modstk(newsp,save)
+;jump(label)
+	B @cc37
+cc36:
+;						if (sympoint->symflg & DUPBIT)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,32
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc38
+;							markerr('D');
+;const1(val)
+	LI R4,68
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;						if (sympoint->symflg & ENTBIT) {
+cc38:
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,4
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc39
+;							sympoint->symvalu = pc;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @pc,R4
+;putstk - int
+	MOV R4,*R3
+;							relflg = TRUE;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOVB @2*R4+1(WP),@relflg
+;						}
+;modstk(newsp,save)
+;						if (sympoint->symvalu != pc
+cc39:
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @pc,R4
+;_ccne
+	BL @_ccne##
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc41
+;getmem(sym)
+	MOV @sympoint,R4
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,128
+;zand()
+	INV R3
+	SZC R3,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc41
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc42
+cc41:
+;const1(val)
+	LI R4,1
+cc42:
+	MOV R4,R4
+	JNE $+6
+	B @cc40
+;							markerr('M');
+;const1(val)
+	LI R4,77
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;						sympoint->symname[0] &= 0x7f;
+cc40:
+;getmem(sym)
+	MOV @sympoint,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,127
+;zand()
+	INV R3
+	SZC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					}
+;modstk(newsp,save)
+cc37:
+;				}
+;modstk(newsp,save)
+cc35:
+;			}
+;modstk(newsp,save)
+;		}
+cc25:
+;modstk(newsp,save)
+cc23:
+;		hexflg = PUTCODE;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOV R4,@hexflg
+;		if (opattr & PSOP)
+;getloc(sym, off)
+;Char offset
+	MOVB @5(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,128
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc43
+;			_psop(opcode, label);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,9
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @_psop
+;modstk(newsp,save)
+	AI SP,4
+;		else
+;jump(label)
+	B @cc44
+cc43:
+;			_normop(opcode, opattr);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @_normop
+;modstk(newsp,save)
+	AI SP,4
+cc44:
+;		return;
+;modstk(newsp,save)
+	AI SP,42
+	RET
+;	}
+;jump(label)
+	B @cc16
+cc17:
+	CALL @_ccswitc##
+	WORD cc18,0
+	WORD cc19,-1
+	WORD cc20,1
+	WORD 0
+cc16:
+;}
+;modstk(newsp,save)
+	AI SP,42
+;modstk(newsp,save)
+	RET
+cc1:	BYTE 76,65,66,69,76,58,32,91,0,93,13,0
+	BYTE 32,32,32,32,32,32,32,32,32,32,32,32
+	BYTE 32,32,32,0
+;/*
+; Internal function to process pseudo opcodes.
+; */
+;_psop(opcode, label)
+	EVEN
+_psop:
+;unsigned opcode;
+;char *label;
+;{
+;	char *bptr, d, c;
+;	int cflag;
+;	unsigned t;
+;	struct symbtbl *sptr;
+;	sptr = sympoint;
+;modstk(newsp,save)
+	AI SP,-12
+;getmem(sym)
+	MOV @sympoint,R4
+;puttos()
+	MOV R4,*SP
+;	bptr = binbuf;
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,binbuf
+;putstk - int
+	MOV R4,*R3
+;	relflg = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@relflg
+;	entflg = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@entflg
+;	extflg = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@extflg
+;	switch (opcode) {
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;jump(label)
+	B @cc48
+;	case 0: /* AORG */
+;modstk(newsp,save)
+cc49:
+;		t = eval(START);
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;put2tos()
+	MOV R4,@2(SP)
+;		if (evalerr)
+;getmem(sym)
+	MOV @evalerr,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc50
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		address = pc = t;
+cc50:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@pc
+;putmem(sym)
+	MOV R4,@address
+;		hexflg = FLUSH;
+;const1(val)
+	LI R4,2
+;putmem(sym)
+	MOV R4,@hexflg
+;		/* v2.1: emit AORG_MARK to tell linker this is an absolute ORG */
+;		if (pass == 2) {
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc51
+;			item = AORG_MARK;
+;modstk(newsp,save)
+;const1(val)
+	LI R4,15
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;			type = PREL;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOVB @2*R4+1(WP),@type
+;			field = t;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;			putrel();
+;zcall()
+	CALL @putrel
+;modstk(newsp,save)
+;		}
+;modstk(newsp,save)
+;		if (label[0] == '\0')
+cc51:
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc52
+;			goto chkargs;
+;jump(label)
+	B @cc53
+;		backitem(t, VALUE);
+cc52:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @backitem
+;modstk(newsp,save)
+	AI SP,4
+;		backchr;
+;getmem(sym)
+	MOV @linptr,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@linptr
+;inc()
+	INC R4
+;		break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc47
+;	case 1:
+cc54:
+;		if (label[0] == '\0') /* EQU.	*/
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc55
+;		{
+;			markerr('L');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,76
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		}
+;		/* MSB set for multiple declarations */
+;		if (!(sptr->symname[1] & 0x80) && errcode == 'M') {
+cc55:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,128
+;zand()
+	INV R3
+	SZC R3,R4
+	BL @_cclneg##
+	MOV R4,R4
+	JNE $+6
+	B @cc57
+;getmem(sym)
+	MOV @errcode,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,77
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc57
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc58
+cc57:
+;const1(val)
+	CLR R4
+cc58:
+	MOV R4,R4
+	JNE $+6
+	B @cc56
+;			errcode = ' ';
+;modstk(newsp,save)
+;const1(val)
+	LI R4,32
+;putmem(sym)
+	MOV R4,@errcode
+;			errcount--;
+;getmem(sym)
+	MOV @errcount,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@errcount
+;inc()
+	INC R4
+;		}
+;modstk(newsp,save)
+;		t = eval(START);
+cc56:
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;put2tos()
+	MOV R4,@2(SP)
+;		if (evalerr)
+;getmem(sym)
+	MOV @evalerr,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc59
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		address = sptr->symvalu;
+cc59:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;putmem(sym)
+	MOV R4,@address
+;		sptr->symvalu = t;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;		if (relflg) {
+;getmem(sym)
+	MOVB @relflg,R4
+	SRA R4,8 ;ccsxt - sign extend
+	MOV R4,R4
+	JNE $+6
+	B @cc60
+;			sptr->symflg |= RELBIT; /* can be relocated - set in eval */
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			address = sptr->symvalu;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;putmem(sym)
+	MOV R4,@address
+;		} else
+;modstk(newsp,save)
+;jump(label)
+	B @cc61
+cc60:
+;			sptr->symflg &= ~RELBIT; /*can't be relocated */
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,-2
+;zand()
+	INV R3
+	SZC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+cc61:
+;		if (!directok)
+;getmem(sym)
+	MOV @directok,R4
+	BL @_cclneg##
+	MOV R4,R4
+	JNE $+6
+	B @cc62
+;			markerr('P');
+;const1(val)
+	LI R4,80
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		if (address != t)
+cc62:
+;getmem(sym)
+	MOV @address,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc63
+;			markerr('M'); /* Lable defined multiple times */
+;const1(val)
+	LI R4,77
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		goto chkargs;
+cc63:
+;jump(label)
+	B @cc53
+;	case 2: /* BYTE	*/
+cc64:
+;		cflag = FALSE;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;		while ((c = getitem(&t, SMALST)) != END_LIN) {
+cc65:
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc66
+;			switch (c) {
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+;jump(label)
+	B @cc69
+;			case COMMA:
+;modstk(newsp,save)
+cc70:
+;				if (cflag == TRUE) {
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc71
+;					cflag = FALSE;
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;					break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc68
+;				}
+;modstk(newsp,save)
+;				item = ABS;
+cc71:
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;				field = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@field
+;				putabs();
+;zcall()
+	CALL @putabs
+;modstk(newsp,save)
+;				*bptr++ = 0;
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				nbytes++;
+;getmem(sym)
+	MOV @nbytes,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@nbytes
+;	dec()
+	DEC R4
+;				break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc68
+;			case END_LIN:
+cc72:
+;				return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;			case OPERATR:
+cc73:
+;			case VALUE:
+cc74:
+;				backitem(t, c);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @9(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @backitem
+;modstk(newsp,save)
+	AI SP,4
+;				/* Note eval does not gobbles up COMMA */
+;				cflag = TRUE;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+;				t = eval(START);
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;put2tos()
+	MOV R4,@2(SP)
+;				if ((evalerr || t > 0x00ff) && (t < 0xff80))
+;getmem(sym)
+	MOV @evalerr,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc76
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,255
+;_ccugt
+	BL @_ccugt##
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc76
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc77
+cc76:
+;const1(val)
+	LI R4,1
+cc77:
+	MOV R4,R4
+	JNE $+6
+	B @cc78
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,65408
+;_ccult
+	C R3,R4 ;optimised
+	JL $+6
+	B @cc78
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc79
+cc78:
+;const1(val)
+	CLR R4
+cc79:
+	MOV R4,R4
+	JNE $+6
+	B @cc75
+;					markerr('V');
+;const1(val)
+	LI R4,86
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;				/* REL Code */
+;				item = ABS;
+cc75:
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;				field = t;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;				putabs();
+;zcall()
+	CALL @putabs
+;modstk(newsp,save)
+;				itemflg[0] = 0; /* clear for next item */
+;address(ptr)
+	LI R4,itemflg
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;				*bptr++ = t;
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				nbytes++;
+;getmem(sym)
+	MOV @nbytes,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@nbytes
+;	dec()
+	DEC R4
+;				break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc68
+;			default:
+cc80:
+;				markerr('S');
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;				break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc68
+;			}
+;modstk(newsp,save)
+;jump(label)
+	B @cc68
+cc69:
+	CALL @_ccswitc##
+	WORD cc70,3
+	WORD cc72,2
+	WORD cc73,4
+	WORD cc74,8
+	WORD 0
+;jump(label)
+	B @cc80
+cc68:
+;		}
+;modstk(newsp,save)
+;jump(label)
+	B @cc65
+cc66:
+;		return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;	case 3: /* WORD	*/
+cc81:
+;		while ((c = getitem(&t, SMALST)) != END_LIN) {
+cc82:
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc83
+;			switch (c) {
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+;jump(label)
+	B @cc86
+;			case COMMA:
+;modstk(newsp,save)
+cc87:
+;				if (cflag == TRUE) {
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc88
+;					cflag = FALSE;
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;					break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc85
+;				}
+;modstk(newsp,save)
+;				/* REL Code */
+;				*bptr++ = 0;
+cc88:
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				*bptr++ = 0;
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;				field = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@field
+;				putabs();
+;zcall()
+	CALL @putabs
+;modstk(newsp,save)
+;				nbytes += 2;
+;getmem(sym)
+	MOV @nbytes,R4
+;inct()
+	INCT R4
+;putmem(sym)
+	MOV R4,@nbytes
+;				break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc85
+;			case END_LIN:
+cc89:
+;				return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;			case OPERATR:
+cc90:
+;			case VALUE:
+cc91:
+;				backitem(t, c);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @9(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @backitem
+;modstk(newsp,save)
+	AI SP,4
+;				/* Note eval does not gobbles up COMMA */
+;				cflag = TRUE;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+;				t = eval(START);
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;put2tos()
+	MOV R4,@2(SP)
+;				/* REL Code */
+;				if ((itemflg[0] & RELBIT) || relflg) { /* relflg Added 14/11/2024 so WORD &+2 (point) works */
+;address(ptr)
+	LI R4,itemflg
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zand()
+	INV R3
+	SZC R3,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc93
+;getmem(sym)
+	MOVB @relflg,R4
+	SRA R4,8 ;ccsxt - sign extend
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc93
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc94
+cc93:
+;const1(val)
+	LI R4,1
+cc94:
+	MOV R4,R4
+	JNE $+6
+	B @cc92
+;					item = PREL;
+;modstk(newsp,save)
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;					field = t;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;					putrel();
+;zcall()
+	CALL @putrel
+;modstk(newsp,save)
+;				} else {
+;modstk(newsp,save)
+;jump(label)
+	B @cc95
+cc92:
+;					item = ABS;
+;modstk(newsp,save)
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;					field = t;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;					putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;				}
+;modstk(newsp,save)
+cc95:
+;				itemflg[0] = 0; /* clear for next item */
+;address(ptr)
+	LI R4,itemflg
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;				relflg = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@relflg
+;				*bptr++ = t >> 8;
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				*bptr++ = t;
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				nbytes += 2;
+;getmem(sym)
+	MOV @nbytes,R4
+;inct()
+	INCT R4
+;putmem(sym)
+	MOV R4,@nbytes
+;				break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc85
+;			default:
+cc96:
+;				markerr('S');
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;				break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc85
+;			}
+;modstk(newsp,save)
+;jump(label)
+	B @cc85
+cc86:
+	CALL @_ccswitc##
+	WORD cc87,3
+	WORD cc89,2
+	WORD cc90,4
+	WORD cc91,8
+	WORD 0
+;jump(label)
+	B @cc96
+cc85:
+;		}
+;modstk(newsp,save)
+;jump(label)
+	B @cc82
+cc83:
+;		return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;	case 4: /* TEXT	*/
+cc97:
+;		while ((c = getchr(&d, SKIP)) != END_LIN) {
+cc98:
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,11
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getchr
+;modstk(newsp,save)
+	AI SP,4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc99
+;			if (c == COMMA)
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc100
+;				continue;
+;modstk(newsp,save)
+;jump(label)
+	B @cc98
+;			if (c != QUOTE) {
+cc100:
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,6
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc101
+;				markerr('"');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,34
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;				/*return;*/
+;			}
+;modstk(newsp,save)
+;			while ((c = *linptr++) != d) {
+cc101:
+cc102:
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @linptr,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@linptr
+;	dec()
+	DEC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @11(SP),R4 ;optimised load
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc103
+;				if (c == '\n') {
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc104
+;					markerr('"');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,34
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;					return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;				}
+;				item = ABS;
+cc104:
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;				field = c;
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+;putmem(sym)
+	MOV R4,@field
+;				putabs();
+;zcall()
+	CALL @putabs
+;modstk(newsp,save)
+;				*bptr++ = c;
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @9(SP),R4 ;optimised load
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				nbytes++;
+;getmem(sym)
+	MOV @nbytes,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@nbytes
+;	dec()
+	DEC R4
+;			}
+;modstk(newsp,save)
+;jump(label)
+	B @cc102
+cc103:
+;		}
+;modstk(newsp,save)
+;jump(label)
+	B @cc98
+cc99:
+;		return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;	case 5: /* BSS */
+cc105:
+;	    t = eval(START);
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;put2tos()
+	MOV R4,@2(SP)
+;	    if (evalerr)
+;getmem(sym)
+	MOV @evalerr,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc106
+;	        markerr('S');
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;	    nbytes = t;
+cc106:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@nbytes
+;	    hexflg = FLUSH;
+;const1(val)
+	LI R4,2
+;putmem(sym)
+	MOV R4,@hexflg
+;	    item = SETLC;
+;const1(val)
+	LI R4,15
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;	    type = PREL;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOVB @2*R4+1(WP),@type
+;	    field = pc + nbytes;
+;getmem(sym)
+	MOV @pc,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @nbytes,R4
+;	zadd()
+	A R3,R4
+;putmem(sym)
+	MOV R4,@field
+;	    putrel();
+;zcall()
+	CALL @putrel
+;modstk(newsp,save)
+;	    goto chkargs;
+;jump(label)
+	B @cc53
+;	case 6: /* END.	*/
+cc107:
+;		if (pass == 1)
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc108
+;			pass--;
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@pass
+;inc()
+	INC R4
+;		else {
+;jump(label)
+	B @cc109
+cc108:
+;			nssymbols = sortsym(SORT); /*Get number of sorted symbols */
+;modstk(newsp,save)
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @sortsym
+;modstk(newsp,save)
+	INCT SP
+;putmem(sym)
+	MOV R4,@nssymbols
+;			relsyms(); /* put out list of entry and external symbols */
+;zcall()
+	CALL @relsyms
+;modstk(newsp,save)
+;			if (ifsp != 0)
+;getmem(sym)
+	MOV @ifsp,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc110
+;				markerr('I');
+;const1(val)
+	LI R4,73
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			item = EPROG;
+cc110:
+;const1(val)
+	LI R4,18
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;			field = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@field
+;			type = ABS; /* USE REL for "START IN" Modules and ABS for non.  ie begin at 0100H */
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@type
+;			putrel();
+;zcall()
+	CALL @putrel
+;modstk(newsp,save)
+;			item = EFILE;
+;const1(val)
+	LI R4,19
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;			field = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@field
+;			type = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@type
+;			putabs();
+;zcall()
+	CALL @putabs
+;modstk(newsp,save)
+;			pass++; /* this finalises the assembly at must be at end */
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;inc()
+	INC R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@pass
+;	dec()
+	DEC R4
+;			hexflg = NOMORE;
+;const1(val)
+	LI R4,3
+;putmem(sym)
+	MOV R4,@hexflg
+;		}
+;modstk(newsp,save)
+cc109:
+;		goto chkargs;
+;jump(label)
+	B @cc53
+;	case 7: /*  ELSE.	*/
+cc111:
+;	case 8:
+cc112:
+;		hexflg = NOCODE; /*  ENDI.	*/
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@hexflg
+;		if (ifsp == 0) {
+;getmem(sym)
+	MOV @ifsp,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc113
+;			markerr('I');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,73
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		}
+;		if (opcode == 8)
+cc113:
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc114
+;			ifsp--;
+;getmem(sym)
+	MOV @ifsp,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@ifsp
+;inc()
+	INC R4
+;		else
+;jump(label)
+	B @cc115
+cc114:
+;			ifstack[ifsp] = ~ifstack[ifsp];
+;address(ptr)
+	LI R4,ifstack
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @ifsp,R4
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,ifstack
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @ifsp,R4
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;com()
+	INV R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+cc115:
+;		goto chkargs;
+;jump(label)
+	B @cc53
+;	case 9:
+cc116:
+;		t = eval(START); /* IF.	*/
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;put2tos()
+	MOV R4,@2(SP)
+;		if (evalerr || !directok) {
+;getmem(sym)
+	MOV @evalerr,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc118
+;getmem(sym)
+	MOV @directok,R4
+	BL @_cclneg##
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc118
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc119
+cc118:
+;const1(val)
+	LI R4,1
+cc119:
+	MOV R4,R4
+	JNE $+6
+	B @cc117
+;			markerr('P');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,80
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			t = 0xffff;
+;const1(val)
+	LI R4,65535
+;put2tos()
+	MOV R4,@2(SP)
+;		}
+;modstk(newsp,save)
+;		if (ifsp == 16)
+cc117:
+;getmem(sym)
+	MOV @ifsp,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,16
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc120
+;			wipeout("\nIf stack overflow.\n");
+;constant(lval)
+	LI R4,cc45+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @wipeout
+;modstk(newsp,save)
+	INCT SP
+;		ifstack[++ifsp] = address = t;
+cc120:
+;address(ptr)
+	LI R4,ifstack
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @ifsp,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@ifsp
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@address
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;		goto chkargs;
+;jump(label)
+	B @cc53
+;	case 10:
+cc121:
+;		if (label[0] == '\0') /* SET.	*/
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc122
+;		{
+;			markerr('L');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,76
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		}
+;		if ((sptr->symname[1] & 0x80) && errcode == 'M') {
+cc122:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,128
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc124
+;getmem(sym)
+	MOV @errcode,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,77
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc124
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc125
+cc124:
+;const1(val)
+	CLR R4
+cc125:
+	MOV R4,R4
+	JNE $+6
+	B @cc123
+;			errcode = ' ';
+;modstk(newsp,save)
+;const1(val)
+	LI R4,32
+;putmem(sym)
+	MOV R4,@errcode
+;			errcount--;
+;getmem(sym)
+	MOV @errcount,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@errcount
+;inc()
+	INC R4
+;		}
+;modstk(newsp,save)
+;		sptr->symflg &= ~RELBIT; /* can't relocate */
+cc123:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,-2
+;zand()
+	INV R3
+	SZC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;		relflg = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@relflg
+;		t = eval(START);
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;put2tos()
+	MOV R4,@2(SP)
+;		if (evalerr)
+;getmem(sym)
+	MOV @evalerr,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc126
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		address = sptr->symvalu = t;
+cc126:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;putmem(sym)
+	MOV R4,@address
+;		if (!directok)
+;getmem(sym)
+	MOV @directok,R4
+	BL @_cclneg##
+	MOV R4,R4
+	JNE $+6
+	B @cc127
+;			markerr('P');
+;const1(val)
+	LI R4,80
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		goto chkargs;
+cc127:
+;jump(label)
+	B @cc53
+;	case 11: /* EVEN */
+cc128:
+;		if (pc & 1) { /* EVEN */
+;getmem(sym)
+	MOV @pc,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc129
+;			nbytes++;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @nbytes,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@nbytes
+;	dec()
+	DEC R4
+;			item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;			field = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@field
+;			putabs();
+;zcall()
+	CALL @putabs
+;modstk(newsp,save)
+;			*bptr = 0;
+;getloc(sym, off)
+	MOV @10(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;		}
+;modstk(newsp,save)
+;		goto chkargs;
+cc129:
+;jump(label)
+	B @cc53
+;	case 12:
+cc130:
+;		extflg == TRUE; /* Can call to external routines */
+;getmem(sym)
+	MOVB @extflg,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	BL @_cceq##
+;		hexflg = NOCODE; /* DXOP */
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@hexflg
+;		if (getchr(&c, SKIP) != ALPHA) {
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getchr
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc131
+;			markerr('S');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		}
+;		backchr;
+cc131:
+;getmem(sym)
+	MOV @linptr,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@linptr
+;inc()
+	INC R4
+;		getname(label); /* name of DXOP */
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getname
+;modstk(newsp,save)
+	INCT SP
+;		strcat(label, PADDING);
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc45+21
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @strcat
+;modstk(newsp,save)
+	AI SP,4
+;		getitem(&t, SMALST); /* skip to number */
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;		t = eval(START); /* DXOP number */
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;put2tos()
+	MOV R4,@2(SP)
+;		if (evalerr || t > 18) {
+;getmem(sym)
+	MOV @evalerr,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc133
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,18
+;_ccugt
+	BL @_ccugt##
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc133
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc134
+cc133:
+;const1(val)
+	LI R4,1
+cc134:
+	MOV R4,R4
+	JNE $+6
+	B @cc132
+;			markerr('S');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		}
+;		if (pass == 1)
+cc132:
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc135
+;			if (addsym(label))
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addsym
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc136
+;				sympoint->symvalu = (0x2C00 | t << 6); /* XOP opcode */
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,6
+	BL @_ccasl##
+;const2(val)
+	LI R3,11264
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;		return;
+cc136:
+cc135:
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		/* check to see if it is END_LIN.  It should be otherwise superfolous */
+;	case 13: /*  EXT - place symbol in table for outside ref */
+cc137:
+;		hexflg = NOCODE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@hexflg
+;		extflg = TRUE;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOVB @2*R4+1(WP),@extflg
+;		if (label[0] != '\0')
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc138
+;			markerr('L');
+;const1(val)
+	LI R4,76
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		if (getchr(&c, SKIP) != ALPHA) {
+cc138:
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getchr
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc139
+;			markerr('S');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		}
+;		backchr;
+cc139:
+;getmem(sym)
+	MOV @linptr,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@linptr
+;inc()
+	INC R4
+;		getname(label); /* name of EXT symbol */
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getname
+;modstk(newsp,save)
+	INCT SP
+;		strcat(label, PADDING);
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc45+37
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @strcat
+;modstk(newsp,save)
+	AI SP,4
+;		if (pass == 1) {
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc140
+;			if (addsym(label)) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addsym
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc141
+;				sympoint->symvalu = 0;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;				sympoint->symflg &= EXTBIT;
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+;zand()
+	INV R3
+	SZC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				extflg = FALSE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@extflg
+;			} else
+;modstk(newsp,save)
+;jump(label)
+	B @cc142
+cc141:
+;				sympoint->symname[1] |= 0x80; /* show already defined */
+;getmem(sym)
+	MOV @sympoint,R4
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,128
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+cc142:
+;		}
+;modstk(newsp,save)
+;		if (pass == 2) {
+cc140:
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc143
+;			if (slookup(label)) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @slookup
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc144
+;				markerr('P');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,80
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;				label[0] = '\0';
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			} else {
+;modstk(newsp,save)
+;jump(label)
+	B @cc145
+cc144:
+;				if (sympoint->symname[1] & 0x80)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @sympoint,R4
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,128
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc146
+;					markerr('M');
+;const1(val)
+	LI R4,77
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;				else
+;jump(label)
+	B @cc147
+cc146:
+;					address = sympoint->symvalu;
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;putmem(sym)
+	MOV R4,@address
+cc147:
+;			}
+;modstk(newsp,save)
+cc145:
+;		}
+;modstk(newsp,save)
+;		goto chkargs;
+cc143:
+;jump(label)
+	B @cc53
+;	case 14: /* ENT - place entry symbol in table for outside ref */
+cc148:
+;		hexflg = NOCODE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@hexflg
+;		entflg = FALSE; /* clear immediately - ENT itself is not an entry point */
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@entflg
+;		if (label[0] != '\0')
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc149
+;			markerr('L');
+;const1(val)
+	LI R4,76
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		if (getchr(&c, SKIP) != ALPHA) {
+cc149:
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getchr
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc150
+;			markerr('S');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		}
+;		backchr;
+cc150:
+;getmem(sym)
+	MOV @linptr,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@linptr
+;inc()
+	INC R4
+;		getname(label);
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getname
+;modstk(newsp,save)
+	INCT SP
+;		strcat(label, PADDING);
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc45+53
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @strcat
+;modstk(newsp,save)
+	AI SP,4
+;		if (pass == 1) {
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc151
+;			switch (slookup(label)) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @slookup
+;modstk(newsp,save)
+	INCT SP
+;jump(label)
+	B @cc154
+;			case 0: /* found - symbol already defined by its label */
+;modstk(newsp,save)
+cc155:
+;				sympoint->symflg |= (ENTBIT | RELBIT);
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,5
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc153
+;			case -1: /* not found - forward ref or ENT before label */
+cc156:
+;				if (addsym(label) == -1) {
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addsym
+;modstk(newsp,save)
+	INCT SP
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	SETO R4
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc157
+;					sympoint->symvalu = 0; /* unknown until label seen */
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;					sympoint->symflg |= (ENTBIT | RELBIT);
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,18
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,5
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;				}
+;modstk(newsp,save)
+;				break;
+cc157:
+;modstk(newsp,save)
+;jump(label)
+	B @cc153
+;			case 1:
+cc158:
+;				wipeout("\nSymbol table full.\n");
+;constant(lval)
+	LI R4,cc45+69
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @wipeout
+;modstk(newsp,save)
+	INCT SP
+;			}
+;modstk(newsp,save)
+;jump(label)
+	B @cc153
+cc154:
+	CALL @_ccswitc##
+	WORD cc155,0
+	WORD cc156,-1
+	WORD cc158,1
+	WORD 0
+cc153:
+;		}
+;modstk(newsp,save)
+;		if (pass == 2) {
+cc151:
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc159
+;			switch (slookup(label)) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @slookup
+;modstk(newsp,save)
+	INCT SP
+;jump(label)
+	B @cc162
+;			case 0: /* found - get its address */
+;modstk(newsp,save)
+cc163:
+;				address = sympoint->symvalu;
+;getmem(sym)
+	MOV @sympoint,R4
+;const2(val)
+	LI R3,16
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;putmem(sym)
+	MOV R4,@address
+;				break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc161
+;			case -1: /* not found in pass 2 - genuine error */
+cc164:
+;			case 1:
+cc165:
+;				markerr('U');
+;const1(val)
+	LI R4,85
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;				return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;			}
+;jump(label)
+	B @cc161
+cc162:
+	CALL @_ccswitc##
+	WORD cc163,0
+	WORD cc164,-1
+	WORD cc165,1
+	WORD 0
+cc161:
+;		}
+;modstk(newsp,save)
+;		goto chkargs;
+cc159:
+;jump(label)
+	B @cc53
+;	case 16: /* INCLUDE */
+cc166:
+;		hexflg = NOCODE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@hexflg
+;		if (label[0] != '\0')
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc167
+;			markerr('L');
+;const1(val)
+	LI R4,76
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		include_source();
+cc167:
+;zcall()
+	CALL @include_source
+;modstk(newsp,save)
+;		return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;	case 15: /* NAM - get module name */
+cc168:
+;		if (label[0] != '\0')
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc169
+;			markerr('L');
+;const1(val)
+	LI R4,76
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		if (getchr(&c, SKIP) != ALPHA) {
+cc169:
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getchr
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc170
+;			markerr('S');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;		}
+;		backchr;
+cc170:
+;getmem(sym)
+	MOV @linptr,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@linptr
+;inc()
+	INC R4
+;		getname(label);
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getname
+;modstk(newsp,save)
+	INCT SP
+;		strcat(label, PADDING);
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc45+90
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @strcat
+;modstk(newsp,save)
+	AI SP,4
+;		if (pass == 1) {
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc171
+;			memcpy(progname, label, SYMLEN);
+;modstk(newsp,save)
+;address(ptr)
+	LI R4,progname
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,16
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @memcpy
+;modstk(newsp,save)
+	AI SP,6
+;		}
+;modstk(newsp,save)
+;		if (pass == 2) {
+cc171:
+;getmem(sym)
+	MOVB @pass,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc172
+;			if (symcmp(label, progname) != 0)
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,progname
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @symcmp
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc173
+;				markerr('M');
+;const1(val)
+	LI R4,77
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			else
+;jump(label)
+	B @cc174
+cc173:
+;				address = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@address
+cc174:
+;		}
+;modstk(newsp,save)
+;		goto chkargs;
+cc172:
+;jump(label)
+	B @cc53
+;		chkargs: /*if (getitem(&c,SMALST) != END_LIN) markerr('T');  likely bug should be unsighed */
+cc53:
+;		if (getitem(&c, SMALST) != END_LIN)
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc175
+;			markerr('T');
+;const1(val)
+	LI R4,84
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;		return;
+cc175:
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;	case 255: /*  NO OPCODE.	*/
+cc176:
+;		if (nbytes == 0)
+;getmem(sym)
+	MOV @nbytes,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc177
+;			hexflg = NOCODE;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@hexflg
+;		return;
+cc177:
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;	}
+;jump(label)
+	B @cc47
+cc48:
+	CALL @_ccswitc##
+	WORD cc49,0
+	WORD cc54,1
+	WORD cc64,2
+	WORD cc81,3
+	WORD cc97,4
+	WORD cc105,5
+	WORD cc107,6
+	WORD cc111,7
+	WORD cc112,8
+	WORD cc116,9
+	WORD cc121,10
+	WORD cc128,11
+	WORD cc130,12
+	WORD cc137,13
+	WORD cc148,14
+	WORD cc166,16
+	WORD cc168,15
+	WORD cc176,255
+	WORD 0
+cc47:
+;}
+;modstk(newsp,save)
+	AI SP,12
+;modstk(newsp,save)
+	RET
+cc45:	BYTE 13,73,102,32,115,116,97,99,107,32,111,118
+	BYTE 101,114,102,108,111,119,46,13,0,32,32,32
+	BYTE 32,32,32,32,32,32,32,32,32,32,32,32
+	BYTE 0,32,32,32,32,32,32,32,32,32,32,32
+	BYTE 32,32,32,32,0,32,32,32,32,32,32,32
+	BYTE 32,32,32,32,32,32,32,32,0,13,83,121
+	BYTE 109,98,111,108,32,116,97,98,108,101,32,102
+	BYTE 117,108,108,46,13,0,32,32,32,32,32,32
+	BYTE 32,32,32,32,32,32,32,32,32,0
+;/*
+; Internal function to process normal (non-pseudo) opcodes.
+; */
+;_normop(opcode, attr)
+	EVEN
+_normop:
+;unsigned opcode;
+;char attr;
+;{
+;	unsigned regmask, regval, t, value, c, findex, i, j, fields[3];
+;	int disp, operand, negindex;
+;	unsigned char shift, parse, opdcount, attr1, attr2;
+;	bptr = binbuf;
+;modstk(newsp,save)
+	AI SP,-38
+;address(ptr)
+	LI R4,binbuf
+;putmem(sym)
+	MOV R4,@bptr
+;	nbytes = 2;
+;const1(val)
+	LI R4,2
+;putmem(sym)
+	MOV R4,@nbytes
+;	negindex = 0;
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;	if (pc & 0x01) /* make sure code is on an even boundary */
+;getmem(sym)
+	MOV @pc,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc179
+;	{
+;		pc++;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @pc,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@pc
+;	dec()
+	DEC R4
+;		address++;
+;getmem(sym)
+	MOV @address,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@address
+;	dec()
+	DEC R4
+;		markerr('A');
+;const1(val)
+	LI R4,65
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;	}
+;modstk(newsp,save)
+;	operand = 0;
+cc179:
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;	attr1 = attr & 0x07; /*  mask 3  least significant bits */
+;getloc(sym, off)
+;Char offset
+	LI R4,3
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @43(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,7
+;zand()
+	INV R3
+	SZC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;	attr2 = (attr & 0x38) >> 3; /* next 3 bits represent attr2 */
+;getloc(sym, off)
+;Char offset
+	LI R4,1
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @43(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,56
+;zand()
+	INV R3
+	SZC R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;	findex = 0; /* index to buffered multi word instructions */
+;getloc(sym, off)
+	LI R4,26
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;	attr = attr1;
+;getloc(sym, off)
+;Char offset
+	LI R4,41
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @5(SP),R4 ;optimised load
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;	opdcount = 1;
+;getloc(sym, off)
+;Char offset
+	LI R4,5
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;	relflg = FALSE; /* Instruction sets relocation flag if required */
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@relflg
+;	while (TRUE) {
+cc180:
+;		parse = TRUE;
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;		addrmode = WREG; /* default address mode */
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@addrmode
+;		switch (attr) {
+;getloc(sym, off)
+;Char offset
+	MOVB @41(SP),R4 ;optimised load
+	SRA R4,8
+;jump(label)
+	B @cc184
+;		case 0:
+;modstk(newsp,save)
+cc185:
+;			if (attr1 || attr2)
+;getloc(sym, off)
+;Char offset
+	MOVB @3(SP),R4 ;optimised load
+	SRA R4,8
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc187
+;getloc(sym, off)
+;Char offset
+	MOVB @1(SP),R4 ;optimised load
+	SRA R4,8
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc187
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc188
+cc187:
+;const1(val)
+	LI R4,1
+cc188:
+	MOV R4,R4
+	JNE $+6
+	B @cc186
+;				markerr('S');
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			binbuf[0] = opcode >> 8;
+cc186:
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[1] = opcode;
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;			field = opcode;
+;getloc(sym, off)
+	MOV @42(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;			putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;			if (c = getitem(&value, SMALST) != END_LIN)
+;getloc(sym, off)
+	LI R4,28
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,32
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	BL @_ccne##
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+	MOV R4,R4
+	JNE $+6
+	B @cc189
+;				markerr('T');
+;const1(val)
+	LI R4,84
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+cc189:
+;modstk(newsp,save)
+	AI SP,38
+	RET
+;			/* Format 1 - S,D  */
+;			/* detect N,*N,*N+,@X,@X(N) */
+;		case 1:
+cc190:
+;			while (parse) {
+cc191:
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc192
+;				switch (c = getitem(&value, SMALST)) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,28
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,32
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;jump(label)
+	B @cc195
+;				case OPERATR:
+;modstk(newsp,save)
+cc196:
+;					if (value == '*') {
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,42
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc197
+;						if (addrmode == INDIRECT || addrmode == SYMBOLIC)
+;modstk(newsp,save)
+;getmem(sym)
+	MOVB @addrmode,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc199
+;getmem(sym)
+	MOVB @addrmode,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc199
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc200
+cc199:
+;const1(val)
+	LI R4,1
+cc200:
+	MOV R4,R4
+	JNE $+6
+	B @cc198
+;							markerr('S'); /* Can't re-enter these modes */
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;						addrmode = INDIRECT;
+cc198:
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOVB @2*R4+1(WP),@addrmode
+;					}
+;modstk(newsp,save)
+;					if (value == '@') {
+cc197:
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,64
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc201
+;						if (addrmode == INDIRECT || addrmode == SYMBOLIC)
+;modstk(newsp,save)
+;getmem(sym)
+	MOVB @addrmode,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc203
+;getmem(sym)
+	MOVB @addrmode,R4
+	SRA R4,8 ;ccsxt - sign extend
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc203
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc204
+cc203:
+;const1(val)
+	LI R4,1
+cc204:
+	MOV R4,R4
+	JNE $+6
+	B @cc202
+;							markerr('S'); /* Can't re-enter these modes */
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;						addrmode = SYMBOLIC;
+cc202:
+;const1(val)
+	LI R4,2
+;putmem(sym)
+	MOVB @2*R4+1(WP),@addrmode
+;						nbytes += 2;
+;getmem(sym)
+	MOV @nbytes,R4
+;inct()
+	INCT R4
+;putmem(sym)
+	MOV R4,@nbytes
+;					}
+;modstk(newsp,save)
+;					if (value == '-') {
+cc201:
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,45
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc205
+;						negindex = 1;
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+;					}
+;modstk(newsp,save)
+;					if (value == '+') {
+cc205:
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,43
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc206
+;						negindex = 0;
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;					}
+;modstk(newsp,save)
+;					break;
+cc206:
+;modstk(newsp,save)
+;jump(label)
+	B @cc194
+;				case VALUE:
+cc207:
+;					opcode |= operand;
+;getloc(sym, off)
+	LI R4,42
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					binbuf[0] = opcode >> 8;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					binbuf[1] = opcode;
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					regval = 0;
+;getloc(sym, off)
+	LI R4,34
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;					backitem(value, c);
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @backitem
+;modstk(newsp,save)
+	AI SP,4
+;					t = eval(START);
+;getloc(sym, off)
+	LI R4,32
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					if (evalerr)
+;getmem(sym)
+	MOV @evalerr,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc208
+;						markerr('E');
+;const1(val)
+	LI R4,69
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;					switch (addrmode) {
+cc208:
+;getmem(sym)
+	MOVB @addrmode,R4
+	SRA R4,8 ;ccsxt - sign extend
+;jump(label)
+	B @cc211
+;					case WREG:
+;modstk(newsp,save)
+cc212:
+;						regval = t;
+;getloc(sym, off)
+	LI R4,34
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						regmask = 0;
+;getloc(sym, off)
+	LI R4,36
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;						break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc210
+;					case INDIRECT:
+cc213:
+;						regval = t;
+;getloc(sym, off)
+	LI R4,34
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						regmask = 1;
+;getloc(sym, off)
+	LI R4,36
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+;						break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc210
+;					case AUTOINC:
+cc214:
+;						regval = t;
+;getloc(sym, off)
+	LI R4,34
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						regmask = 3;
+;getloc(sym, off)
+	LI R4,36
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;putstk - int
+	MOV R4,*R3
+;						break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc210
+;					case SYMBOLIC:
+cc215:
+;						regmask = 2;
+;getloc(sym, off)
+	LI R4,36
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;putstk - int
+	MOV R4,*R3
+;						binbuf[nbytes - 2] = t >> 8;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @nbytes,R4
+;	dect()
+	DECT R4
+;scale(type,tag)
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;						binbuf[nbytes - 1] = t;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @nbytes,R4
+;	dec()
+	DEC R4
+;scale(type,tag)
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;						fields[++findex] = t;
+;getloc(sym, off)
+	LI R4,16
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,28
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						itemflg[findex] = itemflg[0];
+;address(ptr)
+	LI R4,itemflg
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @28(SP),R4 ;optimised load
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,itemflg
+;indirect ccgint
+	MOV *R4,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						symptr[findex] = symptr[0];
+;address(ptr)
+	LI R4,symptr
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @28(SP),R4 ;optimised load
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,symptr
+;indirect ccgint
+	MOV *R4,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc210
+;					case INDEXED:
+cc216:
+;						if (negindex)
+;getloc(sym, off)
+	MOV @10(SP),R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc217
+;							t = -t;
+;getloc(sym, off)
+	LI R4,32
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;neg()
+	NEG R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						regmask = 2;
+cc217:
+;getloc(sym, off)
+	LI R4,36
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;putstk - int
+	MOV R4,*R3
+;						binbuf[nbytes - 2] = t >> 8;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @nbytes,R4
+;	dect()
+	DECT R4
+;scale(type,tag)
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;						binbuf[nbytes - 1] = t;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @nbytes,R4
+;	dec()
+	DEC R4
+;scale(type,tag)
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;						fields[++findex] = t;
+;getloc(sym, off)
+	LI R4,16
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,28
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						itemflg[findex] = itemflg[0];
+;address(ptr)
+	LI R4,itemflg
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @28(SP),R4 ;optimised load
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,itemflg
+;indirect ccgint
+	MOV *R4,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						symptr[findex] = symptr[0];
+;address(ptr)
+	LI R4,symptr
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @28(SP),R4 ;optimised load
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,symptr
+;indirect ccgint
+	MOV *R4,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						regval = eval(START);
+;getloc(sym, off)
+	LI R4,34
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;						if (evalerr)
+;getmem(sym)
+	MOV @evalerr,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc218
+;							markerr('E');
+;const1(val)
+	LI R4,69
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;						break;
+cc218:
+;modstk(newsp,save)
+;jump(label)
+	B @cc210
+;					}
+;modstk(newsp,save)
+;jump(label)
+	B @cc210
+cc211:
+	CALL @_ccswitc##
+	WORD cc212,0
+	WORD cc213,1
+	WORD cc214,4
+	WORD cc215,2
+	WORD cc216,3
+	WORD 0
+cc210:
+;					if (regval > 15)
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,15
+;_ccugt
+	C R3,R4 ;optimised
+	JH $+6
+	B @cc219
+;						markerr('R');
+;const1(val)
+	LI R4,82
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;					if (opdcount == 2)
+cc219:
+;getloc(sym, off)
+;Char offset
+	MOVB @5(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc220
+;						shift = 6;
+;getloc(sym, off)
+;Char offset
+	LI R4,9
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,6
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					else
+;jump(label)
+	B @cc221
+cc220:
+;						shift = 0;
+;getloc(sym, off)
+;Char offset
+	LI R4,9
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+cc221:
+;					operand |= (regval << shift);
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @38(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @15(SP),R4 ;optimised load
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+	BL @_ccasl##
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					operand |= (regmask << (shift + 4));
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @40(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @15(SP),R4 ;optimised load
+	SRA R4,8
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpop()
+	MOV *SP+,R3
+	BL @_ccasl##
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc194
+;				case COMMA:
+cc222:
+;					opdcount++;
+;getloc(sym, off)
+;Char offset
+	LI R4,5
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;	dec()
+	DEC R4
+;					itemflg[0] = 0; /* clear item flag for next item */
+;address(ptr)
+	LI R4,itemflg
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;					if (opdcount > 3) {
+;getloc(sym, off)
+;Char offset
+	MOVB @5(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_ccugt
+	C R3,R4 ;optimised
+	JH $+6
+	B @cc223
+;						markerr('T');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,84
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;						break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc194
+;					}
+;modstk(newsp,save)
+;					attr = attr2;
+cc223:
+;getloc(sym, off)
+;Char offset
+	LI R4,41
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @3(SP),R4 ;optimised load
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					parse = FALSE;
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc194
+;				case END_LIN:
+cc224:
+;					opcode |= operand;
+;getloc(sym, off)
+	LI R4,42
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					binbuf[0] = opcode >> 8;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					binbuf[1] = opcode;
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;					field = opcode;
+;getloc(sym, off)
+	MOV @42(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;					putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;					for (i = 0, j = 1; i < findex; ++i, ++j) {
+;getloc(sym, off)
+	LI R4,24
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;getloc(sym, off)
+	LI R4,22
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+cc227:
+;getloc(sym, off)
+	MOV @24(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @28(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;_ccult
+	C R3,R4 ;optimised
+	JL $+6
+	B @cc226
+;jump(label)
+	B @cc228
+cc225:
+;getloc(sym, off)
+	LI R4,24
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;getloc(sym, off)
+	LI R4,22
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;jump(label)
+	B @cc227
+cc228:
+;						field = fields[j];
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,16
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @24(SP),R4 ;optimised load
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;putmem(sym)
+	MOV R4,@field
+;						/*	field = field | 0x0080; */
+;						if (itemflg[j] & RELBIT) {
+;address(ptr)
+	LI R4,itemflg
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @24(SP),R4 ;optimised load
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc229
+;							item = PREL;
+;modstk(newsp,save)
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;							putrel();
+;zcall()
+	CALL @putrel
+;modstk(newsp,save)
+;						} else {
+;modstk(newsp,save)
+;jump(label)
+	B @cc230
+cc229:
+;							/* item = PREL;
+;							 putrel();
+;							 return;  test for first REL item that somehow
+;							 is treated as ABS - need to fix*/
+;							item = ABS;
+;modstk(newsp,save)
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;							putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;						}
+;modstk(newsp,save)
+cc230:
+;					}
+;modstk(newsp,save)
+;jump(label)
+	B @cc225
+cc226:
+;					return;
+;modstk(newsp,save)
+	AI SP,38
+	RET
+;				}
+;jump(label)
+	B @cc194
+cc195:
+	CALL @_ccswitc##
+	WORD cc196,4
+	WORD cc207,8
+	WORD cc222,3
+	WORD cc224,2
+	WORD 0
+cc194:
+;			}
+;modstk(newsp,save)
+;jump(label)
+	B @cc191
+cc192:
+;			break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc183
+;			/*  case 2 handles signed displacement */
+;		case 2:
+cc231:
+;			while (TRUE) {
+cc232:
+;				switch (c = getitem(&value, SMALST)) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,28
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,32
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;jump(label)
+	B @cc236
+;				case OPERATR:
+;modstk(newsp,save)
+cc237:
+;				case VALUE:
+cc238:
+;					backitem(value, c);
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @backitem
+;modstk(newsp,save)
+	AI SP,4
+;					operand = eval(START);
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc235
+;				case END_LIN:
+cc239:
+;					operand -= pc + 2;
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @pc,R4
+;inct()
+	INCT R4
+;zpop()
+	MOV *SP+,R3
+;zsub()
+	S R4,R3
+	MOV R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					disp = operand / 2;
+;getloc(sym, off)
+	LI R4,14
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+	BL @_ccdiv##
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					if (disp < -128 || disp > 127)
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,-128
+;_cclt
+	BL @_cclt##
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc241
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,127
+;_ccgt
+	BL @_ccgt##
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc241
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc242
+cc241:
+;const1(val)
+	LI R4,1
+cc242:
+	MOV R4,R4
+	JNE $+6
+	B @cc240
+;						markerr('B'); //FIXED 12/6/2019 [AC]  disp and operand declared as int short was if(disp > 128 && disp < -127) markerr('B');
+;					opcode |= (disp & 0xff);
+;const1(val)
+	LI R4,66
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+cc240:
+;getloc(sym, off)
+	LI R4,42
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @18(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,255
+;zand()
+	INV R3
+	SZC R3,R4
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					binbuf[0] = opcode >> 8;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					binbuf[1] = opcode;
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;					field = opcode;
+;getloc(sym, off)
+	MOV @42(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;					putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;					return;
+;modstk(newsp,save)
+	AI SP,38
+	RET
+;				default:
+cc243:
+;					markerr('S');
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;				}
+;modstk(newsp,save)
+;jump(label)
+	B @cc235
+cc236:
+	CALL @_ccswitc##
+	WORD cc237,4
+	WORD cc238,8
+	WORD cc239,2
+	WORD 0
+;jump(label)
+	B @cc243
+cc235:
+;			}
+;modstk(newsp,save)
+;jump(label)
+	B @cc232
+cc233:
+;			/*  Destination register only - D and also C  - the output
+;			 *  of REL data is done here as it is the final operand for
+;			 *  these type of instructions, ie XOR , XOP etc
+;			 */
+;		case 3:
+cc244:
+;			regval = eval(START);
+;getloc(sym, off)
+	LI R4,34
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;			if (evalerr)
+;getmem(sym)
+	MOV @evalerr,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc245
+;				markerr('S');
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			if (regval > 15)
+cc245:
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,15
+;_ccugt
+	C R3,R4 ;optimised
+	JH $+6
+	B @cc246
+;				markerr('R');
+;const1(val)
+	LI R4,82
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			if (getitem(&value, SMALST) != END_LIN)
+cc246:
+;getloc(sym, off)
+	LI R4,30
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc247
+;				markerr('T');
+;const1(val)
+	LI R4,84
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			if (opdcount != 2)
+cc247:
+;getloc(sym, off)
+;Char offset
+	MOVB @5(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc248
+;				markerr('S');
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			operand |= regval << 6;
+cc248:
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @38(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,6
+	BL @_ccasl##
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;			opcode |= operand;
+;getloc(sym, off)
+	LI R4,42
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;			binbuf[0] = opcode >> 8;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[1] = opcode;
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;			field = opcode;
+;getloc(sym, off)
+	MOV @42(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;			putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;			for (i = 0, j = 1; i < findex; ++i, ++j) {
+;getloc(sym, off)
+	LI R4,24
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;getloc(sym, off)
+	LI R4,22
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+cc251:
+;getloc(sym, off)
+	MOV @24(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @28(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;_ccult
+	C R3,R4 ;optimised
+	JL $+6
+	B @cc250
+;jump(label)
+	B @cc252
+cc249:
+;getloc(sym, off)
+	LI R4,24
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;getloc(sym, off)
+	LI R4,22
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;jump(label)
+	B @cc251
+cc252:
+;				field = fields[j];
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,16
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @24(SP),R4 ;optimised load
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;putmem(sym)
+	MOV R4,@field
+;				/*	field = field | 0x0080; */
+;				if (itemflg[j] & RELBIT) {
+;address(ptr)
+	LI R4,itemflg
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @24(SP),R4 ;optimised load
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc253
+;					item = PREL;
+;modstk(newsp,save)
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;					putrel();
+;zcall()
+	CALL @putrel
+;modstk(newsp,save)
+;				} else {
+;modstk(newsp,save)
+;jump(label)
+	B @cc254
+cc253:
+;					/* item = PREL;
+;					 putrel();
+;					 return;  test for first REL item that somehow
+;					 is treated as ABS - need to fix*/
+;					item = ABS;
+;modstk(newsp,save)
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;					putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;				}
+;modstk(newsp,save)
+cc254:
+;			}
+;modstk(newsp,save)
+;jump(label)
+	B @cc249
+cc250:
+;			return;
+;modstk(newsp,save)
+	AI SP,38
+	RET
+;			/*  Bit field operands	*/
+;		case 4:
+cc255:
+;			disp = eval(START);
+;getloc(sym, off)
+	LI R4,14
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;			if (evalerr)
+;getmem(sym)
+	MOV @evalerr,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc256
+;				markerr('S');
+;const1(val)
+	LI R4,83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			opcode |= disp & 0xff;
+cc256:
+;getloc(sym, off)
+	LI R4,42
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @18(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,255
+;zand()
+	INV R3
+	SZC R3,R4
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;			binbuf[0] = opcode >> 8;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[1] = opcode;
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;			field = opcode;
+;getloc(sym, off)
+	MOV @42(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;			putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;			if (getitem(&value, SMALST) != END_LIN)
+;getloc(sym, off)
+	LI R4,30
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc257
+;				markerr('T');
+;const1(val)
+	LI R4,84
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+cc257:
+;modstk(newsp,save)
+	AI SP,38
+	RET
+;			/*  Workspace register - W  or shift count C  */
+;		case 5:
+cc258:
+;			while (parse) {
+cc259:
+;getloc(sym, off)
+;Char offset
+	MOVB @7(SP),R4 ;optimised load
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc260
+;				switch (c = getitem(&value, SMALST)) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,28
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,32
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;jump(label)
+	B @cc263
+;				case VALUE:
+;modstk(newsp,save)
+cc264:
+;				case OPERATR:
+cc265:
+;					backitem(value, c);
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @30(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @backitem
+;modstk(newsp,save)
+	AI SP,4
+;					regval = eval(START);
+;getloc(sym, off)
+	LI R4,34
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					if (regval > 15)
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,15
+;_ccugt
+	C R3,R4 ;optimised
+	JH $+6
+	B @cc266
+;						markerr('R');
+;const1(val)
+	LI R4,82
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;					if (opdcount == 2)
+cc266:
+;getloc(sym, off)
+;Char offset
+	MOVB @5(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc267
+;						operand |= regval << 4;
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @38(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,4
+	BL @_ccasl##
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					else
+;jump(label)
+	B @cc268
+cc267:
+;						operand = regval;
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @36(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+cc268:
+;					break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc262
+;				case COMMA:
+cc269:
+;					opdcount++;
+;getloc(sym, off)
+;Char offset
+	LI R4,5
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;	dec()
+	DEC R4
+;					if (opdcount > 3) {
+;getloc(sym, off)
+;Char offset
+	MOVB @5(SP),R4 ;optimised load
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_ccugt
+	C R3,R4 ;optimised
+	JH $+6
+	B @cc270
+;						markerr('T');
+;modstk(newsp,save)
+;const1(val)
+	LI R4,84
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;						break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc262
+;					}
+;modstk(newsp,save)
+;					parse = FALSE;
+cc270:
+;getloc(sym, off)
+;Char offset
+	LI R4,7
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					attr = attr2;
+;getloc(sym, off)
+;Char offset
+	LI R4,41
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	MOVB @3(SP),R4 ;optimised load
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc262
+;				case END_LIN:
+cc271:
+;					opcode |= operand;
+;getloc(sym, off)
+	LI R4,42
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;					binbuf[0] = opcode >> 8;
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					binbuf[1] = opcode;
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;					item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;					field = opcode;
+;getloc(sym, off)
+	MOV @42(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;					putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;					return;
+;modstk(newsp,save)
+	AI SP,38
+	RET
+;				}
+;jump(label)
+	B @cc262
+cc263:
+	CALL @_ccswitc##
+	WORD cc264,8
+	WORD cc265,4
+	WORD cc269,3
+	WORD cc271,2
+	WORD 0
+cc262:
+;			}
+;modstk(newsp,save)
+;jump(label)
+	B @cc259
+cc260:
+;			break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc183
+;			/*  Format 5. Immediate operation - IOP */
+;		case 6:
+cc272:
+;			nbytes += 2;
+;getmem(sym)
+	MOV @nbytes,R4
+;inct()
+	INCT R4
+;putmem(sym)
+	MOV R4,@nbytes
+;			t = eval(START);
+;getloc(sym, off)
+	LI R4,32
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @eval
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;			opcode |= operand;
+;getloc(sym, off)
+	LI R4,42
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;			binbuf[0] =  (opcode >> 8);
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[1] =  opcode;
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[2] = t >> 8;
+;address(ptr)
+	LI R4,binbuf
+;inct()
+	INCT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[3] = t;
+;address(ptr)
+	LI R4,binbuf
+;const2(val)
+	LI R3,3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @34(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;			field = opcode;
+;getloc(sym, off)
+	MOV @42(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;			putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;			if (relflg) {
+;getmem(sym)
+	MOVB @relflg,R4
+	SRA R4,8 ;ccsxt - sign extend
+	MOV R4,R4
+	JNE $+6
+	B @cc273
+;				item = PREL;
+;modstk(newsp,save)
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;				field = t;
+;getloc(sym, off)
+	MOV @32(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;				putrel();
+;zcall()
+	CALL @putrel
+;modstk(newsp,save)
+;			} else {
+;modstk(newsp,save)
+;jump(label)
+	B @cc274
+cc273:
+;				item = ABS;
+;modstk(newsp,save)
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;				field = t;
+;getloc(sym, off)
+	MOV @32(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;				putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;			}
+;modstk(newsp,save)
+cc274:
+;			if (getitem(&value, SMALST) != END_LIN)
+;getloc(sym, off)
+	LI R4,30
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getitem
+;modstk(newsp,save)
+	AI SP,4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc275
+;				markerr('T');
+;const1(val)
+	LI R4,84
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @markerr
+;modstk(newsp,save)
+	INCT SP
+;			return;
+cc275:
+;modstk(newsp,save)
+	AI SP,38
+	RET
+;			/* Bit Manipulation Instructions - for the 99105 only
+;			 this instruction has a very similar format to the CRU
+;			 Bit Manipulation set and but the opcode addressing modes
+;			 are in the second word i.e.	[     opcode     ]
+;			 [ format3|format1]
+;			 hence calling _normop recursively we can then easily
+;			 swap the words around to produce the correct code   */
+;		case 7:
+cc276:
+;			/* Because on recursion we need to place the opcode first before
+;			 * call _normop
+;			 */
+;			item = ABS;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOVB @2*R4+1(WP),@item
+;			field = opcode;
+;getloc(sym, off)
+	MOV @42(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@field
+;			putabs2();
+;zcall()
+	CALL @putabs2
+;modstk(newsp,save)
+;			_normop(0x0000, 0x19); /* call with opcode 0 and format 3 and format 1  */
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,25
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @_normop
+;modstk(newsp,save)
+	AI SP,4
+;			nbytes += 2; /* binbuf[0,1,2,3] now hold the 2nd and 3rd word */
+;getmem(sym)
+	MOV @nbytes,R4
+;inct()
+	INCT R4
+;putmem(sym)
+	MOV R4,@nbytes
+;			binbuf[4] = binbuf[2]; /* shift data down by 1 word to */
+;address(ptr)
+	LI R4,binbuf
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,binbuf
+;inct()
+	INCT R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[5] = binbuf[3]; /* allow for opcode             */
+;address(ptr)
+	LI R4,binbuf
+;const2(val)
+	LI R3,5
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,binbuf
+;const2(val)
+	LI R3,3
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[2] = binbuf[0];
+;address(ptr)
+	LI R4,binbuf
+;inct()
+	INCT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,binbuf
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[3] = binbuf[1];
+;address(ptr)
+	LI R4,binbuf
+;const2(val)
+	LI R3,3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[0] = opcode >> 8; /* now place original opcode in 1st word  */
+;address(ptr)
+	LI R4,binbuf
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			binbuf[1] = opcode;
+;address(ptr)
+	LI R4,binbuf
+;inc()
+	INC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @44(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;			return; /* END_LIN_ comes from recursion */
+;modstk(newsp,save)
+	AI SP,38
+	RET
+;		default:
+cc277:
+;			wipeout("bad operand format -- aborting \n");
+;constant(lval)
+	LI R4,cc178+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @wipeout
+;modstk(newsp,save)
+	INCT SP
+;			exit(-1);
+;const1(val)
+	SETO R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @exit
+;modstk(newsp,save)
+	INCT SP
+;		}
+;modstk(newsp,save)
+;jump(label)
+	B @cc183
+cc184:
+	CALL @_ccswitc##
+	WORD cc185,0
+	WORD cc190,1
+	WORD cc231,2
+	WORD cc244,3
+	WORD cc255,4
+	WORD cc258,5
+	WORD cc272,6
+	WORD cc276,7
+	WORD 0
+;jump(label)
+	B @cc277
+cc183:
+;	}
+;modstk(newsp,save)
+;jump(label)
+	B @cc180
+cc181:
+;}
+;modstk(newsp,save)
+	AI SP,38
+;modstk(newsp,save)
+	RET
+cc178:	BYTE 98,97,100,32,111,112,101,114,97,110,100,32
+	BYTE 102,111,114,109,97,116,32,45,45,32,97,98
+	BYTE 111,114,116,105,110,103,32,13,0
+	EVEN
+	EXT flushlin
+	EXT oldvalu
+	EXT entnam
+	EXT hxlnbuf
+	EXT errcount
+	EXT hash
+	EXT _aton
+	EXT getprec
+	EXT putsym
+	EXT wipeout
+	EXT error2
+	EXT quitflag
+	EXT symend
+	EXT bptr
+	EXT symbol
+	EXT emit_code
+	EXT symcmp
+	EXT include_source
+	EXT ifsp
+	EXT eval
+	EXT bbsearch
+	EXT putrchr
+	EXT rputchr
+	EXT memcpy
+	EXT nssymbols
+	EXT hxlnptr
+	EXT chkoprat
+	EXT item
+	EXT exit
+	EXT symtbl
+	EXT linbuf
+	EXT evalerr
+	EXT pass
+	EXT seek
+	EXT source_rewind
+	EXT symptr
+	EXT err_cnt
+	EXT field
+	EXT getopcod
+	EXT ifstack
+	ENT _psop
+	EXT sortsym
+	EXT close_includes
+	EXT extflg
+	EXT linptr
+	EXT backitem
+	EXT errcode
+	EXT relsyms
+	EXT addsym
+	EXT push_source
+	EXT toupper
+	EXT nbytes
+	EXT markerr
+	EXT relflg
+	EXT type
+	EXT sympoint
+	EXT quoteflg
+	EXT flush
+	EXT loc_ctr
+	EXT error
+	EXT backflg
+	EXT directok
+	EXT progname
+	ENT _normop
+	EXT ishex
+	EXT relout
+	EXT movchr
+	EXT xref_emit
+	EXT binbuf
+	EXT rflush
+	EXT lstbuf
+	EXT xref_add
+	EXT xref_reset
+	EXT lineout
+	EXT pc
+	EXT itemflg
+	EXT chksum
+	EXT numopcs
+	EXT progsize
+	EXT addrmode
+	EXT address
+	EXT numoprs
+	EXT putabs2
+	EXT puts2
+	EXT puts3
+	EXT parse_line
+	EXT getchr
+	EXT putabs
+	EXT putdec
+	EXT slookup
+	EXT oldattr
+	ENT asmline
+	EXT sorbuf
+	EXT putchr
+	EXT getlin
+	EXT gflush
+	EXT curdrive
+	EXT putfld
+	EXT putls
+	EXT outchunk
+	EXT outrem
+	EXT getopc
+	EXT getattr
+	EXT getname
+	EXT setfiles
+	EXT puthex2
+	EXT puthex4
+	EXT relhead
+	EXT getopr
+	EXT putbyt
+	EXT putlin
+	EXT getnum
+	EXT hexflg
+	EXT hexbuf
+	EXT cant
+	EXT putbits
+	EXT getitem
+	EXT putrel
+	EXT strcat
+	EXT hxbytes
+	EXT list_line
+	EXT entflg
+	EVEN
+	END
+
+; --- End of Compilation ---

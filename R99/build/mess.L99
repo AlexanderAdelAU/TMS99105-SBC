@@ -1,0 +1,416 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM mess
+                        ;/*
+                        ;** mess.c -- message functions
+                        ;*/
+                        ;/* Print a literal string without carriage return to console */
+                        ;putls(str)
+  0000                  	EVEN
+                        putls:
+                        ;char *str;
+                        ;{
+                        ;modstk(newsp,save)
+                        ;	while(*str)
+                        ;modstk(newsp,save)
+                        cc2:
+                        ;getloc(sym, off)
+  0000   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0004   D114           	MOVB *R4,R4
+  0006   0884           	SRA R4,8
+  0008   C104           	MOV R4,R4
+  000A   1602           	JNE $+6
+  000C   0460 0036      	B @cc3
+                        ;		putchar(*str++);
+                        ;getloc(sym, off)
+  0010   0204 0002      	LI R4,2
+  0014   A10A           	A SP,R4
+                        ;zpush()
+  0016   064A           	DECT SP
+  0018   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  001A   C114           	MOV *R4,R4
+                        ;inc()
+  001C   0584           	INC R4
+                        ;zpop()
+  001E   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0020   C4C4           	MOV R4,*R3
+                        ;	dec()
+  0022   0604           	DEC R4
+                        ;indirect ccgchar
+  0024   D114           	MOVB *R4,R4
+  0026   0884           	SRA R4,8
+                        ;zpush()
+  0028   064A           	DECT SP
+  002A   C684           	MOV R4,*SP
+                        ;zcall()
+  002C   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  0030   05CA           	INCT SP
+                        ;jump(label)
+  0032   0460 0000      	B @cc2
+                        cc3:
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0036   2DC0           	RET
+                        ;puts2(str1, str2)
+  0038                  	EVEN
+                        puts2:
+                        ;char *str1;
+                        ;char *str2;
+                        ;{
+                        ;  putls(str1);
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0038   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;zpush()
+  003C   064A           	DECT SP
+  003E   C684           	MOV R4,*SP
+                        ;zcall()
+  0040   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0044   05CA           	INCT SP
+                        ;  putls(str2);
+                        ;getloc(sym, off)
+  0046   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  004A   064A           	DECT SP
+  004C   C684           	MOV R4,*SP
+                        ;zcall()
+  004E   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0052   05CA           	INCT SP
+                        ;  }
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0054   2DC0           	RET
+                        ;puts3(str1, str2, str3)
+  0056                  	EVEN
+                        puts3:
+                        ;char *str1;
+                        ;char *str2;
+                        ;char *str3;
+                        ;{
+                        ;  putls(str1);
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0056   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;zpush()
+  005A   064A           	DECT SP
+  005C   C684           	MOV R4,*SP
+                        ;zcall()
+  005E   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0062   05CA           	INCT SP
+                        ;  putls(str2);
+                        ;getloc(sym, off)
+  0064   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;zpush()
+  0068   064A           	DECT SP
+  006A   C684           	MOV R4,*SP
+                        ;zcall()
+  006C   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0070   05CA           	INCT SP
+                        ;  putls(str3);
+                        ;getloc(sym, off)
+  0072   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  0076   064A           	DECT SP
+  0078   C684           	MOV R4,*SP
+                        ;zcall()
+  007A   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  007E   05CA           	INCT SP
+                        ;  }
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0080   2DC0           	RET
+                        ;cant(str)
+  0082                  	EVEN
+                        cant:
+                        ;char *str;
+                        ;{
+                        ;  error2(str, " - Can't Open");
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0082   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  0086   064A           	DECT SP
+  0088   C684           	MOV R4,*SP
+                        ;constant(lval)
+  008A   0204 009C      	LI R4,cc6+0
+                        ;zpush()
+  008E   064A           	DECT SP
+  0090   C684           	MOV R4,*SP
+                        ;zcall()
+  0092   2DA0 00AA      	CALL @error2
+                        ;modstk(newsp,save)
+  0096   022A 0004      	AI SP,4
+                        ;  }
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  009A   2DC0           	RET
+  009C   202D 2043      cc6:	BYTE 32,45,32,67,97,110,39,116,32,79,112,101
+  00A0   616E 2774      
+  00A4   204F 7065      
+  00A8   6E00           	BYTE 110,0
+                        ;error2(str1, str2)
+  00AA                  	EVEN
+                        error2:
+                        ;char *str1;
+                        ;char *str2;
+                        ;{
+                        ;  putls(str1);
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  00AA   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;zpush()
+  00AE   064A           	DECT SP
+  00B0   C684           	MOV R4,*SP
+                        ;zcall()
+  00B2   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  00B6   05CA           	INCT SP
+                        ;  error(str2);
+                        ;getloc(sym, off)
+  00B8   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  00BC   064A           	DECT SP
+  00BE   C684           	MOV R4,*SP
+                        ;zcall()
+  00C0   2DA0 00C8      	CALL @error
+                        ;modstk(newsp,save)
+  00C4   05CA           	INCT SP
+                        ;  }
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  00C6   2DC0           	RET
+                        ;error(reason)
+  00C8                  	EVEN
+                        error:
+                        ;char *reason;
+                        ;{
+                        ;  putls(reason);
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  00C8   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  00CC   064A           	DECT SP
+  00CE   C684           	MOV R4,*SP
+                        ;zcall()
+  00D0   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  00D4   05CA           	INCT SP
+                        ;  exit(0);
+                        ;const1(val)
+  00D6   04C4           	CLR R4
+                        ;zpush()
+  00D8   064A           	DECT SP
+  00DA   C684           	MOV R4,*SP
+                        ;zcall()
+  00DC   2DA0 0000      	CALL @exit
+                        ;modstk(newsp,save)
+  00E0   05CA           	INCT SP
+                        ;  }
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  00E2   2DC0           	RET
+                        ;/*
+                        ;** memcpy -- Small-C byte copy
+                        ;**
+                        ;** The TMS9900/TMS99105 is big endian, but memcpy copies bytes exactly
+                        ;** as stored; no byte swapping is performed.
+                        ;*/
+                        ;memcpy(dest, src, count)
+  00E4                  	EVEN
+                        memcpy:
+                        ;char *dest;
+                        ;char *src;
+                        ;unsigned count;
+                        ;{
+                        ;	while(count--)
+                        ;modstk(newsp,save)
+                        cc10:
+                        ;getloc(sym, off)
+  00E4   0204 0002      	LI R4,2
+  00E8   A10A           	A SP,R4
+                        ;zpush()
+  00EA   064A           	DECT SP
+  00EC   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  00EE   C114           	MOV *R4,R4
+                        ;	dec()
+  00F0   0604           	DEC R4
+                        ;zpop()
+  00F2   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  00F4   C4C4           	MOV R4,*R3
+                        ;inc()
+  00F6   0584           	INC R4
+  00F8   C104           	MOV R4,R4
+  00FA   1602           	JNE $+6
+  00FC   0460 013A      	B @cc11
+                        ;		*dest++ = *src++;
+                        ;getloc(sym, off)
+  0100   0204 0006      	LI R4,6
+  0104   A10A           	A SP,R4
+                        ;zpush()
+  0106   064A           	DECT SP
+  0108   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  010A   C114           	MOV *R4,R4
+                        ;inc()
+  010C   0584           	INC R4
+                        ;zpop()
+  010E   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0110   C4C4           	MOV R4,*R3
+                        ;	dec()
+  0112   0604           	DEC R4
+                        ;zpush()
+  0114   064A           	DECT SP
+  0116   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0118   0204 0006      	LI R4,6
+  011C   A10A           	A SP,R4
+                        ;zpush()
+  011E   064A           	DECT SP
+  0120   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0122   C114           	MOV *R4,R4
+                        ;inc()
+  0124   0584           	INC R4
+                        ;zpop()
+  0126   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0128   C4C4           	MOV R4,*R3
+                        ;	dec()
+  012A   0604           	DEC R4
+                        ;indirect ccgchar
+  012C   D114           	MOVB *R4,R4
+  012E   0884           	SRA R4,8
+                        ;zpop()
+  0130   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0132   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;jump(label)
+  0136   0460 00E4      	B @cc10
+                        cc11:
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  013A   2DC0           	RET
+                        ;/*
+                        ;** memset -- Small-C byte fill
+                        ;*/
+                        ;memset(dest, value, count)
+  013C                  	EVEN
+                        memset:
+                        ;char *dest;
+                        ;int value;
+                        ;unsigned count;
+                        ;{
+                        ;	while(count--)
+                        ;modstk(newsp,save)
+                        cc13:
+                        ;getloc(sym, off)
+  013C   0204 0002      	LI R4,2
+  0140   A10A           	A SP,R4
+                        ;zpush()
+  0142   064A           	DECT SP
+  0144   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0146   C114           	MOV *R4,R4
+                        ;	dec()
+  0148   0604           	DEC R4
+                        ;zpop()
+  014A   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  014C   C4C4           	MOV R4,*R3
+                        ;inc()
+  014E   0584           	INC R4
+  0150   C104           	MOV R4,R4
+  0152   1602           	JNE $+6
+  0154   0460 017E      	B @cc14
+                        ;		*dest++ = value;
+                        ;getloc(sym, off)
+  0158   0204 0006      	LI R4,6
+  015C   A10A           	A SP,R4
+                        ;zpush()
+  015E   064A           	DECT SP
+  0160   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0162   C114           	MOV *R4,R4
+                        ;inc()
+  0164   0584           	INC R4
+                        ;zpop()
+  0166   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0168   C4C4           	MOV R4,*R3
+                        ;	dec()
+  016A   0604           	DEC R4
+                        ;zpush()
+  016C   064A           	DECT SP
+  016E   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0170   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;zpop()
+  0174   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0176   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;jump(label)
+  017A   0460 013C      	B @cc13
+                        cc14:
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  017E   2DC0           	RET
+                        	ENT error2
+                        	ENT memcpy
+                        	EXT exit
+                        	ENT memset
+                        	ENT error
+                        	ENT puts2
+                        	ENT puts3
+                        	ENT putls
+                        	EXT putchar
+                        	ENT cant
+  0180                  	EVEN
+  0180                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R8                0008   R9                0009   RET               2DC0'  
+SL                0009   SP                000A   WHEX              2E80'  WP                000D   
+WRITE             2F00'  cant              0082'  cc10              00E4'  cc11              013A'  
+cc13              013C'  cc14              017E'  cc2               0000'  cc3               0036'  
+cc6               009C'  error             00C8'  error2            00AA'  exit              0000*  
+memcpy            00E4'  memset            013C'  putchar           0000*  putls             0000'  
+puts2             0038'  puts3             0056'  
+

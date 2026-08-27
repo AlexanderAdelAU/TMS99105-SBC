@@ -1,0 +1,3518 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM R99REL
+                        ;/*
+                        ; **  General rel interface routines
+                        ; */
+                        ;#include "R99CFG.h"
+                        ;/*
+                        ; * R99 build-size configuration.
+                        ; *
+                        ; * TEMPORARY SBC TESTING PROFILE.
+                        ; *
+                        ; * Goal: keep the flat R99.COM image below >C000 when loaded at >0500.
+                        ; * These reduced capacities are for initial board bring-up only.
+                        ; */
+                        ;#define LINLEN          128	/*  Must be at least 102: the 4-symbols-per-line table
+                        ;                                dump at the end of main writes 4 * 25 + 2 bytes into
+                        ;                                linbuf.  At 96 it spilled 6 bytes into binbuf.  */
+                        ;#define BUFSIZE          16
+                        ;#define SYMBOLS         101	/*  MUST BE ODD - slookup's probe step is d = 1, 3, 5, ...
+                        ;                                and its "table full" test is d == SYMBOLS, which an even
+                        ;                                SYMBOLS never reaches.  With a power of two the probe
+                        ;                                only ever visits 4 of the slots (h advances by k*k).  */
+                        ;#define INCLUDE_DEPTH     1
+                        ;#define MAXXREF            4
+                        ;#include "R99gbl.h"
+                        ;/*
+                        ; TMS990 Series Cross-Assembler  v. 1.0
+                        ; January, 1985
+                        ; Copyright (c) 1980 William C. Colley, III.
+                        ; Modified for the 990 Series by Alexander Cameron.
+                        ; File:	a99.gbl
+                        ; Global macro substitutions and external variable declarations.
+                        ; */
+                        ;/*  Build-size profile.  */
+                        ;/*  Define symbol table parameters:  REL files now allow 4 bits to define
+                        ; * the SYMLEN. The original spec allowed 3 bits
+                        ; *
+                        ; */
+                        ;#define	SYMLEN	16	/*  Symbol buffer size: 15 chars + terminating null. */
+                        ;#define	PADDING	"               "	/*  SYMLEN - 1 blanks.	15		*/
+                        ;#define ENTBIT 4	/* Sets ENTRY bit in symflg 			*/
+                        ;#define EQUBIT 16	/* Equivalence - defined via an equate 		*/
+                        ;#define DUPBIT 32	/* Equivalence - defined via an equate 		*/
+                        ;#define EXTBIT 8	/* Sets EXTERNAL bit in symflg			*/
+                        ;#define	DEFBIT	2	/* Sets DEFINED bit				*/
+                        ;#define RELBIT 1	/* Sets RELOCATION bit in symflg		*/
+                        ;#define COMBIT 12	/* Sets COMMON bits in symflg			*/
+                        ;/*  Number of if statements that can be nested:  */
+                        ;#define	IFDEPTH	16
+                        ;/*  BDOS functions called directly:  */
+                        ;#define	LISTOUT	5	/*  Put character to list device.		*/
+                        ;#define	LOGDISK	14	/*  Log in disk drive.				*/
+                        ;#define	GETDISK	25	/*  Get currently logged in disk.		*/
+                        ;/*  Define flag values:  */
+                        ;#define	TRUE	1	/*  General use.				*/
+                        ;#define	FALSE	0
+                        ;#define	SKIP	TRUE	/*  Used with skip flag in getchr.		*/
+                        ;#define	NOSKIP	FALSE
+                        ;#define	BIGST	TRUE	/*  Used to tell kind of string in getitem.	*/
+                        ;#define	SMALST	FALSE
+                        ;#define	NOCODE	0	/*  Used to tell the hex generator what to do.	*/
+                        ;#define	PUTCODE	1
+                        ;#define	FLUSH	2
+                        ;#define	NOMORE	3
+                        ;#define EXTADDR 4
+                        ;/*  File descriptors:  */
+                        ;#define	LODISK	0	/*  Lowest numbered disk.			*/
+                        ;#define	NOFILE	-1	/*  No file specified.				*/
+                        ;#define	CONO	-2	/*  Console output.				*/
+                        ;#define	LST	   -3	/*  List device.				*/
+                        ;/*  Items can have the following attributes:  */
+                        ;#define	ALPHA	0	/*  Alphabetic character.			*/
+                        ;#define	NUMERIC	1	/*  Numeric digit (0-9).			*/
+                        ;#define	END_LIN	2	/*  End-of-Line marker (cr or ;).		*/
+                        ;#define	COMMA	3	/*  Field separator (,).			*/
+                        ;#define	OPERATR	4	/*  Operator (* - GE < ( SHR etc.).		*/
+                        ;#define	BAS_DES	5	/*  Base designator ($ % @).			*/
+                        ;#define	QUOTE	6	/*  String delimiter (" ').			*/
+                        ;#define	TRASH	7
+                        ;#define	VALUE	8	/*  Evaluated expression.			*/
+                        ;#define	BLANK	10	/*  White space (spc tab).			*/
+                        ;#define COLON	12
+                        ;#define HATCH 	13
+                        ;/*  Some tokens for composite operators:  */
+                        ;#define GTTKN		'>'
+                        ;#define EQTKN		'='
+                        ;#define LTTKN		'<'
+                        ;#define	NO_OPR	0	/*  No operator.				*/
+                        ;#define	GRTEQ	1	/*  Greater than or equal to.			*/
+                        ;#define	NOTEQ	2	/*  Not equal to.				*/
+                        ;#define	LESEQ	3	/*  Less than or equal to.			*/
+                        ;#define	AND	4	/*  And.					*/
+                        ;#define	OR	5	/*  Or.						*/
+                        ;#define	XOR	6	/*  Exclusive or.				*/
+                        ;#define	NOT	7	/*  1's complement.				*/
+                        ;#define	MOD	8	/*  Mod--divide and return remainder.		*/
+                        ;#define	SHL	9	/*  Shift left.					*/
+                        ;#define	SHR	10	/*  Shift right.				*/
+                        ;#define	HIGH	11	/*  High byte of.				*/
+                        ;#define	LOW	12	/*  Low byte of.				*/
+                        ;/*  Operator precedence values:  */
+                        ;#define	UOP1	0	/*  Unary +, unary -.				*/
+                        ;#define	MULT	1	/*  *, /, MOD, SHL, SHR.			*/
+                        ;#define	ADDIT	2	/*  Binary +, binary -.				*/
+                        ;#define	RELAT	3	/*  >, =, <, >=, <>, <=.			*/
+                        ;#define	UOP2	4	/*  NOT.					*/
+                        ;#define	LOG1	5	/*  And.					*/
+                        ;#define	LOG2	6	/*  OR, XOR.					*/
+                        ;#define	UOP3	7	/*  HIGH, LOW.					*/
+                        ;#define	RPREN	8	/*  ).						*/
+                        ;#define	LPREN	9	/*  (.						*/
+                        ;#define	ENDEX	10	/*  CR, ;, ,.					*/
+                        ;#define	START	11	/*  Start of expression.			*/
+                        ;/*  Bits of opcode attribute byte.  */
+                        ;#define	PSOP	0x80	/*  Pseudo-op.					*/
+                        ;#define	DIROK	0x40	/*  Non-pseudo-op is OK for direct addressing.	*/
+                        ;#define	IFGROUP	0x40	/*  Pseudo-op is IF, ELSE, ENDI.		*/
+                        ;/*  Address modes for the 9900 instruction set 				*/
+                        ;#define WREG		0
+                        ;#define	INDIRECT 	1
+                        ;#define SYMBOLIC	2
+                        ;#define INDEXED 	3
+                        ;#define AUTOINC		4
+                        ;/*  Misc control chars */
+                        ;#define	LFCHAR	10	/*  Line feed.  NOTE: smallcp compiles '\n' as CR
+                        ;			    (13), so the LF has to be spelled out.  Never use
+                        ;			    '\r' either - smallcp reads it as the letter 'r'.  */
+                        ;#define CPMEOF	0x1A
+                        ;#define CTLS	19	/* Control S for stopping */
+                        ;#define CTLC    0x03	/* Control C aborts */
+                        ;#define NOSORT TRUE	/* Controls whether or not we want the table sorted */
+                        ;#define SORT FALSE
+                        ;#define INTEL8 TRUE    /* Generate Intel 16 or 32 Format */
+                        ;#define FILE char
+                        ;struct diskbuf {
+                        ;	int fd;
+                        ;	unsigned char *pointr;
+                        ;	unsigned char *endpoint;
+                        ;	unsigned char space[BUFSIZE];
+                        ;	FILE *fp;
+                        ;};
+                        ;extern struct diskbuf sorbuf, lstbuf, hexbuf;
+                        ;/*  Set up the symbol table: */
+                        ;struct symbtbl {
+                        ;	char symname[SYMLEN];
+                        ;	unsigned symvalu;
+                        ;	unsigned char symflg;
+                        ;	unsigned char sympad;	/*  keeps the entry EVEN in length - see below  */
+                        ;};
+                        ;/*  sympad is not optional.  Without it an entry is 19 bytes, so every odd
+                        ;    numbered slot starts on an ODD address and symvalu (offset 16) lands on
+                        ;    an odd address too.  The 99105 forces word accesses even, so the store
+                        ;    goes to offset 15/16 instead of 16/17 and wipes symname[15].  The value
+                        ;    reads back consistently, but the name no longer matches, so symcmp fails
+                        ;    and the same symbol gets added twice.  */
+                        ;extern struct symbtbl symtbl[SYMBOLS], *symend, *sympoint;
+                        ;/*  If stack and stack pointer.  */
+                        ;extern unsigned ifsp;
+                        ;extern unsigned ifstack[IFDEPTH + 1];
+                        ;/*  Buffer to hold current line:  */
+                        ;extern char *linptr, linbuf[LINLEN];
+                        ;/*  Buffer to hold the code generated by a line.  */
+                        ;extern unsigned char binbuf[LINLEN], *bptr;
+                        ;extern int nbytes;
+                        ;/*  Buffers for the hex generator.  */
+                        ;extern char chksum, hxbytes, *hxlnptr, hxlnbuf[88];
+                        ;/*  Miscellanious mailboxes:  */
+                        ;extern unsigned char extflg; /*  Indicates external symbol			*/
+                        ;extern unsigned char entflg; /*  Indicates and entry symbol			*/
+                        ;extern unsigned char relflg; /*  Indicates whether inst operand need relocation */
+                        ;extern int errcode; /*  Error records.				*/
+                        ;extern int errcount;
+                        ;extern int evalerr; /*  Flag to tell of error in eval.		*/
+                        ;extern unsigned backflg, oldattr; /*  Item push-back buffer.			*/
+                        ;extern unsigned oldvalu;
+                        ;extern int curdrive; /*  Place to save drive that was current
+                        ; disk when assembly started.		*/
+                        ;extern int hexflg; /*  Flag for asmline to tell hex
+                        ; generator what to do.			*/
+                        ;extern int directok; /*  All symbols on line pre-defined.		*/
+                        ;extern unsigned pc; /*  Assembly program counter.			*/
+                        ;extern unsigned progsize;
+                        ;extern unsigned address; /*  Address to be put into listed line.		*/
+                        ;extern char pass; /*  Which pass the assembly is in.		*/
+                        ;extern char addrmode;
+                        ;extern char quitflag; /*  Used in eval to detect INDEXED expressions  */
+                        ;/*added by [AC]  */
+                        ;extern unsigned char quoteflg;
+                        ;/*-----------
+                        ; rel variables
+                        ; ------------*/
+                        ;extern unsigned char outchunk, /* current output chunk in REL file */
+                        ;outrem, /* remaining bits in outchunk */
+                        ;item, /* current item code */
+                        ;type; /* type field */
+                        ;extern unsigned field; /* current bit field */
+                        ;extern char symbol[SYMLEN], /* current string */
+                        ;progname[SYMLEN]; /* programme module's name */
+                        ;extern unsigned nssymbols;
+                        ;extern unsigned itemflg[3]; /* type of item found in getitem
+                        ; itemflg[0] = current item found
+                        ; itemflg[1] = operand 1 item type
+                        ; itemflg[2] = operand 2 item type
+                        ; */
+                        ;extern unsigned symptr[3]; /* external or entry symbol pointer
+                        ; symptr[0] -> current symbol
+                        ; symptr[1] -> operand 1 symbol
+                        ; symptr[2] -> operand 2 symbol
+                        ; */
+                        ;/* Missing symbols required by overlay modules */
+                        ;extern int err_cnt;
+                        ;extern int loc_ctr;
+                        ;extern int parse_line();
+                        ;extern int emit_code();
+                        ;extern int list_line();
+                        ;/*  Some trivial functions:  */
+                        ;#define	backchr	linptr--		/*  Push back a character.	*/
+                        ;#include "REL99.h"
+                        ;/*
+                        ;** rel.h -- header for REL file processing
+                        ;*/
+                        ;			/* item-type codes */
+                        ;#define ABS       0	/* absolute item */
+                        ;#define PREL      1	/* program (code) relative item */
+                        ;#define DREL      2	/* data relative item */
+                        ;#define CREL      3	/* common relative item */
+                        ;#define ENAME     4	/* entry name */
+                        ;#define CNAME     5	/* common block name */
+                        ;#define PNAME     6	/* program name */
+                        ;#define LNAME     7	/* library name */
+                        ;#define EXT       8	/* extension link-item */
+                        ;#define CSIZE     9	/* common size & name */
+                        ;#define XCHAIN   10	/* external-reference-chain head & name */
+                        ;#define EPOINT   11	/* entry point location & name */
+                        ;#define XMOFF    12	/* external - offset */
+                        ;#define XPOFF    13	/* external + offset */
+                        ;#define DSIZE    14	/* data area size */
+                        ;#define SETLC    15	/* set location counter for loading */
+                        ;#define CHAIN    16	/* chain address (fill chain with loc ctr)  */
+                        ;#define PSIZE    17	/* program (code) size */
+                        ;#define EPROG    18	/* end of program */
+                        ;#define EFILE    19	/* end of file */
+                        ;#define MAXSYM   15	/* maximum symbol length allowed in REL file */
+                        ;#define ONES     0xffff	/* all one bits */
+                        ;/* Extensions used by the current R99 source. */
+                        ;#define BITPSYM          4
+                        ;#define MAXSYM99        15
+                        ;#define AORG_MARK        SETLC
+                        ;#define REL99_EXT_XREFS  "XREFS           "
+                        ;#include "R99Ext.h"
+                        ;/*
+                        ; TMS9900/99105 Cross-Assembler external declarations.
+                        ; Refactored for the Small C 2.2 declaration model.  Small C does not
+                        ; implement ANSI prototypes, so these declarations intentionally carry
+                        ; no parameter lists or return-type promises.
+                        ; */
+                        ;extern setfiles();
+                        ;extern getopr();
+                        ;extern getopc();
+                        ;extern getopcod();
+                        ;extern getattr();
+                        ;extern entnam();
+                        ;extern putlin();
+                        ;extern ishex();
+                        ;extern _aton();
+                        ;extern putbits();
+                        ;extern getchr();
+                        ;extern putchr();
+                        ;extern putbyt();
+                        ;extern putrchr();
+                        ;extern rputchr();
+                        ;extern slookup();
+                        ;extern addsym();
+                        ;extern sortsym();
+                        ;extern _psop();
+                        ;extern _normop();
+                        ;extern getname();
+                        ;extern symcmp();
+                        ;extern asmline();
+                        ;extern getitem();
+                        ;extern getlin();
+                        ;extern source_rewind();
+                        ;extern include_source();
+                        ;extern push_source();
+                        ;extern close_includes();
+                        ;extern wipeout();
+                        ;extern puthex2();
+                        ;extern puthex4();
+                        ;extern putdec();
+                        ;extern getprec();
+                        ;extern markerr();
+                        ;extern hash();
+                        ;extern toupper();
+                        ;extern putabs2();
+                        ;extern putabs();
+                        ;extern eval();
+                        ;extern chkoprat();
+                        ;extern flush();
+                        ;extern gflush();
+                        ;extern rflush();
+                        ;extern getnum();
+                        ;extern relsyms();
+                        ;extern putrel();
+                        ;extern putfld();
+                        ;extern putsym();
+                        ;extern xref_add();
+                        ;extern xref_reset();
+                        ;extern xref_emit();
+                        ;extern lineout();
+                        ;extern relout();
+                        ;extern relhead();
+                        ;extern backitem();
+                        ;extern bbsearch();
+                        ;extern numopcs();
+                        ;extern numoprs();
+                        ;extern movchr();
+                        ;extern seek();
+                        ;extern flushlin();
+                        ;extern puts2();
+                        ;extern puts3();
+                        ;extern putls();
+                        ;extern cant();
+                        ;extern error2();
+                        ;extern error();
+                        ;#define NO 0
+                        ;#define YES 1
+                        ;#define NULL 0
+                        ;#define ERR -1
+                        ;/* ==========================================================================
+                        ; * Explicit external-reference accumulator (XREFS scheme - see rel99.h).
+                        ; *
+                        ; * Every reference to an EXT symbol records (symbol, module-relative location)
+                        ; * here during pass 2; at END the grouped list is emitted by xref_emit() as:
+                        ; *     EXT "XREFS" / XCHAIN <count>,<name> / CHAIN <loc> * count
+                        ; * The reference word itself is left as ABS 0 in the object; the linker
+                        ; * patches each recorded location with the symbol's final absolute address.
+                        ; * ======================================================================== */
+                        ;struct xrefent {
+                        ;	char           name[SYMLEN];
+                        ;	unsigned loc;
+                        ;};
+                        ;struct xrefent xreftab[MAXXREF];
+  0000                  	EVEN
+  0000                  xreftab:	BSS 72
+                        ;int      nxref;
+  0048                  nxref:	BSS 2
+                        ;/* Called at the start of each module's object output (relhead). */
+                        ;xref_reset() {
+  004A                  	EVEN
+                        xref_reset:
+                        ;modstk(newsp,save)
+                        ;	nxref = 0;
+                        ;modstk(newsp,save)
+                        ;const1(val)
+  004A   04C4           	CLR R4
+                        ;putmem(sym)
+  004C   C804 0048      	MOV R4,@nxref
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0050   2DC0           	RET
+                        ;/* Record one reference site.  name is the SYMLEN space-padded symbol name;
+                        ; * loc is the module program-counter location of the operand word. */
+                        ;xref_add(name, loc)
+  0052                  	EVEN
+                        xref_add:
+                        ;char *name;
+                        ;unsigned loc;
+                        ;{
+                        ;	if (nxref >= MAXXREF) {
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0052   C120 0048      	MOV @nxref,R4
+                        ;zpush()
+  0056   C0C4           	MOV R4,R3 ;optimised push/pop
+  0058   0204 0004      	LI R4,4
+                        ;_ccge
+  005C   8103           	C R3,R4 ;optimised
+  005E   1503           	JGT $+8
+  0060   1302           	JEQ $+6
+  0062   0460 0084      	B @cc3
+                        ;		putls("\nXREF table overflow.\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0066   0204 00FA      	LI R4,cc2+0
+                        ;zpush()
+  006A   064A           	DECT SP
+  006C   C684           	MOV R4,*SP
+                        ;zcall()
+  006E   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0072   05CA           	INCT SP
+                        ;		wipeout("\n");
+                        ;constant(lval)
+  0074   0204 0111      	LI R4,cc2+23
+                        ;zpush()
+  0078   064A           	DECT SP
+  007A   C684           	MOV R4,*SP
+                        ;zcall()
+  007C   2DA0 0000      	CALL @wipeout
+                        ;modstk(newsp,save)
+  0080   05CA           	INCT SP
+                        ;		return;
+                        ;modstk(newsp,save)
+  0082   2DC0           	RET
+                        ;	}
+                        ;	memcpy(xreftab[nxref].name, name, SYMLEN);
+                        cc3:
+                        ;address(ptr)
+  0084   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  0088   064A           	DECT SP
+  008A   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  008C   C120 0048      	MOV @nxref,R4
+                        ;scale(type,tag)
+  0090   064A           	DECT SP
+  0092   C683           	MOV R3,*SP
+                        ;const2(val)
+  0094   0203 0012      	LI R3,18
+  0098   06A0 0000      	BL @_ccmult##
+  009C   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  009E   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  00A0   A103           	A R3,R4
+                        ;zpush()
+  00A2   064A           	DECT SP
+  00A4   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  00A6   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;zpush()
+  00AA   064A           	DECT SP
+  00AC   C684           	MOV R4,*SP
+                        ;const1(val)
+  00AE   0204 0010      	LI R4,16
+                        ;zpush()
+  00B2   064A           	DECT SP
+  00B4   C684           	MOV R4,*SP
+                        ;zcall()
+  00B6   2DA0 0000      	CALL @memcpy
+                        ;modstk(newsp,save)
+  00BA   022A 0006      	AI SP,6
+                        ;	xreftab[nxref].loc = loc;
+                        ;address(ptr)
+  00BE   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  00C2   064A           	DECT SP
+  00C4   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  00C6   C120 0048      	MOV @nxref,R4
+                        ;scale(type,tag)
+  00CA   064A           	DECT SP
+  00CC   C683           	MOV R3,*SP
+                        ;const2(val)
+  00CE   0203 0012      	LI R3,18
+  00D2   06A0 0000      	BL @_ccmult##
+  00D6   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  00D8   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  00DA   A103           	A R3,R4
+                        ;const2(val)
+  00DC   0203 0010      	LI R3,16
+                        ;	zadd()
+  00E0   A103           	A R3,R4
+                        ;zpush()
+  00E2   064A           	DECT SP
+  00E4   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  00E6   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;zpop()
+  00EA   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  00EC   C4C4           	MOV R4,*R3
+                        ;	++nxref;
+                        ;getmem(sym)
+  00EE   C120 0048      	MOV @nxref,R4
+                        ;inc()
+  00F2   0584           	INC R4
+                        ;putmem(sym)
+  00F4   C804 0048      	MOV R4,@nxref
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  00F8   2DC0           	RET
+  00FA   0D58 5245      cc2:	BYTE 13,88,82,69,70,32,116,97,98,108,101,32
+  00FE   4620 7461      
+  0102   626C 6520      
+  0106   6F76 6572      	BYTE 111,118,101,114,102,108,111,119,46,13,0,13
+  010A   666C 6F77      
+  010E   2E0D 000D      
+  0112   00             	BYTE 0
+  0113   00             	EVEN
+                        ;/* Emit one EXT "XREFS" + XCHAIN(count,name) + CHAIN(loc)* group. */
+                        ;xref_group(first)
+  0114                  	EVEN
+                        xref_group:
+                        ;int first;
+                        ;{
+                        ;	int j, count;
+                        ;	count = 0;
+                        ;modstk(newsp,save)
+  0114   022A FFFC      	AI SP,-4
+                        ;const1(val)
+  0118   04C4           	CLR R4
+                        ;puttos()
+  011A   C684           	MOV R4,*SP
+                        ;	for (j = first; j < nxref; ++j)
+                        ;getloc(sym, off)
+  011C   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;put2tos()
+  0120   CA84 0002      	MOV R4,@2(SP)
+                        cc7:
+                        ;getloc(sym, off)
+  0124   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  0128   C0C4           	MOV R4,R3 ;optimised push/pop
+  012A   C120 0048      	MOV @nxref,R4
+                        ;_cclt
+  012E   8103           	C R3,R4 ;optimised
+  0130   1102           	JLT $+6
+  0132   0460 0204      	B @cc6
+                        ;jump(label)
+  0136   0460 0150      	B @cc8
+                        cc5:
+                        ;getloc(sym, off)
+  013A   0204 0002      	LI R4,2
+  013E   A10A           	A SP,R4
+                        ;zpush()
+  0140   064A           	DECT SP
+  0142   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0144   C114           	MOV *R4,R4
+                        ;inc()
+  0146   0584           	INC R4
+                        ;zpop()
+  0148   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  014A   C4C4           	MOV R4,*R3
+                        ;jump(label)
+  014C   0460 0124      	B @cc7
+                        cc8:
+                        ;		if (!(xreftab[j].name[0] & 0x80) &&
+                        ;address(ptr)
+  0150   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  0154   064A           	DECT SP
+  0156   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0158   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  015C   064A           	DECT SP
+  015E   C683           	MOV R3,*SP
+                        ;const2(val)
+  0160   0203 0012      	LI R3,18
+  0164   06A0 0000      	BL @_ccmult##
+  0168   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  016A   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  016C   A103           	A R3,R4
+                        ;indirect ccgchar
+  016E   D114           	MOVB *R4,R4
+  0170   0884           	SRA R4,8
+                        ;zpush()
+  0172   C0C4           	MOV R4,R3 ;optimised push/pop
+  0174   0204 0080      	LI R4,128
+                        ;zand()
+  0178   0543           	INV R3
+  017A   4103           	SZC R3,R4
+  017C   06A0 0000      	BL @_cclneg##
+  0180   C104           	MOV R4,R4
+  0182   1602           	JNE $+6
+  0184   0460 01E8      	B @cc10
+                        ;		    !symcmp(xreftab[j].name, xreftab[first].name))
+                        ;address(ptr)
+  0188   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  018C   064A           	DECT SP
+  018E   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0190   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  0194   064A           	DECT SP
+  0196   C683           	MOV R3,*SP
+                        ;const2(val)
+  0198   0203 0012      	LI R3,18
+  019C   06A0 0000      	BL @_ccmult##
+  01A0   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  01A2   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  01A4   A103           	A R3,R4
+                        ;zpush()
+  01A6   064A           	DECT SP
+  01A8   C684           	MOV R4,*SP
+                        ;address(ptr)
+  01AA   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  01AE   064A           	DECT SP
+  01B0   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  01B2   C12A 000A      	MOV @10(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  01B6   064A           	DECT SP
+  01B8   C683           	MOV R3,*SP
+                        ;const2(val)
+  01BA   0203 0012      	LI R3,18
+  01BE   06A0 0000      	BL @_ccmult##
+  01C2   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  01C4   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  01C6   A103           	A R3,R4
+                        ;zpush()
+  01C8   064A           	DECT SP
+  01CA   C684           	MOV R4,*SP
+                        ;zcall()
+  01CC   2DA0 0000      	CALL @symcmp
+                        ;modstk(newsp,save)
+  01D0   022A 0004      	AI SP,4
+  01D4   06A0 0000      	BL @_cclneg##
+  01D8   C104           	MOV R4,R4
+  01DA   1602           	JNE $+6
+  01DC   0460 01E8      	B @cc10
+                        ;const1(val)
+  01E0   0204 0001      	LI R4,1
+                        ;jump(label)
+  01E4   0460 01EA      	B @cc11
+                        cc10:
+                        ;const1(val)
+  01E8   04C4           	CLR R4
+                        cc11:
+  01EA   C104           	MOV R4,R4
+  01EC   1602           	JNE $+6
+  01EE   0460 0200      	B @cc9
+                        ;			++count;
+                        ;getloc(sym, off)
+  01F2   C10A           	MOV SP,R4
+                        ;zpush()
+  01F4   064A           	DECT SP
+  01F6   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  01F8   C114           	MOV *R4,R4
+                        ;inc()
+  01FA   0584           	INC R4
+                        ;zpop()
+  01FC   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  01FE   C4C4           	MOV R4,*R3
+                        ;	item = EXT;                        /* EXT "XREFS" marker */
+                        cc9:
+                        ;jump(label)
+  0200   0460 013A      	B @cc5
+                        cc6:
+                        ;const1(val)
+  0204   0204 0008      	LI R4,8
+                        ;putmem(sym)
+  0208   D82D 0009      	MOVB @2*R4+1(WP),@item
+  020C   0000           
+                        ;	memcpy(symbol, REL99_EXT_XREFS, SYMLEN);
+                        ;address(ptr)
+  020E   0204 0000      	LI R4,symbol
+                        ;zpush()
+  0212   064A           	DECT SP
+  0214   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0216   0204 03DA      	LI R4,cc4+0
+                        ;zpush()
+  021A   064A           	DECT SP
+  021C   C684           	MOV R4,*SP
+                        ;const1(val)
+  021E   0204 0010      	LI R4,16
+                        ;zpush()
+  0222   064A           	DECT SP
+  0224   C684           	MOV R4,*SP
+                        ;zcall()
+  0226   2DA0 0000      	CALL @memcpy
+                        ;modstk(newsp,save)
+  022A   022A 0006      	AI SP,6
+                        ;	putrel();
+                        ;zcall()
+  022E   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;	item  = XCHAIN;                    /* header: field = count, symbol = name */
+                        ;const1(val)
+  0232   0204 000A      	LI R4,10
+                        ;putmem(sym)
+  0236   D82D 0009      	MOVB @2*R4+1(WP),@item
+  023A   0000           
+                        ;	type  = ABS;
+                        ;const1(val)
+  023C   04C4           	CLR R4
+                        ;putmem(sym)
+  023E   D82D 0009      	MOVB @2*R4+1(WP),@type
+  0242   0000           
+                        ;	field = count;
+                        ;getloc(sym, off)
+  0244   C11A           	MOV *SP,R4 ;optimised load
+                        ;putmem(sym)
+  0246   C804 0000      	MOV R4,@field
+                        ;	memcpy(symbol, xreftab[first].name, SYMLEN);
+                        ;address(ptr)
+  024A   0204 0000      	LI R4,symbol
+                        ;zpush()
+  024E   064A           	DECT SP
+  0250   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0252   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  0256   064A           	DECT SP
+  0258   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  025A   C12A 000A      	MOV @10(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  025E   064A           	DECT SP
+  0260   C683           	MOV R3,*SP
+                        ;const2(val)
+  0262   0203 0012      	LI R3,18
+  0266   06A0 0000      	BL @_ccmult##
+  026A   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  026C   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  026E   A103           	A R3,R4
+                        ;zpush()
+  0270   064A           	DECT SP
+  0272   C684           	MOV R4,*SP
+                        ;const1(val)
+  0274   0204 0010      	LI R4,16
+                        ;zpush()
+  0278   064A           	DECT SP
+  027A   C684           	MOV R4,*SP
+                        ;zcall()
+  027C   2DA0 0000      	CALL @memcpy
+                        ;modstk(newsp,save)
+  0280   022A 0006      	AI SP,6
+                        ;	putrel();
+                        ;zcall()
+  0284   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;	for (j = first; j < nxref; ++j) {  /* one CHAIN item per location */
+                        ;getloc(sym, off)
+  0288   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;put2tos()
+  028C   CA84 0002      	MOV R4,@2(SP)
+                        cc14:
+                        ;getloc(sym, off)
+  0290   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  0294   C0C4           	MOV R4,R3 ;optimised push/pop
+  0296   C120 0048      	MOV @nxref,R4
+                        ;_cclt
+  029A   8103           	C R3,R4 ;optimised
+  029C   1102           	JLT $+6
+  029E   0460 03D4      	B @cc13
+                        ;jump(label)
+  02A2   0460 02BC      	B @cc15
+                        cc12:
+                        ;getloc(sym, off)
+  02A6   0204 0002      	LI R4,2
+  02AA   A10A           	A SP,R4
+                        ;zpush()
+  02AC   064A           	DECT SP
+  02AE   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  02B0   C114           	MOV *R4,R4
+                        ;inc()
+  02B2   0584           	INC R4
+                        ;zpop()
+  02B4   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  02B6   C4C4           	MOV R4,*R3
+                        ;jump(label)
+  02B8   0460 0290      	B @cc14
+                        cc15:
+                        ;		if ((xreftab[j].name[0] & 0x80) ||
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  02BC   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  02C0   064A           	DECT SP
+  02C2   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  02C4   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  02C8   064A           	DECT SP
+  02CA   C683           	MOV R3,*SP
+                        ;const2(val)
+  02CC   0203 0012      	LI R3,18
+  02D0   06A0 0000      	BL @_ccmult##
+  02D4   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  02D6   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  02D8   A103           	A R3,R4
+                        ;indirect ccgchar
+  02DA   D114           	MOVB *R4,R4
+  02DC   0884           	SRA R4,8
+                        ;zpush()
+  02DE   C0C4           	MOV R4,R3 ;optimised push/pop
+  02E0   0204 0080      	LI R4,128
+                        ;zand()
+  02E4   0543           	INV R3
+  02E6   4103           	SZC R3,R4
+                        ;eq0(label)
+  02E8   C104           	MOV R4,R4
+  02EA   1302           	JEQ $+6
+  02EC   0460 034A      	B @cc17
+                        ;		    symcmp(xreftab[j].name, xreftab[first].name))
+                        ;address(ptr)
+  02F0   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  02F4   064A           	DECT SP
+  02F6   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  02F8   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  02FC   064A           	DECT SP
+  02FE   C683           	MOV R3,*SP
+                        ;const2(val)
+  0300   0203 0012      	LI R3,18
+  0304   06A0 0000      	BL @_ccmult##
+  0308   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  030A   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  030C   A103           	A R3,R4
+                        ;zpush()
+  030E   064A           	DECT SP
+  0310   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0312   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  0316   064A           	DECT SP
+  0318   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  031A   C12A 000A      	MOV @10(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  031E   064A           	DECT SP
+  0320   C683           	MOV R3,*SP
+                        ;const2(val)
+  0322   0203 0012      	LI R3,18
+  0326   06A0 0000      	BL @_ccmult##
+  032A   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  032C   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  032E   A103           	A R3,R4
+                        ;zpush()
+  0330   064A           	DECT SP
+  0332   C684           	MOV R4,*SP
+                        ;zcall()
+  0334   2DA0 0000      	CALL @symcmp
+                        ;modstk(newsp,save)
+  0338   022A 0004      	AI SP,4
+                        ;eq0(label)
+  033C   C104           	MOV R4,R4
+  033E   1302           	JEQ $+6
+  0340   0460 034A      	B @cc17
+                        ;const1(val)
+  0344   04C4           	CLR R4
+                        ;jump(label)
+  0346   0460 034E      	B @cc18
+                        cc17:
+                        ;const1(val)
+  034A   0204 0001      	LI R4,1
+                        cc18:
+  034E   C104           	MOV R4,R4
+  0350   1602           	JNE $+6
+  0352   0460 035A      	B @cc16
+                        ;			continue;
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0356   0460 02A6      	B @cc12
+                        ;		xreftab[j].name[0] |= 0x80;
+                        cc16:
+                        ;address(ptr)
+  035A   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  035E   064A           	DECT SP
+  0360   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0362   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  0366   064A           	DECT SP
+  0368   C683           	MOV R3,*SP
+                        ;const2(val)
+  036A   0203 0012      	LI R3,18
+  036E   06A0 0000      	BL @_ccmult##
+  0372   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  0374   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0376   A103           	A R3,R4
+                        ;zpush()
+  0378   064A           	DECT SP
+  037A   C684           	MOV R4,*SP
+                        ;indirect ccgchar
+  037C   D114           	MOVB *R4,R4
+  037E   0884           	SRA R4,8
+                        ;zpush()
+  0380   C0C4           	MOV R4,R3 ;optimised push/pop
+  0382   0204 0080      	LI R4,128
+                        ;zor()
+  0386   E103           	SOC R3,R4
+                        ;zpop()
+  0388   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  038A   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;		item  = CHAIN;
+                        ;const1(val)
+  038E   0204 0010      	LI R4,16
+                        ;putmem(sym)
+  0392   D82D 0009      	MOVB @2*R4+1(WP),@item
+  0396   0000           
+                        ;		type  = PREL;
+                        ;const1(val)
+  0398   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  039C   D82D 0009      	MOVB @2*R4+1(WP),@type
+  03A0   0000           
+                        ;		field = xreftab[j].loc;
+                        ;address(ptr)
+  03A2   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  03A6   064A           	DECT SP
+  03A8   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  03AA   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  03AE   064A           	DECT SP
+  03B0   C683           	MOV R3,*SP
+                        ;const2(val)
+  03B2   0203 0012      	LI R3,18
+  03B6   06A0 0000      	BL @_ccmult##
+  03BA   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  03BC   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  03BE   A103           	A R3,R4
+                        ;const2(val)
+  03C0   0203 0010      	LI R3,16
+                        ;	zadd()
+  03C4   A103           	A R3,R4
+                        ;indirect ccgint
+  03C6   C114           	MOV *R4,R4
+                        ;putmem(sym)
+  03C8   C804 0000      	MOV R4,@field
+                        ;		putrel();
+                        ;zcall()
+  03CC   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;	}
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  03D0   0460 02A6      	B @cc12
+                        cc13:
+                        ;}
+                        ;modstk(newsp,save)
+  03D4   022A 0004      	AI SP,4
+                        ;modstk(newsp,save)
+  03D8   2DC0           	RET
+  03DA   5852 4546      cc4:	BYTE 88,82,69,70,83,32,32,32,32,32,32,32
+  03DE   5320 2020      
+  03E2   2020 2020      
+  03E6   2020 2020      	BYTE 32,32,32,32,0
+  03EA   00             
+  03EB   00             	EVEN
+                        ;/* Emit every accumulated group.  Called from relsyms() at END, pass 2. */
+                        ;xref_emit() {
+  03EC                  	EVEN
+                        xref_emit:
+                        ;	int i;
+                        ;	if (pass < 2)
+                        ;modstk(newsp,save)
+  03EC   064A           	DECT SP
+                        ;getmem(sym)
+  03EE   D120 0000      	MOVB @pass,R4
+  03F2   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  03F4   C0C4           	MOV R4,R3 ;optimised push/pop
+  03F6   0204 0002      	LI R4,2
+                        ;_cclt
+  03FA   8103           	C R3,R4 ;optimised
+  03FC   1102           	JLT $+6
+  03FE   0460 0406      	B @cc20
+                        ;		return;
+                        ;modstk(newsp,save)
+  0402   05CA           	INCT SP
+  0404   2DC0           	RET
+                        ;	for (i = 0; i < nxref; ++i)
+                        cc20:
+                        ;const1(val)
+  0406   04C4           	CLR R4
+                        ;puttos()
+  0408   C684           	MOV R4,*SP
+                        cc23:
+                        ;getloc(sym, off)
+  040A   C11A           	MOV *SP,R4 ;optimised load
+                        ;zpush()
+  040C   C0C4           	MOV R4,R3 ;optimised push/pop
+  040E   C120 0048      	MOV @nxref,R4
+                        ;_cclt
+  0412   8103           	C R3,R4 ;optimised
+  0414   1102           	JLT $+6
+  0416   0460 046A      	B @cc22
+                        ;jump(label)
+  041A   0460 0430      	B @cc24
+                        cc21:
+                        ;getloc(sym, off)
+  041E   C10A           	MOV SP,R4
+                        ;zpush()
+  0420   064A           	DECT SP
+  0422   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0424   C114           	MOV *R4,R4
+                        ;inc()
+  0426   0584           	INC R4
+                        ;zpop()
+  0428   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  042A   C4C4           	MOV R4,*R3
+                        ;jump(label)
+  042C   0460 040A      	B @cc23
+                        cc24:
+                        ;		xreftab[i].name[0] &= 0x7f;
+                        ;address(ptr)
+  0430   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  0434   064A           	DECT SP
+  0436   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0438   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  043C   064A           	DECT SP
+  043E   C683           	MOV R3,*SP
+                        ;const2(val)
+  0440   0203 0012      	LI R3,18
+  0444   06A0 0000      	BL @_ccmult##
+  0448   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  044A   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  044C   A103           	A R3,R4
+                        ;zpush()
+  044E   064A           	DECT SP
+  0450   C684           	MOV R4,*SP
+                        ;indirect ccgchar
+  0452   D114           	MOVB *R4,R4
+  0454   0884           	SRA R4,8
+                        ;zpush()
+  0456   C0C4           	MOV R4,R3 ;optimised push/pop
+  0458   0204 007F      	LI R4,127
+                        ;zand()
+  045C   0543           	INV R3
+  045E   4103           	SZC R3,R4
+                        ;zpop()
+  0460   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0462   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;jump(label)
+  0466   0460 041E      	B @cc21
+                        cc22:
+                        ;	for (i = 0; i < nxref; ++i)
+                        ;const1(val)
+  046A   04C4           	CLR R4
+                        ;puttos()
+  046C   C684           	MOV R4,*SP
+                        cc27:
+                        ;getloc(sym, off)
+  046E   C11A           	MOV *SP,R4 ;optimised load
+                        ;zpush()
+  0470   C0C4           	MOV R4,R3 ;optimised push/pop
+  0472   C120 0048      	MOV @nxref,R4
+                        ;_cclt
+  0476   8103           	C R3,R4 ;optimised
+  0478   1102           	JLT $+6
+  047A   0460 04DC      	B @cc26
+                        ;jump(label)
+  047E   0460 0494      	B @cc28
+                        cc25:
+                        ;getloc(sym, off)
+  0482   C10A           	MOV SP,R4
+                        ;zpush()
+  0484   064A           	DECT SP
+  0486   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0488   C114           	MOV *R4,R4
+                        ;inc()
+  048A   0584           	INC R4
+                        ;zpop()
+  048C   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  048E   C4C4           	MOV R4,*R3
+                        ;jump(label)
+  0490   0460 046E      	B @cc27
+                        cc28:
+                        ;		if (!(xreftab[i].name[0] & 0x80))
+                        ;address(ptr)
+  0494   0204 0000      	LI R4,xreftab
+                        ;zpush()
+  0498   064A           	DECT SP
+  049A   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  049C   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  04A0   064A           	DECT SP
+  04A2   C683           	MOV R3,*SP
+                        ;const2(val)
+  04A4   0203 0012      	LI R3,18
+  04A8   06A0 0000      	BL @_ccmult##
+  04AC   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  04AE   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  04B0   A103           	A R3,R4
+                        ;indirect ccgchar
+  04B2   D114           	MOVB *R4,R4
+  04B4   0884           	SRA R4,8
+                        ;zpush()
+  04B6   C0C4           	MOV R4,R3 ;optimised push/pop
+  04B8   0204 0080      	LI R4,128
+                        ;zand()
+  04BC   0543           	INV R3
+  04BE   4103           	SZC R3,R4
+  04C0   06A0 0000      	BL @_cclneg##
+  04C4   C104           	MOV R4,R4
+  04C6   1602           	JNE $+6
+  04C8   0460 04D8      	B @cc29
+                        ;			xref_group(i);
+                        ;getloc(sym, off)
+  04CC   C11A           	MOV *SP,R4 ;optimised load
+                        ;zpush()
+  04CE   064A           	DECT SP
+  04D0   C684           	MOV R4,*SP
+                        ;zcall()
+  04D2   2DA0 0114      	CALL @xref_group
+                        ;modstk(newsp,save)
+  04D6   05CA           	INCT SP
+                        ;}
+                        cc29:
+                        ;jump(label)
+  04D8   0460 0482      	B @cc25
+                        cc26:
+                        ;modstk(newsp,save)
+  04DC   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  04DE   2DC0           	RET
+                        ;/*
+                        ; Function to form the hex output line and put it to
+                        ; the hex output device.
+                        ; */
+                        ;relout()
+  04E0                  	EVEN
+                        relout:
+                        ;{
+                        ;	char count, count2, *bptr, code, tflg, *sptr;
+                        ;	if (pass < 2)
+                        ;modstk(newsp,save)
+  04E0   022A FFF4      	AI SP,-12
+                        ;getmem(sym)
+  04E4   D120 0000      	MOVB @pass,R4
+  04E8   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  04EA   C0C4           	MOV R4,R3 ;optimised push/pop
+  04EC   0204 0002      	LI R4,2
+                        ;_cclt
+  04F0   8103           	C R3,R4 ;optimised
+  04F2   1102           	JLT $+6
+  04F4   0460 0502      	B @cc31
+                        ;		return (YES);
+                        ;const1(val)
+  04F8   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  04FC   022A 000C      	AI SP,12
+  0500   2DC0           	RET
+                        ;	switch (hexflg) {
+                        cc31:
+                        ;getmem(sym)
+  0502   C120 0000      	MOV @hexflg,R4
+                        ;jump(label)
+  0506   0460 06D4      	B @cc34
+                        ;	case PUTCODE:
+                        ;modstk(newsp,save)
+                        cc35:
+                        ;		/*	bptr = binbuf; */
+                        ;		return YES;
+                        ;const1(val)
+  050A   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  050E   022A 000C      	AI SP,12
+  0512   2DC0           	RET
+                        ;		for (count = 0; count < nbytes; count++) {
+                        ;getloc(sym, off)
+                        ;Char offset
+  0514   0204 000B      	LI R4,11
+  0518   A10A           	A SP,R4
+                        ;zpush()
+  051A   C0C4           	MOV R4,R3 ;optimised push/pop
+  051C   04C4           	CLR R4
+                        ;putstk - char
+  051E   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        cc38:
+                        ;getloc(sym, off)
+                        ;Char offset
+  0522   D12A 000B      	MOVB @11(SP),R4 ;optimised load
+  0526   0884           	SRA R4,8
+                        ;zpush()
+  0528   C0C4           	MOV R4,R3 ;optimised push/pop
+  052A   C120 0000      	MOV @nbytes,R4
+                        ;_cclt
+  052E   8103           	C R3,R4 ;optimised
+  0530   1102           	JLT $+6
+  0532   0460 069A      	B @cc37
+                        ;jump(label)
+  0536   0460 0556      	B @cc39
+                        cc36:
+                        ;getloc(sym, off)
+                        ;Char offset
+  053A   0204 000B      	LI R4,11
+  053E   A10A           	A SP,R4
+                        ;zpush()
+  0540   064A           	DECT SP
+  0542   C684           	MOV R4,*SP
+                        ;indirect ccgchar
+  0544   D114           	MOVB *R4,R4
+  0546   0884           	SRA R4,8
+                        ;inc()
+  0548   0584           	INC R4
+                        ;zpop()
+  054A   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  054C   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	dec()
+  0550   0604           	DEC R4
+                        ;jump(label)
+  0552   0460 0522      	B @cc38
+                        cc39:
+                        ;			tflg = itemflg[count]; /* r only detected */
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+                        ;Char offset
+  0556   0204 0003      	LI R4,3
+  055A   A10A           	A SP,R4
+                        ;zpush()
+  055C   064A           	DECT SP
+  055E   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0560   0204 0000      	LI R4,itemflg
+                        ;zpush()
+  0564   064A           	DECT SP
+  0566   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0568   D12A 000F      	MOVB @15(SP),R4 ;optimised load
+  056C   0884           	SRA R4,8
+                        ;scale(type,tag)
+                        ;	doublereg()
+  056E   A104           	A R4,R4
+                        ;zpop()
+  0570   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0572   A103           	A R3,R4
+                        ;indirect ccgint
+  0574   C114           	MOV *R4,R4
+                        ;zpop()
+  0576   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0578   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;			sptr = symptr[count];
+                        ;address(ptr)
+  057C   0204 0000      	LI R4,symptr
+                        ;zpush()
+  0580   064A           	DECT SP
+  0582   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0584   D12A 000D      	MOVB @13(SP),R4 ;optimised load
+  0588   0884           	SRA R4,8
+                        ;scale(type,tag)
+                        ;	doublereg()
+  058A   A104           	A R4,R4
+                        ;zpop()
+  058C   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  058E   A103           	A R3,R4
+                        ;indirect ccgint
+  0590   C114           	MOV *R4,R4
+                        ;puttos()
+  0592   C684           	MOV R4,*SP
+                        ;			itemflg[count] = '\0'; /* zero again */
+                        ;address(ptr)
+  0594   0204 0000      	LI R4,itemflg
+                        ;zpush()
+  0598   064A           	DECT SP
+  059A   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  059C   D12A 000D      	MOVB @13(SP),R4 ;optimised load
+  05A0   0884           	SRA R4,8
+                        ;scale(type,tag)
+                        ;	doublereg()
+  05A2   A104           	A R4,R4
+                        ;zpop()
+  05A4   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  05A6   A103           	A R3,R4
+                        ;zpush()
+  05A8   C0C4           	MOV R4,R3 ;optimised push/pop
+  05AA   04C4           	CLR R4
+                        ;putstk - int
+  05AC   C4C4           	MOV R4,*R3
+                        ;			/*	puthex2(*bptr++,&hxlnptr); */
+                        ;			/*	item = ABS; *//* put out opcode */
+                        ;			/*	field = *bptr++; */
+                        ;			/*	putrel();*/
+                        ;			/*	if ( tflg & RELBIT ){
+                        ;			 item = PREL;
+                        ;			 field = *bptr++;
+                        ;			 putrel();
+                        ;			 count++;
+                        ;			 }
+                        ;			 */
+                        ;			if (tflg & EXTBIT) {
+                        ;getloc(sym, off)
+                        ;Char offset
+  05AE   D12A 0003      	MOVB @3(SP),R4 ;optimised load
+  05B2   0884           	SRA R4,8
+                        ;zpush()
+  05B4   C0C4           	MOV R4,R3 ;optimised push/pop
+  05B6   0204 0008      	LI R4,8
+                        ;zand()
+  05BA   0543           	INV R3
+  05BC   4103           	SZC R3,R4
+  05BE   C104           	MOV R4,R4
+  05C0   1602           	JNE $+6
+  05C2   0460 0696      	B @cc40
+                        ;				hxlnptr = puthex2(*bptr++, hxlnptr); /* put out lsb of word */
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  05C6   0204 0006      	LI R4,6
+  05CA   A10A           	A SP,R4
+                        ;zpush()
+  05CC   064A           	DECT SP
+  05CE   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  05D0   C114           	MOV *R4,R4
+                        ;inc()
+  05D2   0584           	INC R4
+                        ;zpop()
+  05D4   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  05D6   C4C4           	MOV R4,*R3
+                        ;	dec()
+  05D8   0604           	DEC R4
+                        ;indirect ccgchar
+  05DA   D114           	MOVB *R4,R4
+  05DC   0884           	SRA R4,8
+                        ;zpush()
+  05DE   064A           	DECT SP
+  05E0   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  05E2   C120 0000      	MOV @hxlnptr,R4
+                        ;zpush()
+  05E6   064A           	DECT SP
+  05E8   C684           	MOV R4,*SP
+                        ;zcall()
+  05EA   2DA0 0000      	CALL @puthex2
+                        ;modstk(newsp,save)
+  05EE   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  05F2   C804 0000      	MOV R4,@hxlnptr
+                        ;				count++;
+                        ;getloc(sym, off)
+                        ;Char offset
+  05F6   0204 000B      	LI R4,11
+  05FA   A10A           	A SP,R4
+                        ;zpush()
+  05FC   064A           	DECT SP
+  05FE   C684           	MOV R4,*SP
+                        ;indirect ccgchar
+  0600   D114           	MOVB *R4,R4
+  0602   0884           	SRA R4,8
+                        ;inc()
+  0604   0584           	INC R4
+                        ;zpop()
+  0606   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0608   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	dec()
+  060C   0604           	DEC R4
+                        ;				for (count2 = 0; count2 < SYMLEN; count2++)
+                        ;getloc(sym, off)
+                        ;Char offset
+  060E   0204 0009      	LI R4,9
+  0612   A10A           	A SP,R4
+                        ;zpush()
+  0614   C0C4           	MOV R4,R3 ;optimised push/pop
+  0616   04C4           	CLR R4
+                        ;putstk - char
+  0618   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        cc43:
+                        ;getloc(sym, off)
+                        ;Char offset
+  061C   D12A 0009      	MOVB @9(SP),R4 ;optimised load
+  0620   0884           	SRA R4,8
+                        ;zpush()
+  0622   C0C4           	MOV R4,R3 ;optimised push/pop
+  0624   0204 0010      	LI R4,16
+                        ;_cclt
+  0628   8103           	C R3,R4 ;optimised
+  062A   1102           	JLT $+6
+  062C   0460 0680      	B @cc42
+                        ;jump(label)
+  0630   0460 0650      	B @cc44
+                        cc41:
+                        ;getloc(sym, off)
+                        ;Char offset
+  0634   0204 0009      	LI R4,9
+  0638   A10A           	A SP,R4
+                        ;zpush()
+  063A   064A           	DECT SP
+  063C   C684           	MOV R4,*SP
+                        ;indirect ccgchar
+  063E   D114           	MOVB *R4,R4
+  0640   0884           	SRA R4,8
+                        ;inc()
+  0642   0584           	INC R4
+                        ;zpop()
+  0644   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0646   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	dec()
+  064A   0604           	DEC R4
+                        ;jump(label)
+  064C   0460 061C      	B @cc43
+                        cc44:
+                        ;					hxlnptr = puthex2(*sptr++, hxlnptr);
+                        ;getloc(sym, off)
+  0650   C10A           	MOV SP,R4
+                        ;zpush()
+  0652   064A           	DECT SP
+  0654   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0656   C114           	MOV *R4,R4
+                        ;inc()
+  0658   0584           	INC R4
+                        ;zpop()
+  065A   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  065C   C4C4           	MOV R4,*R3
+                        ;	dec()
+  065E   0604           	DEC R4
+                        ;indirect ccgchar
+  0660   D114           	MOVB *R4,R4
+  0662   0884           	SRA R4,8
+                        ;zpush()
+  0664   064A           	DECT SP
+  0666   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0668   C120 0000      	MOV @hxlnptr,R4
+                        ;zpush()
+  066C   064A           	DECT SP
+  066E   C684           	MOV R4,*SP
+                        ;zcall()
+  0670   2DA0 0000      	CALL @puthex2
+                        ;modstk(newsp,save)
+  0674   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  0678   C804 0000      	MOV R4,@hxlnptr
+                        ;jump(label)
+  067C   0460 0634      	B @cc41
+                        cc42:
+                        ;				*hxlnptr++ = 'X'; /* show the symbol is external */
+                        ;getmem(sym)
+  0680   C120 0000      	MOV @hxlnptr,R4
+                        ;inc()
+  0684   0584           	INC R4
+                        ;putmem(sym)
+  0686   C804 0000      	MOV R4,@hxlnptr
+                        ;	dec()
+  068A   0604           	DEC R4
+                        ;zpush()
+  068C   C0C4           	MOV R4,R3 ;optimised push/pop
+  068E   0204 0058      	LI R4,88
+                        ;putstk - char
+  0692   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;			}
+                        ;modstk(newsp,save)
+                        ;		}
+                        cc40:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0696   0460 053A      	B @cc36
+                        cc37:
+                        ;	case NOCODE:
+                        cc45:
+                        ;		return NO;
+                        ;const1(val)
+  069A   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  069C   022A 000C      	AI SP,12
+  06A0   2DC0           	RET
+                        ;		/*	case FLUSH:	flshhbf(pc);
+                        ;		 return NO;
+                        ;		 */
+                        ;	case NOMORE:
+                        cc46:
+                        ;		rputchr(0x1A, &hexbuf); /* end of file */
+                        ;const1(val)
+  06A2   0204 001A      	LI R4,26
+                        ;zpush()
+  06A6   064A           	DECT SP
+  06A8   C684           	MOV R4,*SP
+                        ;address(ptr)
+  06AA   0204 0000      	LI R4,hexbuf
+                        ;zpush()
+  06AE   064A           	DECT SP
+  06B0   C684           	MOV R4,*SP
+                        ;zcall()
+  06B2   2DA0 0000      	CALL @rputchr
+                        ;modstk(newsp,save)
+  06B6   022A 0004      	AI SP,4
+                        ;		rflush(&hexbuf);
+                        ;address(ptr)
+  06BA   0204 0000      	LI R4,hexbuf
+                        ;zpush()
+  06BE   064A           	DECT SP
+  06C0   C684           	MOV R4,*SP
+                        ;zcall()
+  06C2   2DA0 0000      	CALL @rflush
+                        ;modstk(newsp,save)
+  06C6   05CA           	INCT SP
+                        ;		return NO;
+                        ;const1(val)
+  06C8   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  06CA   022A 000C      	AI SP,12
+  06CE   2DC0           	RET
+                        ;	}
+                        ;jump(label)
+  06D0   0460 06E6      	B @cc33
+                        cc34:
+  06D4   2DA0 0000      	CALL @_ccswitc##
+  06D8   050A 0001      	WORD cc35,1
+  06DC   069A 0000      	WORD cc45,0
+  06E0   06A2 0003      	WORD cc46,3
+  06E4   0000           	WORD 0
+                        cc33:
+                        ;}
+                        ;modstk(newsp,save)
+  06E6   022A 000C      	AI SP,12
+                        ;modstk(newsp,save)
+  06EA   2DC0           	RET
+                        ;/*
+                        ; Output the module header consisting of Common size and 
+                        ; Programme Indicator.
+                        ; */
+                        ;relhead() {
+  06EC                  	EVEN
+                        relhead:
+                        ;	xref_reset();       /* start a fresh reference list for this module */
+                        ;modstk(newsp,save)
+                        ;zcall()
+  06EC   2DA0 004A      	CALL @xref_reset
+                        ;modstk(newsp,save)
+                        ;	outrem = 8; /* initialise */
+                        ;const1(val)
+  06F0   0204 0008      	LI R4,8
+                        ;putmem(sym)
+  06F4   D82D 0009      	MOVB @2*R4+1(WP),@outrem
+  06F8   0000           
+                        ;	outchunk = 0;
+                        ;const1(val)
+  06FA   04C4           	CLR R4
+                        ;putmem(sym)
+  06FC   D82D 0009      	MOVB @2*R4+1(WP),@outchunk
+  0700   0000           
+                        ;	item = PNAME; /* programme name */
+                        ;const1(val)
+  0702   0204 0006      	LI R4,6
+                        ;putmem(sym)
+  0706   D82D 0009      	MOVB @2*R4+1(WP),@item
+  070A   0000           
+                        ;	field = 0;
+                        ;const1(val)
+  070C   04C4           	CLR R4
+                        ;putmem(sym)
+  070E   C804 0000      	MOV R4,@field
+                        ;	/* strcpy(symbol,progname); *//* copy name over */
+                        ;	memcpy(symbol, progname, SYMLEN);
+                        ;address(ptr)
+  0712   0204 0000      	LI R4,symbol
+                        ;zpush()
+  0716   064A           	DECT SP
+  0718   C684           	MOV R4,*SP
+                        ;address(ptr)
+  071A   0204 0000      	LI R4,progname
+                        ;zpush()
+  071E   064A           	DECT SP
+  0720   C684           	MOV R4,*SP
+                        ;const1(val)
+  0722   0204 0010      	LI R4,16
+                        ;zpush()
+  0726   064A           	DECT SP
+  0728   C684           	MOV R4,*SP
+                        ;zcall()
+  072A   2DA0 0000      	CALL @memcpy
+                        ;modstk(newsp,save)
+  072E   022A 0006      	AI SP,6
+                        ;	putrel();
+                        ;zcall()
+  0732   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;	/* now output all the entry symbols this module can resolve */
+                        ;	entnam();
+                        ;zcall()
+  0736   2DA0 0778      	CALL @entnam
+                        ;modstk(newsp,save)
+                        ;	/* data size */
+                        ;	item = DSIZE; /* zero this not supported */
+                        ;const1(val)
+  073A   0204 000E      	LI R4,14
+                        ;putmem(sym)
+  073E   D82D 0009      	MOVB @2*R4+1(WP),@item
+  0742   0000           
+                        ;	type = 0;
+                        ;const1(val)
+  0744   04C4           	CLR R4
+                        ;putmem(sym)
+  0746   D82D 0009      	MOVB @2*R4+1(WP),@type
+  074A   0000           
+                        ;	field = 0;
+                        ;const1(val)
+  074C   04C4           	CLR R4
+                        ;putmem(sym)
+  074E   C804 0000      	MOV R4,@field
+                        ;	putrel();
+                        ;zcall()
+  0752   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;	/*  programme size */
+                        ;	item = PSIZE;
+                        ;const1(val)
+  0756   0204 0011      	LI R4,17
+                        ;putmem(sym)
+  075A   D82D 0009      	MOVB @2*R4+1(WP),@item
+  075E   0000           
+                        ;	type = PREL;
+                        ;const1(val)
+  0760   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  0764   D82D 0009      	MOVB @2*R4+1(WP),@type
+  0768   0000           
+                        ;	field = progsize; /* high value of programme counter */
+                        ;getmem(sym)
+  076A   C120 0000      	MOV @progsize,R4
+                        ;putmem(sym)
+  076E   C804 0000      	MOV R4,@field
+                        ;	putrel();
+                        ;zcall()
+  0772   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0776   2DC0           	RET
+                        ;/*
+                        ; Output the entry symbols - assume symbols not sorted
+                        ; */
+                        ;entnam() {
+  0778                  	EVEN
+                        entnam:
+                        ;	int n, t;
+                        ;	/*	n = nssymbols;  /*sortsym(NOSORT);	/*Get number of sorted symbols */
+                        ;	n = SYMBOLS;
+                        ;modstk(newsp,save)
+  0778   022A FFFC      	AI SP,-4
+                        ;const1(val)
+  077C   0204 0065      	LI R4,101
+                        ;put2tos()
+  0780   CA84 0002      	MOV R4,@2(SP)
+                        ;	sympoint = symtbl; /* begin at start of table */
+                        ;address(ptr)
+  0784   0204 0000      	LI R4,symtbl
+                        ;putmem(sym)
+  0788   C804 0000      	MOV R4,@sympoint
+                        ;	while (n > 0) { /* begin looking for ent symbols */
+                        cc49:
+                        ;getloc(sym, off)
+  078C   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;gt0(label)
+  0790   C104           	MOV R4,R4
+  0792   1502           	JGT $+6
+  0794   0460 0810      	B @cc50
+                        ;		if (sympoint->symflg & ENTBIT) {
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0798   C120 0000      	MOV @sympoint,R4
+                        ;const2(val)
+  079C   0203 0012      	LI R3,18
+                        ;	zadd()
+  07A0   A103           	A R3,R4
+                        ;indirect ccgchar
+  07A2   D114           	MOVB *R4,R4
+  07A4   0884           	SRA R4,8
+                        ;zpush()
+  07A6   C0C4           	MOV R4,R3 ;optimised push/pop
+  07A8   0204 0004      	LI R4,4
+                        ;zand()
+  07AC   0543           	INV R3
+  07AE   4103           	SZC R3,R4
+  07B0   C104           	MOV R4,R4
+  07B2   1602           	JNE $+6
+  07B4   0460 07E6      	B @cc51
+                        ;			item = ENAME; /* entry table for this module */
+                        ;modstk(newsp,save)
+                        ;const1(val)
+  07B8   0204 0004      	LI R4,4
+                        ;putmem(sym)
+  07BC   D82D 0009      	MOVB @2*R4+1(WP),@item
+  07C0   0000           
+                        ;			memcpy(symbol, sympoint->symname, SYMLEN);
+                        ;address(ptr)
+  07C2   0204 0000      	LI R4,symbol
+                        ;zpush()
+  07C6   064A           	DECT SP
+  07C8   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  07CA   C120 0000      	MOV @sympoint,R4
+                        ;zpush()
+  07CE   064A           	DECT SP
+  07D0   C684           	MOV R4,*SP
+                        ;const1(val)
+  07D2   0204 0010      	LI R4,16
+                        ;zpush()
+  07D6   064A           	DECT SP
+  07D8   C684           	MOV R4,*SP
+                        ;zcall()
+  07DA   2DA0 0000      	CALL @memcpy
+                        ;modstk(newsp,save)
+  07DE   022A 0006      	AI SP,6
+                        ;			putrel();
+                        ;zcall()
+  07E2   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;		}
+                        ;modstk(newsp,save)
+                        ;		sympoint++;
+                        cc51:
+                        ;getmem(sym)
+  07E6   C120 0000      	MOV @sympoint,R4
+                        ;const2(val)
+  07EA   0203 0014      	LI R3,20
+                        ;	zadd()
+  07EE   A103           	A R3,R4
+                        ;putmem(sym)
+  07F0   C804 0000      	MOV R4,@sympoint
+                        ;const2(val)
+  07F4   0203 FFEC      	LI R3,-20
+                        ;	zadd()
+  07F8   A103           	A R3,R4
+                        ;		--n;
+                        ;getloc(sym, off)
+  07FA   0204 0002      	LI R4,2
+  07FE   A10A           	A SP,R4
+                        ;zpush()
+  0800   064A           	DECT SP
+  0802   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0804   C114           	MOV *R4,R4
+                        ;	dec()
+  0806   0604           	DEC R4
+                        ;zpop()
+  0808   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  080A   C4C4           	MOV R4,*R3
+                        ;	}
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  080C   0460 078C      	B @cc49
+                        cc50:
+                        ;}
+                        ;modstk(newsp,save)
+  0810   022A 0004      	AI SP,4
+                        ;modstk(newsp,save)
+  0814   2DC0           	RET
+                        ;/*
+                        ; This function will output all the referenced externals
+                        ; and entry points into the object file
+                        ; */
+                        ;relsyms() {
+  0816                  	EVEN
+                        relsyms:
+                        ;	int n;
+                        ;	n = nssymbols;
+                        ;modstk(newsp,save)
+  0816   064A           	DECT SP
+                        ;getmem(sym)
+  0818   C120 0000      	MOV @nssymbols,R4
+                        ;puttos()
+  081C   C684           	MOV R4,*SP
+                        ;	sympoint = symtbl;
+                        ;address(ptr)
+  081E   0204 0000      	LI R4,symtbl
+                        ;putmem(sym)
+  0822   C804 0000      	MOV R4,@sympoint
+                        ;	while (n > 0) {
+                        cc53:
+                        ;getloc(sym, off)
+  0826   C11A           	MOV *SP,R4 ;optimised load
+                        ;gt0(label)
+  0828   C104           	MOV R4,R4
+  082A   1502           	JGT $+6
+  082C   0460 08BE      	B @cc54
+                        ;		/* Entry points only: externals are emitted by xref_emit() as
+                        ;		 * explicit grouped reference lists (XREFS scheme). */
+                        ;		if (sympoint->symflg & ENTBIT) {
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0830   C120 0000      	MOV @sympoint,R4
+                        ;const2(val)
+  0834   0203 0012      	LI R3,18
+                        ;	zadd()
+  0838   A103           	A R3,R4
+                        ;indirect ccgchar
+  083A   D114           	MOVB *R4,R4
+  083C   0884           	SRA R4,8
+                        ;zpush()
+  083E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0840   0204 0004      	LI R4,4
+                        ;zand()
+  0844   0543           	INV R3
+  0846   4103           	SZC R3,R4
+  0848   C104           	MOV R4,R4
+  084A   1602           	JNE $+6
+  084C   0460 0898      	B @cc55
+                        ;			item  = EPOINT;
+                        ;modstk(newsp,save)
+                        ;const1(val)
+  0850   0204 000B      	LI R4,11
+                        ;putmem(sym)
+  0854   D82D 0009      	MOVB @2*R4+1(WP),@item
+  0858   0000           
+                        ;			type  = PREL;
+                        ;const1(val)
+  085A   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  085E   D82D 0009      	MOVB @2*R4+1(WP),@type
+  0862   0000           
+                        ;			field = sympoint->symvalu;
+                        ;getmem(sym)
+  0864   C120 0000      	MOV @sympoint,R4
+                        ;const2(val)
+  0868   0203 0010      	LI R3,16
+                        ;	zadd()
+  086C   A103           	A R3,R4
+                        ;indirect ccgint
+  086E   C114           	MOV *R4,R4
+                        ;putmem(sym)
+  0870   C804 0000      	MOV R4,@field
+                        ;			memcpy(symbol, sympoint->symname, SYMLEN);
+                        ;address(ptr)
+  0874   0204 0000      	LI R4,symbol
+                        ;zpush()
+  0878   064A           	DECT SP
+  087A   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  087C   C120 0000      	MOV @sympoint,R4
+                        ;zpush()
+  0880   064A           	DECT SP
+  0882   C684           	MOV R4,*SP
+                        ;const1(val)
+  0884   0204 0010      	LI R4,16
+                        ;zpush()
+  0888   064A           	DECT SP
+  088A   C684           	MOV R4,*SP
+                        ;zcall()
+  088C   2DA0 0000      	CALL @memcpy
+                        ;modstk(newsp,save)
+  0890   022A 0006      	AI SP,6
+                        ;			putrel();
+                        ;zcall()
+  0894   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;		}
+                        ;modstk(newsp,save)
+                        ;		sympoint++;
+                        cc55:
+                        ;getmem(sym)
+  0898   C120 0000      	MOV @sympoint,R4
+                        ;const2(val)
+  089C   0203 0014      	LI R3,20
+                        ;	zadd()
+  08A0   A103           	A R3,R4
+                        ;putmem(sym)
+  08A2   C804 0000      	MOV R4,@sympoint
+                        ;const2(val)
+  08A6   0203 FFEC      	LI R3,-20
+                        ;	zadd()
+  08AA   A103           	A R3,R4
+                        ;		--n;
+                        ;getloc(sym, off)
+  08AC   C10A           	MOV SP,R4
+                        ;zpush()
+  08AE   064A           	DECT SP
+  08B0   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  08B2   C114           	MOV *R4,R4
+                        ;	dec()
+  08B4   0604           	DEC R4
+                        ;zpop()
+  08B6   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  08B8   C4C4           	MOV R4,*R3
+                        ;	}
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  08BA   0460 0826      	B @cc53
+                        cc54:
+                        ;	xref_emit();        /* emit grouped EXT "XREFS" reference lists */
+                        ;zcall()
+  08BE   2DA0 03EC      	CALL @xref_emit
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+  08C2   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  08C4   2DC0           	RET
+                        ;/*--------------------------------------------------------
+                        ; new rel section
+                        ; ---------------------------------------------------------*/
+                        ;/*
+                        ; ** putrel -- write a relocatable-object file
+                        ; */
+                        ;/*
+                        ; ** put next REL item
+                        ; ** return true on success, false on error
+                        ; ** on call:
+                        ; **    item = item code
+                        ; **    type = type of field
+                        ; **   field = value of field
+                        ; **  symbol = symbol name
+                        ; */
+                        ;/* putabs2() will place 2 bytes onto the output stream.
+                        ; This saves calling putrel() twice as would be the case
+                        ; using the normal putrel() ABS sequence.
+                        ; */
+                        ;putabs2() {
+  08C6                  	EVEN
+                        putabs2:
+                        ;	unsigned f;
+                        ;	f = field;
+                        ;modstk(newsp,save)
+  08C6   064A           	DECT SP
+                        ;getmem(sym)
+  08C8   C120 0000      	MOV @field,R4
+                        ;puttos()
+  08CC   C684           	MOV R4,*SP
+                        ;	field = f >> 8;
+                        ;getloc(sym, off)
+  08CE   C11A           	MOV *SP,R4 ;optimised load
+                        ;zpush()
+  08D0   C0C4           	MOV R4,R3 ;optimised push/pop
+  08D2   0204 0008      	LI R4,8
+  08D6   06A0 0000      	BL @_ccasr##
+                        ;putmem(sym)
+  08DA   C804 0000      	MOV R4,@field
+                        ;	putrel();
+                        ;zcall()
+  08DE   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;	field = f;
+                        ;getloc(sym, off)
+  08E2   C11A           	MOV *SP,R4 ;optimised load
+                        ;putmem(sym)
+  08E4   C804 0000      	MOV R4,@field
+                        ;	putrel();
+                        ;zcall()
+  08E8   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+  08EC   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  08EE   2DC0           	RET
+                        ;/* 
+                        ; Use this for code output
+                        ; */
+                        ;/*putrel2(){ */
+                        ;/*if(item == PREL);
+                        ; *bptr++ = field >> 8;
+                        ; *bptr++ = field; */
+                        ;/* putrel();
+                        ; } */
+                        ;putabs() {
+  08F0                  	EVEN
+                        putabs:
+                        ;	/* *bptr++ = field; */
+                        ;	putrel();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  08F0   2DA0 08F6      	CALL @putrel
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  08F4   2DC0           	RET
+                        ;putrel()
+  08F6                  	EVEN
+                        putrel:
+                        ;{
+                        ;	char c[3], f, *p;
+                        ;	if (pass < 2)
+                        ;modstk(newsp,save)
+  08F6   022A FFF8      	AI SP,-8
+                        ;getmem(sym)
+  08FA   D120 0000      	MOVB @pass,R4
+  08FE   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0900   C0C4           	MOV R4,R3 ;optimised push/pop
+  0902   0204 0002      	LI R4,2
+                        ;_cclt
+  0906   8103           	C R3,R4 ;optimised
+  0908   1102           	JLT $+6
+  090A   0460 0918      	B @cc59
+                        ;		return (YES);
+                        ;const1(val)
+  090E   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0912   022A 0008      	AI SP,8
+  0916   2DC0           	RET
+                        ;	/*	c[2] = '\0';
+                        ;	 p = c;
+                        ;	 if (item == PREL)  {
+                        ;	 f=field>>8;
+                        ;	 if ((*p = (f >> 4) + '0') > '9') *p += 7;
+                        ;	 if ((*++p = (f & 0x0f) + '0') > '9') *p += 7;
+                        ;	 puts(c);
+                        ;	 }
+                        ;	 p = c;
+                        ;	 f=field;
+                        ;	 if ((*p = (f >> 4) + '0') > '9') *p += 7;
+                        ;	 if ((*++p = (f & 0x0f) + '0') > '9') *p += 7;
+                        ;	 puts(c); */
+                        ;	switch (item) {
+                        cc59:
+                        ;getmem(sym)
+  0918   D120 0000      	MOVB @item,R4
+  091C   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;jump(label)
+  091E   0460 0A0E      	B @cc62
+                        ;	case ABS:
+                        ;modstk(newsp,save)
+                        cc63:
+                        ;		if (!putbits(0, 1) || !putbits(field, 8))
+                        ;const1(val)
+  0922   04C4           	CLR R4
+                        ;zpush()
+  0924   064A           	DECT SP
+  0926   C684           	MOV R4,*SP
+                        ;const1(val)
+  0928   0204 0001      	LI R4,1
+                        ;zpush()
+  092C   064A           	DECT SP
+  092E   C684           	MOV R4,*SP
+                        ;zcall()
+  0930   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0934   022A 0004      	AI SP,4
+  0938   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  093C   C104           	MOV R4,R4
+  093E   1302           	JEQ $+6
+  0940   0460 096E      	B @cc65
+                        ;getmem(sym)
+  0944   C120 0000      	MOV @field,R4
+                        ;zpush()
+  0948   064A           	DECT SP
+  094A   C684           	MOV R4,*SP
+                        ;const1(val)
+  094C   0204 0008      	LI R4,8
+                        ;zpush()
+  0950   064A           	DECT SP
+  0952   C684           	MOV R4,*SP
+                        ;zcall()
+  0954   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0958   022A 0004      	AI SP,4
+  095C   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  0960   C104           	MOV R4,R4
+  0962   1302           	JEQ $+6
+  0964   0460 096E      	B @cc65
+                        ;const1(val)
+  0968   04C4           	CLR R4
+                        ;jump(label)
+  096A   0460 0972      	B @cc66
+                        cc65:
+                        ;const1(val)
+  096E   0204 0001      	LI R4,1
+                        cc66:
+  0972   C104           	MOV R4,R4
+  0974   1602           	JNE $+6
+  0976   0460 0982      	B @cc64
+                        ;			return (NO);
+                        ;const1(val)
+  097A   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  097C   022A 0008      	AI SP,8
+  0980   2DC0           	RET
+                        ;		return (YES);
+                        cc64:
+                        ;const1(val)
+  0982   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0986   022A 0008      	AI SP,8
+  098A   2DC0           	RET
+                        ;	case PREL:
+                        cc67:
+                        ;	case DREL:
+                        cc68:
+                        ;	case CREL:
+                        cc69:
+                        ;		if (!putbits(1, 1) || !putbits(item, 2) || !putfld())
+                        ;const1(val)
+  098C   0204 0001      	LI R4,1
+                        ;zpush()
+  0990   064A           	DECT SP
+  0992   C684           	MOV R4,*SP
+                        ;const1(val)
+  0994   0204 0001      	LI R4,1
+                        ;zpush()
+  0998   064A           	DECT SP
+  099A   C684           	MOV R4,*SP
+                        ;zcall()
+  099C   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  09A0   022A 0004      	AI SP,4
+  09A4   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  09A8   C104           	MOV R4,R4
+  09AA   1302           	JEQ $+6
+  09AC   0460 09EC      	B @cc71
+                        ;getmem(sym)
+  09B0   D120 0000      	MOVB @item,R4
+  09B4   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  09B6   064A           	DECT SP
+  09B8   C684           	MOV R4,*SP
+                        ;const1(val)
+  09BA   0204 0002      	LI R4,2
+                        ;zpush()
+  09BE   064A           	DECT SP
+  09C0   C684           	MOV R4,*SP
+                        ;zcall()
+  09C2   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  09C6   022A 0004      	AI SP,4
+  09CA   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  09CE   C104           	MOV R4,R4
+  09D0   1302           	JEQ $+6
+  09D2   0460 09EC      	B @cc71
+                        ;zcall()
+  09D6   2DA0 0D0C      	CALL @putfld
+                        ;modstk(newsp,save)
+  09DA   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  09DE   C104           	MOV R4,R4
+  09E0   1302           	JEQ $+6
+  09E2   0460 09EC      	B @cc71
+                        ;const1(val)
+  09E6   04C4           	CLR R4
+                        ;jump(label)
+  09E8   0460 09F0      	B @cc72
+                        cc71:
+                        ;const1(val)
+  09EC   0204 0001      	LI R4,1
+                        cc72:
+  09F0   C104           	MOV R4,R4
+  09F2   1602           	JNE $+6
+  09F4   0460 0A00      	B @cc70
+                        ;			return (NO);
+                        ;const1(val)
+  09F8   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  09FA   022A 0008      	AI SP,8
+  09FE   2DC0           	RET
+                        ;		return (YES);
+                        cc70:
+                        ;const1(val)
+  0A00   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0A04   022A 0008      	AI SP,8
+  0A08   2DC0           	RET
+                        ;	}
+                        ;jump(label)
+  0A0A   0460 0A24      	B @cc61
+                        cc62:
+  0A0E   2DA0 0000      	CALL @_ccswitc##
+  0A12   0922 0000      	WORD cc63,0
+  0A16   098C 0001      	WORD cc67,1
+  0A1A   098C 0002      	WORD cc68,2
+  0A1E   098C 0003      	WORD cc69,3
+  0A22   0000           	WORD 0
+                        cc61:
+                        ;	/* First put out special link <100>  */
+                        ;	if (!putbits(4, 3) || !putbits(item - 4, 4))
+                        ;const1(val)
+  0A24   0204 0004      	LI R4,4
+                        ;zpush()
+  0A28   064A           	DECT SP
+  0A2A   C684           	MOV R4,*SP
+                        ;const1(val)
+  0A2C   0204 0003      	LI R4,3
+                        ;zpush()
+  0A30   064A           	DECT SP
+  0A32   C684           	MOV R4,*SP
+                        ;zcall()
+  0A34   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0A38   022A 0004      	AI SP,4
+  0A3C   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  0A40   C104           	MOV R4,R4
+  0A42   1302           	JEQ $+6
+  0A44   0460 0A7A      	B @cc74
+                        ;getmem(sym)
+  0A48   D120 0000      	MOVB @item,R4
+  0A4C   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;const2(val)
+  0A4E   0203 FFFC      	LI R3,-4
+                        ;	zadd()
+  0A52   A103           	A R3,R4
+                        ;zpush()
+  0A54   064A           	DECT SP
+  0A56   C684           	MOV R4,*SP
+                        ;const1(val)
+  0A58   0204 0004      	LI R4,4
+                        ;zpush()
+  0A5C   064A           	DECT SP
+  0A5E   C684           	MOV R4,*SP
+                        ;zcall()
+  0A60   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0A64   022A 0004      	AI SP,4
+  0A68   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  0A6C   C104           	MOV R4,R4
+  0A6E   1302           	JEQ $+6
+  0A70   0460 0A7A      	B @cc74
+                        ;const1(val)
+  0A74   04C4           	CLR R4
+                        ;jump(label)
+  0A76   0460 0A7E      	B @cc75
+                        cc74:
+                        ;const1(val)
+  0A7A   0204 0001      	LI R4,1
+                        cc75:
+  0A7E   C104           	MOV R4,R4
+  0A80   1602           	JNE $+6
+  0A82   0460 0A8E      	B @cc73
+                        ;		return (NO);
+                        ;const1(val)
+  0A86   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0A88   022A 0008      	AI SP,8
+  0A8C   2DC0           	RET
+                        ;	switch (item) {
+                        cc73:
+                        ;getmem(sym)
+  0A8E   D120 0000      	MOVB @item,R4
+  0A92   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;jump(label)
+  0A94   0460 0C92      	B @cc78
+                        ;	case CSIZE:
+                        ;modstk(newsp,save)
+                        cc79:
+                        ;	case XCHAIN:
+                        cc80:
+                        ;	case EPOINT:
+                        cc81:
+                        ;		if (!putbits(type, 2) || !putfld())
+                        ;getmem(sym)
+  0A98   D120 0000      	MOVB @type,R4
+  0A9C   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0A9E   064A           	DECT SP
+  0AA0   C684           	MOV R4,*SP
+                        ;const1(val)
+  0AA2   0204 0002      	LI R4,2
+                        ;zpush()
+  0AA6   064A           	DECT SP
+  0AA8   C684           	MOV R4,*SP
+                        ;zcall()
+  0AAA   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0AAE   022A 0004      	AI SP,4
+  0AB2   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  0AB6   C104           	MOV R4,R4
+  0AB8   1302           	JEQ $+6
+  0ABA   0460 0AD4      	B @cc83
+                        ;zcall()
+  0ABE   2DA0 0D0C      	CALL @putfld
+                        ;modstk(newsp,save)
+  0AC2   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  0AC6   C104           	MOV R4,R4
+  0AC8   1302           	JEQ $+6
+  0ACA   0460 0AD4      	B @cc83
+                        ;const1(val)
+  0ACE   04C4           	CLR R4
+                        ;jump(label)
+  0AD0   0460 0AD8      	B @cc84
+                        cc83:
+                        ;const1(val)
+  0AD4   0204 0001      	LI R4,1
+                        cc84:
+  0AD8   C104           	MOV R4,R4
+  0ADA   1602           	JNE $+6
+  0ADC   0460 0AE8      	B @cc82
+                        ;			return (NO);
+                        ;const1(val)
+  0AE0   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0AE2   022A 0008      	AI SP,8
+  0AE6   2DC0           	RET
+                        ;		if (!putsym())
+                        cc82:
+                        ;zcall()
+  0AE8   2DA0 0D72      	CALL @putsym
+                        ;modstk(newsp,save)
+  0AEC   06A0 0000      	BL @_cclneg##
+  0AF0   C104           	MOV R4,R4
+  0AF2   1602           	JNE $+6
+  0AF4   0460 0B00      	B @cc85
+                        ;			return (NO);
+                        ;const1(val)
+  0AF8   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0AFA   022A 0008      	AI SP,8
+  0AFE   2DC0           	RET
+                        ;		return (YES);
+                        cc85:
+                        ;const1(val)
+  0B00   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0B04   022A 0008      	AI SP,8
+  0B08   2DC0           	RET
+                        ;	case ENAME:
+                        cc86:
+                        ;	case CNAME:
+                        cc87:
+                        ;	case PNAME:
+                        cc88:
+                        ;	case LNAME:
+                        cc89:
+                        ;	case EXT:
+                        cc90:
+                        ;		if (!putsym())
+                        ;zcall()
+  0B0A   2DA0 0D72      	CALL @putsym
+                        ;modstk(newsp,save)
+  0B0E   06A0 0000      	BL @_cclneg##
+  0B12   C104           	MOV R4,R4
+  0B14   1602           	JNE $+6
+  0B16   0460 0B22      	B @cc91
+                        ;			return (NO);
+                        ;const1(val)
+  0B1A   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0B1C   022A 0008      	AI SP,8
+  0B20   2DC0           	RET
+                        ;		return (YES);
+                        cc91:
+                        ;const1(val)
+  0B22   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0B26   022A 0008      	AI SP,8
+  0B2A   2DC0           	RET
+                        ;	case XMOFF:
+                        cc92:
+                        ;	case XPOFF:
+                        cc93:
+                        ;	case DSIZE:
+                        cc94:
+                        ;	case SETLC:
+                        cc95:
+                        ;	case CHAIN:
+                        cc96:
+                        ;	case PSIZE:
+                        cc97:
+                        ;		if (!putbits(type, 2) || !putfld())
+                        ;getmem(sym)
+  0B2C   D120 0000      	MOVB @type,R4
+  0B30   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0B32   064A           	DECT SP
+  0B34   C684           	MOV R4,*SP
+                        ;const1(val)
+  0B36   0204 0002      	LI R4,2
+                        ;zpush()
+  0B3A   064A           	DECT SP
+  0B3C   C684           	MOV R4,*SP
+                        ;zcall()
+  0B3E   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0B42   022A 0004      	AI SP,4
+  0B46   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  0B4A   C104           	MOV R4,R4
+  0B4C   1302           	JEQ $+6
+  0B4E   0460 0B68      	B @cc99
+                        ;zcall()
+  0B52   2DA0 0D0C      	CALL @putfld
+                        ;modstk(newsp,save)
+  0B56   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  0B5A   C104           	MOV R4,R4
+  0B5C   1302           	JEQ $+6
+  0B5E   0460 0B68      	B @cc99
+                        ;const1(val)
+  0B62   04C4           	CLR R4
+                        ;jump(label)
+  0B64   0460 0B6C      	B @cc100
+                        cc99:
+                        ;const1(val)
+  0B68   0204 0001      	LI R4,1
+                        cc100:
+  0B6C   C104           	MOV R4,R4
+  0B6E   1602           	JNE $+6
+  0B70   0460 0B7C      	B @cc98
+                        ;			return (NO);
+                        ;const1(val)
+  0B74   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0B76   022A 0008      	AI SP,8
+  0B7A   2DC0           	RET
+                        ;		return (YES);
+                        cc98:
+                        ;const1(val)
+  0B7C   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0B80   022A 0008      	AI SP,8
+  0B84   2DC0           	RET
+                        ;	case EPROG:
+                        cc101:
+                        ;		if (!putbits(type, 2) || !putfld())
+                        ;getmem(sym)
+  0B86   D120 0000      	MOVB @type,R4
+  0B8A   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0B8C   064A           	DECT SP
+  0B8E   C684           	MOV R4,*SP
+                        ;const1(val)
+  0B90   0204 0002      	LI R4,2
+                        ;zpush()
+  0B94   064A           	DECT SP
+  0B96   C684           	MOV R4,*SP
+                        ;zcall()
+  0B98   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0B9C   022A 0004      	AI SP,4
+  0BA0   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  0BA4   C104           	MOV R4,R4
+  0BA6   1302           	JEQ $+6
+  0BA8   0460 0BC2      	B @cc103
+                        ;zcall()
+  0BAC   2DA0 0D0C      	CALL @putfld
+                        ;modstk(newsp,save)
+  0BB0   06A0 0000      	BL @_cclneg##
+                        ;eq0(label)
+  0BB4   C104           	MOV R4,R4
+  0BB6   1302           	JEQ $+6
+  0BB8   0460 0BC2      	B @cc103
+                        ;const1(val)
+  0BBC   04C4           	CLR R4
+                        ;jump(label)
+  0BBE   0460 0BC6      	B @cc104
+                        cc103:
+                        ;const1(val)
+  0BC2   0204 0001      	LI R4,1
+                        cc104:
+  0BC6   C104           	MOV R4,R4
+  0BC8   1602           	JNE $+6
+  0BCA   0460 0BD6      	B @cc102
+                        ;			return (NO);
+                        ;const1(val)
+  0BCE   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0BD0   022A 0008      	AI SP,8
+  0BD4   2DC0           	RET
+                        ;		if (outrem < 8 && !putbits(0, outrem))
+                        cc102:
+                        ;getmem(sym)
+  0BD6   D120 0000      	MOVB @outrem,R4
+  0BDA   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0BDC   C0C4           	MOV R4,R3 ;optimised push/pop
+  0BDE   0204 0008      	LI R4,8
+                        ;_ccult
+  0BE2   8103           	C R3,R4 ;optimised
+  0BE4   1A02           	JL $+6
+  0BE6   0460 0C16      	B @cc106
+                        ;const1(val)
+  0BEA   04C4           	CLR R4
+                        ;zpush()
+  0BEC   064A           	DECT SP
+  0BEE   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0BF0   D120 0000      	MOVB @outrem,R4
+  0BF4   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0BF6   064A           	DECT SP
+  0BF8   C684           	MOV R4,*SP
+                        ;zcall()
+  0BFA   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0BFE   022A 0004      	AI SP,4
+  0C02   06A0 0000      	BL @_cclneg##
+  0C06   C104           	MOV R4,R4
+  0C08   1602           	JNE $+6
+  0C0A   0460 0C16      	B @cc106
+                        ;const1(val)
+  0C0E   0204 0001      	LI R4,1
+                        ;jump(label)
+  0C12   0460 0C18      	B @cc107
+                        cc106:
+                        ;const1(val)
+  0C16   04C4           	CLR R4
+                        cc107:
+  0C18   C104           	MOV R4,R4
+  0C1A   1602           	JNE $+6
+  0C1C   0460 0C28      	B @cc105
+                        ;			return (NO);/* finish byte */
+                        ;const1(val)
+  0C20   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0C22   022A 0008      	AI SP,8
+  0C26   2DC0           	RET
+                        ;		return (YES);
+                        cc105:
+                        ;const1(val)
+  0C28   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0C2C   022A 0008      	AI SP,8
+  0C30   2DC0           	RET
+                        ;	case EFILE:
+                        cc108:
+                        ;		if (outrem < 8 && !putbits(0, outrem))
+                        ;getmem(sym)
+  0C32   D120 0000      	MOVB @outrem,R4
+  0C36   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0C38   C0C4           	MOV R4,R3 ;optimised push/pop
+  0C3A   0204 0008      	LI R4,8
+                        ;_ccult
+  0C3E   8103           	C R3,R4 ;optimised
+  0C40   1A02           	JL $+6
+  0C42   0460 0C72      	B @cc110
+                        ;const1(val)
+  0C46   04C4           	CLR R4
+                        ;zpush()
+  0C48   064A           	DECT SP
+  0C4A   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0C4C   D120 0000      	MOVB @outrem,R4
+  0C50   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0C52   064A           	DECT SP
+  0C54   C684           	MOV R4,*SP
+                        ;zcall()
+  0C56   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0C5A   022A 0004      	AI SP,4
+  0C5E   06A0 0000      	BL @_cclneg##
+  0C62   C104           	MOV R4,R4
+  0C64   1602           	JNE $+6
+  0C66   0460 0C72      	B @cc110
+                        ;const1(val)
+  0C6A   0204 0001      	LI R4,1
+                        ;jump(label)
+  0C6E   0460 0C74      	B @cc111
+                        cc110:
+                        ;const1(val)
+  0C72   04C4           	CLR R4
+                        cc111:
+  0C74   C104           	MOV R4,R4
+  0C76   1602           	JNE $+6
+  0C78   0460 0C84      	B @cc109
+                        ;			return (NO);/* finish byte */
+                        ;const1(val)
+  0C7C   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0C7E   022A 0008      	AI SP,8
+  0C82   2DC0           	RET
+                        ;		return (YES);
+                        cc109:
+                        ;const1(val)
+  0C84   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0C88   022A 0008      	AI SP,8
+  0C8C   2DC0           	RET
+                        ;	}
+                        ;jump(label)
+  0C8E   0460 0CD8      	B @cc77
+                        cc78:
+  0C92   2DA0 0000      	CALL @_ccswitc##
+  0C96   0A98 0009      	WORD cc79,9
+  0C9A   0A98 000A      	WORD cc80,10
+  0C9E   0A98 000B      	WORD cc81,11
+  0CA2   0B0A 0004      	WORD cc86,4
+  0CA6   0B0A 0005      	WORD cc87,5
+  0CAA   0B0A 0006      	WORD cc88,6
+  0CAE   0B0A 0007      	WORD cc89,7
+  0CB2   0B0A 0008      	WORD cc90,8
+  0CB6   0B2C 000C      	WORD cc92,12
+  0CBA   0B2C 000D      	WORD cc93,13
+  0CBE   0B2C 000E      	WORD cc94,14
+  0CC2   0B2C 000F      	WORD cc95,15
+  0CC6   0B2C 0010      	WORD cc96,16
+  0CCA   0B2C 0011      	WORD cc97,17
+  0CCE   0B86 0012      	WORD cc101,18
+  0CD2   0C32 0013      	WORD cc108,19
+  0CD6   0000           	WORD 0
+                        cc77:
+                        ;	return (NO);
+                        ;const1(val)
+  0CD8   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0CDA   022A 0008      	AI SP,8
+  0CDE   2DC0           	RET
+                        ;}
+                        ;puttyp()
+  0CE0                  	EVEN
+                        puttyp:
+                        ;{
+                        ;	if (putbits(type, 2))
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0CE0   D120 0000      	MOVB @type,R4
+  0CE4   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0CE6   064A           	DECT SP
+  0CE8   C684           	MOV R4,*SP
+                        ;const1(val)
+  0CEA   0204 0002      	LI R4,2
+                        ;zpush()
+  0CEE   064A           	DECT SP
+  0CF0   C684           	MOV R4,*SP
+                        ;zcall()
+  0CF2   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0CF6   022A 0004      	AI SP,4
+  0CFA   C104           	MOV R4,R4
+  0CFC   1602           	JNE $+6
+  0CFE   0460 0D08      	B @cc113
+                        ;		return (YES); /* put 2-bit field type */
+                        ;const1(val)
+  0D02   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0D06   2DC0           	RET
+                        ;	return (NO);
+                        cc113:
+                        ;const1(val)
+  0D08   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0D0A   2DC0           	RET
+                        ;}
+                        ;putfld()
+  0D0C                  	EVEN
+                        putfld:
+                        ;{ /* put low then high byte */
+                        ;	if (putbits(field, 8) && putbits(field >> 8, 8))
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0D0C   C120 0000      	MOV @field,R4
+                        ;zpush()
+  0D10   064A           	DECT SP
+  0D12   C684           	MOV R4,*SP
+                        ;const1(val)
+  0D14   0204 0008      	LI R4,8
+                        ;zpush()
+  0D18   064A           	DECT SP
+  0D1A   C684           	MOV R4,*SP
+                        ;zcall()
+  0D1C   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0D20   022A 0004      	AI SP,4
+  0D24   C104           	MOV R4,R4
+  0D26   1602           	JNE $+6
+  0D28   0460 0D5E      	B @cc116
+                        ;getmem(sym)
+  0D2C   C120 0000      	MOV @field,R4
+                        ;zpush()
+  0D30   C0C4           	MOV R4,R3 ;optimised push/pop
+  0D32   0204 0008      	LI R4,8
+  0D36   06A0 0000      	BL @_ccasr##
+                        ;zpush()
+  0D3A   064A           	DECT SP
+  0D3C   C684           	MOV R4,*SP
+                        ;const1(val)
+  0D3E   0204 0008      	LI R4,8
+                        ;zpush()
+  0D42   064A           	DECT SP
+  0D44   C684           	MOV R4,*SP
+                        ;zcall()
+  0D46   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0D4A   022A 0004      	AI SP,4
+  0D4E   C104           	MOV R4,R4
+  0D50   1602           	JNE $+6
+  0D52   0460 0D5E      	B @cc116
+                        ;const1(val)
+  0D56   0204 0001      	LI R4,1
+                        ;jump(label)
+  0D5A   0460 0D60      	B @cc117
+                        cc116:
+                        ;const1(val)
+  0D5E   04C4           	CLR R4
+                        cc117:
+  0D60   C104           	MOV R4,R4
+  0D62   1602           	JNE $+6
+  0D64   0460 0D6E      	B @cc115
+                        ;		return (YES);
+                        ;const1(val)
+  0D68   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0D6C   2DC0           	RET
+                        ;	return (NO);
+                        cc115:
+                        ;const1(val)
+  0D6E   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0D70   2DC0           	RET
+                        ;}
+                        ;putsym()
+  0D72                  	EVEN
+                        putsym:
+                        ;{
+                        ;	int i;
+                        ;	char *cp;
+                        ;	cp = symbol;
+                        ;modstk(newsp,save)
+  0D72   022A FFFC      	AI SP,-4
+                        ;address(ptr)
+  0D76   0204 0000      	LI R4,symbol
+                        ;puttos()
+  0D7A   C684           	MOV R4,*SP
+                        ;	i = 0;
+                        ;const1(val)
+  0D7C   04C4           	CLR R4
+                        ;put2tos()
+  0D7E   CA84 0002      	MOV R4,@2(SP)
+                        ;	while (i < MAXSYM && cp[i] != '\0' && cp[i] != ' ')
+                        cc119:
+                        ;getloc(sym, off)
+  0D82   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  0D86   C0C4           	MOV R4,R3 ;optimised push/pop
+  0D88   0204 000F      	LI R4,15
+                        ;_cclt
+  0D8C   8103           	C R3,R4 ;optimised
+  0D8E   1102           	JLT $+6
+  0D90   0460 0DDA      	B @cc121
+                        ;getloc(sym, off)
+  0D94   C11A           	MOV *SP,R4 ;optimised load
+                        ;zpush()
+  0D96   064A           	DECT SP
+  0D98   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0D9A   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;scale(type,tag)
+                        ;zpop()
+  0D9E   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0DA0   A103           	A R3,R4
+                        ;indirect ccgchar
+  0DA2   D114           	MOVB *R4,R4
+  0DA4   0884           	SRA R4,8
+                        ;zpush()
+  0DA6   C0C4           	MOV R4,R3 ;optimised push/pop
+  0DA8   04C4           	CLR R4
+                        ;_ccne
+  0DAA   8103           	C R3,R4 ;optimised
+  0DAC   1602           	JNE $+6
+  0DAE   0460 0DDA      	B @cc121
+                        ;getloc(sym, off)
+  0DB2   C11A           	MOV *SP,R4 ;optimised load
+                        ;zpush()
+  0DB4   064A           	DECT SP
+  0DB6   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0DB8   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;scale(type,tag)
+                        ;zpop()
+  0DBC   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0DBE   A103           	A R3,R4
+                        ;indirect ccgchar
+  0DC0   D114           	MOVB *R4,R4
+  0DC2   0884           	SRA R4,8
+                        ;zpush()
+  0DC4   C0C4           	MOV R4,R3 ;optimised push/pop
+  0DC6   0204 0020      	LI R4,32
+                        ;_ccne
+  0DCA   8103           	C R3,R4 ;optimised
+  0DCC   1602           	JNE $+6
+  0DCE   0460 0DDA      	B @cc121
+                        ;const1(val)
+  0DD2   0204 0001      	LI R4,1
+                        ;jump(label)
+  0DD6   0460 0DDC      	B @cc122
+                        cc121:
+                        ;const1(val)
+  0DDA   04C4           	CLR R4
+                        cc122:
+  0DDC   C104           	MOV R4,R4
+  0DDE   1602           	JNE $+6
+  0DE0   0460 0DFA      	B @cc120
+                        ;		++i;
+                        ;getloc(sym, off)
+  0DE4   0204 0002      	LI R4,2
+  0DE8   A10A           	A SP,R4
+                        ;zpush()
+  0DEA   064A           	DECT SP
+  0DEC   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0DEE   C114           	MOV *R4,R4
+                        ;inc()
+  0DF0   0584           	INC R4
+                        ;zpop()
+  0DF2   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0DF4   C4C4           	MOV R4,*R3
+                        ;jump(label)
+  0DF6   0460 0D82      	B @cc119
+                        cc120:
+                        ;	if (!putbits(i, BITPSYM))
+                        ;getloc(sym, off)
+  0DFA   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  0DFE   064A           	DECT SP
+  0E00   C684           	MOV R4,*SP
+                        ;const1(val)
+  0E02   0204 0004      	LI R4,4
+                        ;zpush()
+  0E06   064A           	DECT SP
+  0E08   C684           	MOV R4,*SP
+                        ;zcall()
+  0E0A   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0E0E   022A 0004      	AI SP,4
+  0E12   06A0 0000      	BL @_cclneg##
+  0E16   C104           	MOV R4,R4
+  0E18   1602           	JNE $+6
+  0E1A   0460 0E26      	B @cc123
+                        ;		return NO;
+                        ;const1(val)
+  0E1E   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0E20   022A 0004      	AI SP,4
+  0E24   2DC0           	RET
+                        ;	while (i--) {
+                        cc123:
+                        cc124:
+                        ;getloc(sym, off)
+  0E26   0204 0002      	LI R4,2
+  0E2A   A10A           	A SP,R4
+                        ;zpush()
+  0E2C   064A           	DECT SP
+  0E2E   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0E30   C114           	MOV *R4,R4
+                        ;	dec()
+  0E32   0604           	DEC R4
+                        ;zpop()
+  0E34   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0E36   C4C4           	MOV R4,*R3
+                        ;inc()
+  0E38   0584           	INC R4
+  0E3A   C104           	MOV R4,R4
+  0E3C   1602           	JNE $+6
+  0E3E   0460 0E82      	B @cc125
+                        ;		if (!putbits(*cp++, 8))
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0E42   C10A           	MOV SP,R4
+                        ;zpush()
+  0E44   064A           	DECT SP
+  0E46   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0E48   C114           	MOV *R4,R4
+                        ;inc()
+  0E4A   0584           	INC R4
+                        ;zpop()
+  0E4C   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0E4E   C4C4           	MOV R4,*R3
+                        ;	dec()
+  0E50   0604           	DEC R4
+                        ;indirect ccgchar
+  0E52   D114           	MOVB *R4,R4
+  0E54   0884           	SRA R4,8
+                        ;zpush()
+  0E56   064A           	DECT SP
+  0E58   C684           	MOV R4,*SP
+                        ;const1(val)
+  0E5A   0204 0008      	LI R4,8
+                        ;zpush()
+  0E5E   064A           	DECT SP
+  0E60   C684           	MOV R4,*SP
+                        ;zcall()
+  0E62   2DA0 0E8C      	CALL @putbits
+                        ;modstk(newsp,save)
+  0E66   022A 0004      	AI SP,4
+  0E6A   06A0 0000      	BL @_cclneg##
+  0E6E   C104           	MOV R4,R4
+  0E70   1602           	JNE $+6
+  0E72   0460 0E7E      	B @cc126
+                        ;			return NO;
+                        ;const1(val)
+  0E76   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0E78   022A 0004      	AI SP,4
+  0E7C   2DC0           	RET
+                        ;	}
+                        cc126:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0E7E   0460 0E26      	B @cc124
+                        cc125:
+                        ;	return YES;
+                        ;const1(val)
+  0E82   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0E86   022A 0004      	AI SP,4
+  0E8A   2DC0           	RET
+                        ;}
+                        ;/*
+                        ; ** put next n bits from fld into REL file
+                        ; ** return true on success, false on error
+                        ; */
+                        ;putbits(fld, nbits)
+  0E8C                  	EVEN
+                        putbits:
+                        ;unsigned char fld;
+                        ;unsigned char nbits;
+                        ;{
+                        ;	unsigned char put, n;
+                        ;	n = nbits;
+                        ;modstk(newsp,save)
+  0E8C   022A FFFC      	AI SP,-4
+                        ;getloc(sym, off)
+                        ;Char offset
+  0E90   0204 0001      	LI R4,1
+  0E94   A10A           	A SP,R4
+                        ;zpush()
+  0E96   064A           	DECT SP
+  0E98   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0E9A   C12A 0008      	MOV @8(SP),R4 ;optimised load
+                        ;zpop()
+  0E9E   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0EA0   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	while (n) { /* more bits to put */
+                        cc128:
+                        ;getloc(sym, off)
+                        ;Char offset
+  0EA4   D12A 0001      	MOVB @1(SP),R4 ;optimised load
+  0EA8   0884           	SRA R4,8
+  0EAA   C104           	MOV R4,R4
+  0EAC   1602           	JNE $+6
+  0EAE   0460 0FE8      	B @cc129
+                        ;		if (n > outrem)
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+                        ;Char offset
+  0EB2   D12A 0001      	MOVB @1(SP),R4 ;optimised load
+  0EB6   0884           	SRA R4,8
+                        ;zpush()
+  0EB8   064A           	DECT SP
+  0EBA   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0EBC   D120 0000      	MOVB @outrem,R4
+  0EC0   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpop()
+  0EC2   C0FA           	MOV *SP+,R3
+                        ;_ccugt
+  0EC4   8103           	C R3,R4 ;optimised
+  0EC6   1B02           	JH $+6
+  0EC8   0460 0EE6      	B @cc130
+                        ;			put = outrem;
+                        ;getloc(sym, off)
+                        ;Char offset
+  0ECC   0204 0003      	LI R4,3
+  0ED0   A10A           	A SP,R4
+                        ;zpush()
+  0ED2   064A           	DECT SP
+  0ED4   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0ED6   D120 0000      	MOVB @outrem,R4
+  0EDA   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpop()
+  0EDC   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0EDE   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;		else
+                        ;jump(label)
+  0EE2   0460 0EFC      	B @cc131
+                        cc130:
+                        ;			put = n;
+                        ;getloc(sym, off)
+                        ;Char offset
+  0EE6   0204 0003      	LI R4,3
+  0EEA   A10A           	A SP,R4
+                        ;zpush()
+  0EEC   064A           	DECT SP
+  0EEE   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0EF0   D12A 0003      	MOVB @3(SP),R4 ;optimised load
+  0EF4   0884           	SRA R4,8
+                        ;zpop()
+  0EF6   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0EF8   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        cc131:
+                        ;		/* First move the current bits over by the amount of the new put */
+                        ;		outchunk = (outchunk << put);
+                        ;getmem(sym)
+  0EFC   D120 0000      	MOVB @outchunk,R4
+  0F00   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0F02   064A           	DECT SP
+  0F04   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0F06   D12A 0005      	MOVB @5(SP),R4 ;optimised load
+  0F0A   0884           	SRA R4,8
+                        ;zpop()
+  0F0C   C0FA           	MOV *SP+,R3
+  0F0E   06A0 0000      	BL @_ccasl##
+                        ;putmem(sym)
+  0F12   D82D 0009      	MOVB @2*R4+1(WP),@outchunk
+  0F16   0000           
+                        ;		outchunk |= ((fld >> (n - put)) & ~(0xff << put));
+                        ;getmem(sym)
+  0F18   D120 0000      	MOVB @outchunk,R4
+  0F1C   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0F1E   064A           	DECT SP
+  0F20   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0F22   C12A 000A      	MOV @10(SP),R4 ;optimised load
+                        ;zpush()
+  0F26   064A           	DECT SP
+  0F28   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0F2A   D12A 0005      	MOVB @5(SP),R4 ;optimised load
+  0F2E   0884           	SRA R4,8
+                        ;zpush()
+  0F30   064A           	DECT SP
+  0F32   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0F34   D12A 0009      	MOVB @9(SP),R4 ;optimised load
+  0F38   0884           	SRA R4,8
+                        ;zpop()
+  0F3A   C0FA           	MOV *SP+,R3
+                        ;zsub()
+  0F3C   60C4           	S R4,R3
+  0F3E   C103           	MOV R3,R4
+                        ;zpop()
+  0F40   C0FA           	MOV *SP+,R3
+  0F42   06A0 0000      	BL @_ccasr##
+                        ;zpush()
+  0F46   064A           	DECT SP
+  0F48   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0F4A   D12A 0007      	MOVB @7(SP),R4 ;optimised load
+  0F4E   0884           	SRA R4,8
+                        ;const2(val)
+  0F50   0203 00FF      	LI R3,255
+  0F54   06A0 0000      	BL @_ccasl##
+                        ;com()
+  0F58   0544           	INV R4
+                        ;zpop()
+  0F5A   C0FA           	MOV *SP+,R3
+                        ;zand()
+  0F5C   0543           	INV R3
+  0F5E   4103           	SZC R3,R4
+                        ;zpop()
+  0F60   C0FA           	MOV *SP+,R3
+                        ;zor()
+  0F62   E103           	SOC R3,R4
+                        ;putmem(sym)
+  0F64   D82D 0009      	MOVB @2*R4+1(WP),@outchunk
+  0F68   0000           
+                        ;		/* how many for this chunk */
+                        ;		n -= put; /* decrement bits to put */
+                        ;getloc(sym, off)
+                        ;Char offset
+  0F6A   0204 0001      	LI R4,1
+  0F6E   A10A           	A SP,R4
+                        ;zpush()
+  0F70   064A           	DECT SP
+  0F72   C684           	MOV R4,*SP
+                        ;indirect ccgchar
+  0F74   D114           	MOVB *R4,R4
+  0F76   0884           	SRA R4,8
+                        ;zpush()
+  0F78   064A           	DECT SP
+  0F7A   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0F7C   D12A 0007      	MOVB @7(SP),R4 ;optimised load
+  0F80   0884           	SRA R4,8
+                        ;zpop()
+  0F82   C0FA           	MOV *SP+,R3
+                        ;zsub()
+  0F84   60C4           	S R4,R3
+  0F86   C103           	MOV R3,R4
+                        ;zpop()
+  0F88   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0F8A   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;		outrem -= put; /* decr remaining bits */
+                        ;getmem(sym)
+  0F8E   D120 0000      	MOVB @outrem,R4
+  0F92   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0F94   064A           	DECT SP
+  0F96   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0F98   D12A 0005      	MOVB @5(SP),R4 ;optimised load
+  0F9C   0884           	SRA R4,8
+                        ;zpop()
+  0F9E   C0FA           	MOV *SP+,R3
+                        ;zsub()
+  0FA0   60C4           	S R4,R3
+  0FA2   C103           	MOV R3,R4
+                        ;putmem(sym)
+  0FA4   D82D 0009      	MOVB @2*R4+1(WP),@outrem
+  0FA8   0000           
+                        ;		if (outrem == 0) { /* need another chunk */
+                        ;getmem(sym)
+  0FAA   D120 0000      	MOVB @outrem,R4
+  0FAE   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;eq0(label)
+  0FB0   C104           	MOV R4,R4
+  0FB2   1302           	JEQ $+6
+  0FB4   0460 0FE4      	B @cc132
+                        ;			rputchr(outchunk, &hexbuf); /* put next bit cluster */
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0FB8   D120 0000      	MOVB @outchunk,R4
+  0FBC   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0FBE   064A           	DECT SP
+  0FC0   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0FC2   0204 0000      	LI R4,hexbuf
+                        ;zpush()
+  0FC6   064A           	DECT SP
+  0FC8   C684           	MOV R4,*SP
+                        ;zcall()
+  0FCA   2DA0 0000      	CALL @rputchr
+                        ;modstk(newsp,save)
+  0FCE   022A 0004      	AI SP,4
+                        ;			outrem = 8; /* 8 bits remain */
+                        ;const1(val)
+  0FD2   0204 0008      	LI R4,8
+                        ;putmem(sym)
+  0FD6   D82D 0009      	MOVB @2*R4+1(WP),@outrem
+  0FDA   0000           
+                        ;			outchunk = 0;
+                        ;const1(val)
+  0FDC   04C4           	CLR R4
+                        ;putmem(sym)
+  0FDE   D82D 0009      	MOVB @2*R4+1(WP),@outchunk
+  0FE2   0000           
+                        ;		}
+                        ;modstk(newsp,save)
+                        ;	}
+                        cc132:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0FE4   0460 0EA4      	B @cc128
+                        cc129:
+                        ;	return (YES); /* success */
+                        ;const1(val)
+  0FE8   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0FEC   022A 0004      	AI SP,4
+  0FF0   2DC0           	RET
+                        ;}
+                        ;/*
+                        ; Simple hex function which could go into STDLIB2
+                        ; */
+                        ;ishex(c)
+  0FF2                  	EVEN
+                        ishex:
+                        ;char c;
+                        ;{
+                        ;	return ((c >= '0') && (c <= '9')) || ((c >= 'A') && (c <= 'F'));
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+                        ;Char offset
+  0FF2   D12A 0003      	MOVB @3(SP),R4 ;optimised load
+  0FF6   0884           	SRA R4,8
+                        ;zpush()
+  0FF8   C0C4           	MOV R4,R3 ;optimised push/pop
+  0FFA   0204 0030      	LI R4,48
+                        ;_ccge
+  0FFE   8103           	C R3,R4 ;optimised
+  1000   1503           	JGT $+8
+  1002   1302           	JEQ $+6
+  1004   0460 1026      	B @cc134
+                        ;getloc(sym, off)
+                        ;Char offset
+  1008   D12A 0003      	MOVB @3(SP),R4 ;optimised load
+  100C   0884           	SRA R4,8
+                        ;zpush()
+  100E   C0C4           	MOV R4,R3 ;optimised push/pop
+  1010   0204 0039      	LI R4,57
+                        ;_ccle
+  1014   8103           	C R3,R4 ;optimised
+  1016   1103           	JLT $+8
+  1018   1302           	JEQ $+6
+  101A   0460 1026      	B @cc134
+                        ;const1(val)
+  101E   0204 0001      	LI R4,1
+                        ;jump(label)
+  1022   0460 1028      	B @cc135
+                        cc134:
+                        ;const1(val)
+  1026   04C4           	CLR R4
+                        cc135:
+                        ;eq0(label)
+  1028   C104           	MOV R4,R4
+  102A   1302           	JEQ $+6
+  102C   0460 1074      	B @cc136
+                        ;getloc(sym, off)
+                        ;Char offset
+  1030   D12A 0003      	MOVB @3(SP),R4 ;optimised load
+  1034   0884           	SRA R4,8
+                        ;zpush()
+  1036   C0C4           	MOV R4,R3 ;optimised push/pop
+  1038   0204 0041      	LI R4,65
+                        ;_ccge
+  103C   8103           	C R3,R4 ;optimised
+  103E   1503           	JGT $+8
+  1040   1302           	JEQ $+6
+  1042   0460 1064      	B @cc137
+                        ;getloc(sym, off)
+                        ;Char offset
+  1046   D12A 0003      	MOVB @3(SP),R4 ;optimised load
+  104A   0884           	SRA R4,8
+                        ;zpush()
+  104C   C0C4           	MOV R4,R3 ;optimised push/pop
+  104E   0204 0046      	LI R4,70
+                        ;_ccle
+  1052   8103           	C R3,R4 ;optimised
+  1054   1103           	JLT $+8
+  1056   1302           	JEQ $+6
+  1058   0460 1064      	B @cc137
+                        ;const1(val)
+  105C   0204 0001      	LI R4,1
+                        ;jump(label)
+  1060   0460 1066      	B @cc138
+                        cc137:
+                        ;const1(val)
+  1064   04C4           	CLR R4
+                        cc138:
+                        ;eq0(label)
+  1066   C104           	MOV R4,R4
+  1068   1302           	JEQ $+6
+  106A   0460 1074      	B @cc136
+                        ;const1(val)
+  106E   04C4           	CLR R4
+                        ;jump(label)
+  1070   0460 1078      	B @cc139
+                        cc136:
+                        ;const1(val)
+  1074   0204 0001      	LI R4,1
+                        cc139:
+                        ;modstk(newsp,save)
+  1078   2DC0           	RET
+                        ;}
+                        	EXT flushlin
+                        	EXT oldvalu
+                        	ENT entnam
+                        	EXT hxlnbuf
+                        	EXT errcount
+                        	EXT hash
+                        	EXT _aton
+                        	EXT getprec
+                        	ENT putsym
+                        	EXT wipeout
+                        	EXT error2
+                        	ENT puttyp
+                        	EXT quitflag
+                        	EXT symend
+                        	EXT bptr
+                        	EXT symbol
+                        	EXT emit_code
+                        	EXT ifsp
+                        	EXT symcmp
+                        	EXT include_source
+                        	EXT eval
+                        	EXT bbsearch
+                        	EXT putrchr
+                        	EXT rputchr
+                        	EXT nssymbols
+                        	EXT memcpy
+                        	EXT hxlnptr
+                        	EXT chkoprat
+                        	EXT item
+                        	EXT symtbl
+                        	EXT linbuf
+                        	EXT evalerr
+                        	EXT pass
+                        	EXT seek
+                        	EXT source_rewind
+                        	EXT symptr
+                        	EXT err_cnt
+                        	EXT field
+                        	EXT getopcod
+                        	EXT ifstack
+                        	EXT _psop
+                        	EXT sortsym
+                        	EXT close_includes
+                        	EXT extflg
+                        	EXT linptr
+                        	EXT backitem
+                        	EXT errcode
+                        	ENT relsyms
+                        	EXT addsym
+                        	EXT push_source
+                        	EXT toupper
+                        	ENT xreftab
+                        	EXT nbytes
+                        	EXT markerr
+                        	EXT relflg
+                        	EXT type
+                        	EXT sympoint
+                        	EXT quoteflg
+                        	EXT flush
+                        	EXT loc_ctr
+                        	ENT xref_group
+                        	EXT error
+                        	EXT backflg
+                        	EXT directok
+                        	EXT progname
+                        	EXT _normop
+                        	ENT ishex
+                        	ENT relout
+                        	EXT movchr
+                        	ENT xref_emit
+                        	EXT binbuf
+                        	EXT rflush
+                        	EXT lstbuf
+                        	ENT xref_add
+                        	ENT xref_reset
+                        	EXT lineout
+                        	EXT pc
+                        	EXT itemflg
+                        	EXT chksum
+                        	EXT numopcs
+                        	EXT progsize
+                        	EXT addrmode
+                        	EXT address
+                        	EXT numoprs
+                        	ENT putabs2
+                        	EXT puts2
+                        	EXT puts3
+                        	EXT parse_line
+                        	ENT nxref
+                        	EXT getchr
+                        	ENT putabs
+                        	EXT putdec
+                        	EXT slookup
+                        	EXT oldattr
+                        	EXT asmline
+                        	EXT sorbuf
+                        	EXT putchr
+                        	EXT getlin
+                        	EXT gflush
+                        	EXT curdrive
+                        	ENT putfld
+                        	EXT putls
+                        	EXT outchunk
+                        	EXT outrem
+                        	EXT getopc
+                        	EXT getattr
+                        	EXT getname
+                        	EXT setfiles
+                        	EXT puthex2
+                        	EXT puthex4
+                        	ENT relhead
+                        	EXT getopr
+                        	EXT putbyt
+                        	EXT putlin
+                        	EXT getnum
+                        	EXT hexflg
+                        	EXT hexbuf
+                        	EXT cant
+                        	ENT putbits
+                        	EXT getitem
+                        	ENT putrel
+                        	EXT hxbytes
+                        	EXT list_line
+                        	EXT entflg
+  107A                  	EVEN
+  107A                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R8                0008   R9                0009   RET               2DC0'  
+SL                0009   SP                000A   WHEX              2E80'  WP                000D   
+WRITE             2F00'  _aton             0000*  _ccasl            0000*  _ccasr            0000*  
+_cclneg           0000*  _ccmult           0000*  _ccswitc          0000*  _normop           0000*  
+_psop             0000*  address           0000*  addrmode          0000*  addsym            0000*  
+asmline           0000*  backflg           0000*  backitem          0000*  bbsearch          0000*  
+binbuf            0000*  bptr              0000*  cant              0000*  cc10              01E8'  
+cc100             0B6C'  cc101             0B86'  cc102             0BD6'  cc103             0BC2'  
+cc104             0BC6'  cc105             0C28'  cc106             0C16'  cc107             0C18'  
+cc108             0C32'  cc109             0C84'  cc11              01EA'  cc110             0C72'  
+cc111             0C74'  cc113             0D08'  cc115             0D6E'  cc116             0D5E'  
+cc117             0D60'  cc119             0D82'  cc12              02A6'  cc120             0DFA'  
+cc121             0DDA'  cc122             0DDC'  cc123             0E26'  cc124             0E26'  
+cc125             0E82'  cc126             0E7E'  cc128             0EA4'  cc129             0FE8'  
+cc13              03D4'  cc130             0EE6'  cc131             0EFC'  cc132             0FE4'  
+cc134             1026'  cc135             1028'  cc136             1074'  cc137             1064'  
+cc138             1066'  cc139             1078'  cc14              0290'  cc15              02BC'  
+cc16              035A'  cc17              034A'  cc18              034E'  cc2               00FA'  
+cc20              0406'  cc21              041E'  cc22              046A'  cc23              040A'  
+cc24              0430'  cc25              0482'  cc26              04DC'  cc27              046E'  
+cc28              0494'  cc29              04D8'  cc3               0084'  cc31              0502'  
+cc33              06E6'  cc34              06D4'  cc35              050A'  cc36              053A'  
+cc37              069A'  cc38              0522'  cc39              0556'  cc4               03DA'  
+cc40              0696'  cc41              0634'  cc42              0680'  cc43              061C'  
+cc44              0650'  cc45              069A'  cc46              06A2'  cc49              078C'  
+cc5               013A'  cc50              0810'  cc51              07E6'  cc53              0826'  
+cc54              08BE'  cc55              0898'  cc59              0918'  cc6               0204'  
+cc61              0A24'  cc62              0A0E'  cc63              0922'  cc64              0982'  
+cc65              096E'  cc66              0972'  cc67              098C'  cc68              098C'  
+cc69              098C'  cc7               0124'  cc70              0A00'  cc71              09EC'  
+cc72              09F0'  cc73              0A8E'  cc74              0A7A'  cc75              0A7E'  
+cc77              0CD8'  cc78              0C92'  cc79              0A98'  cc8               0150'  
+cc80              0A98'  cc81              0A98'  cc82              0AE8'  cc83              0AD4'  
+cc84              0AD8'  cc85              0B00'  cc86              0B0A'  cc87              0B0A'  
+cc88              0B0A'  cc89              0B0A'  cc9               0200'  cc90              0B0A'  
+cc91              0B22'  cc92              0B2C'  cc93              0B2C'  cc94              0B2C'  
+cc95              0B2C'  cc96              0B2C'  cc97              0B2C'  cc98              0B7C'  
+cc99              0B68'  chkoprat          0000*  chksum            0000*  close_includes    0000*  
+curdrive          0000*  directok          0000*  emit_code         0000*  entflg            0000*  
+entnam            0778'  err_cnt           0000*  errcode           0000*  errcount          0000*  
+error             0000*  error2            0000*  eval              0000*  evalerr           0000*  
+extflg            0000*  field             0000*  flush             0000*  flushlin          0000*  
+getattr           0000*  getchr            0000*  getitem           0000*  getlin            0000*  
+getname           0000*  getnum            0000*  getopc            0000*  getopcod          0000*  
+getopr            0000*  getprec           0000*  gflush            0000*  hash              0000*  
+hexbuf            0000*  hexflg            0000*  hxbytes           0000*  hxlnbuf           0000*  
+hxlnptr           0000*  ifsp              0000*  ifstack           0000*  include_source    0000*  
+ishex             0FF2'  item              0000*  itemflg           0000*  linbuf            0000*  
+lineout           0000*  linptr            0000*  list_line         0000*  loc_ctr           0000*  
+lstbuf            0000*  markerr           0000*  memcpy            0000*  movchr            0000*  
+nbytes            0000*  nssymbols         0000*  numopcs           0000*  numoprs           0000*  
+nxref             0048'  oldattr           0000*  oldvalu           0000*  outchunk          0000*  
+outrem            0000*  parse_line        0000*  pass              0000*  pc                0000*  
+progname          0000*  progsize          0000*  push_source       0000*  putabs            08F0'  
+putabs2           08C6'  putbits           0E8C'  putbyt            0000*  putchr            0000*  
+putdec            0000*  putfld            0D0C'  puthex2           0000*  puthex4           0000*  
+putlin            0000*  putls             0000*  putrchr           0000*  putrel            08F6'  
+puts2             0000*  puts3             0000*  putsym            0D72'  puttyp            0CE0'  
+quitflag          0000*  quoteflg          0000*  relflg            0000*  relhead           06EC'  
+relout            04E0'  relsyms           0816'  rflush            0000*  rputchr           0000*  
+seek              0000*  setfiles          0000*  slookup           0000*  sorbuf            0000*  
+sortsym           0000*  source_rewind     0000*  symbol            0000*  symcmp            0000*  
+symend            0000*  sympoint          0000*  symptr            0000*  symtbl            0000*  
+toupper           0000*  type              0000*  wipeout           0000*  xref_add          0052'  
+xref_emit         03EC'  xref_group        0114'  xref_reset        004A'  xreftab           0000'  
+

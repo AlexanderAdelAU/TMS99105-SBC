@@ -1,0 +1,404 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM mess
+;/*
+;** mess.c -- message functions
+;*/
+;/* Print a literal string without carriage return to console */
+;putls(str)
+	EVEN
+putls:
+;char *str;
+;{
+;modstk(newsp,save)
+;	while(*str)
+;modstk(newsp,save)
+cc2:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc3
+;		putchar(*str++);
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;jump(label)
+	B @cc2
+cc3:
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;puts2(str1, str2)
+	EVEN
+puts2:
+;char *str1;
+;char *str2;
+;{
+;  putls(str1);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putls
+;modstk(newsp,save)
+	INCT SP
+;  putls(str2);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putls
+;modstk(newsp,save)
+	INCT SP
+;  }
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;puts3(str1, str2, str3)
+	EVEN
+puts3:
+;char *str1;
+;char *str2;
+;char *str3;
+;{
+;  putls(str1);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putls
+;modstk(newsp,save)
+	INCT SP
+;  putls(str2);
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putls
+;modstk(newsp,save)
+	INCT SP
+;  putls(str3);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putls
+;modstk(newsp,save)
+	INCT SP
+;  }
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;cant(str)
+	EVEN
+cant:
+;char *str;
+;{
+;  error2(str, " - Can't Open");
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc6+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error2
+;modstk(newsp,save)
+	AI SP,4
+;  }
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc6:	BYTE 32,45,32,67,97,110,39,116,32,79,112,101
+	BYTE 110,0
+;error2(str1, str2)
+	EVEN
+error2:
+;char *str1;
+;char *str2;
+;{
+;  putls(str1);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putls
+;modstk(newsp,save)
+	INCT SP
+;  error(str2);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;  }
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;error(reason)
+	EVEN
+error:
+;char *reason;
+;{
+;  putls(reason);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putls
+;modstk(newsp,save)
+	INCT SP
+;  exit(0);
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @exit
+;modstk(newsp,save)
+	INCT SP
+;  }
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/*
+;** memcpy -- Small-C byte copy
+;**
+;** The TMS9900/TMS99105 is big endian, but memcpy copies bytes exactly
+;** as stored; no byte swapping is performed.
+;*/
+;memcpy(dest, src, count)
+	EVEN
+memcpy:
+;char *dest;
+;char *src;
+;unsigned count;
+;{
+;	while(count--)
+;modstk(newsp,save)
+cc10:
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;	dec()
+	DEC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;inc()
+	INC R4
+	MOV R4,R4
+	JNE $+6
+	B @cc11
+;		*dest++ = *src++;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;jump(label)
+	B @cc10
+cc11:
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/*
+;** memset -- Small-C byte fill
+;*/
+;memset(dest, value, count)
+	EVEN
+memset:
+;char *dest;
+;int value;
+;unsigned count;
+;{
+;	while(count--)
+;modstk(newsp,save)
+cc13:
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;	dec()
+	DEC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;inc()
+	INC R4
+	MOV R4,R4
+	JNE $+6
+	B @cc14
+;		*dest++ = value;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;jump(label)
+	B @cc13
+cc14:
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+	ENT error2
+	ENT memcpy
+	EXT exit
+	ENT memset
+	ENT error
+	ENT puts2
+	ENT puts3
+	ENT putls
+	EXT putchar
+	ENT cant
+	EVEN
+	END
+
+; --- End of Compilation ---

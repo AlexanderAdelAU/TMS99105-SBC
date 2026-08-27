@@ -1,0 +1,9 @@
+#define _O_RDONLY 0
+#define _O_WRONLY 1
+#define _O_RDWR   2
+#define _O_APPEND 0x0008
+#define _O_CREAT  0x0100
+#define _O_TRUNC  0x0200
+#define _O_EXCL   0x0400
+#define _O_TEXT   0x4000
+#define _O_BINARY 0x8000

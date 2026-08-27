@@ -1,0 +1,1222 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM R99TBLS
+                        ;#include "R99CFG.h"
+                        ;/*
+                        ; * R99 build-size configuration.
+                        ; *
+                        ; * TEMPORARY SBC TESTING PROFILE.
+                        ; *
+                        ; * Goal: keep the flat R99.COM image below >C000 when loaded at >0500.
+                        ; * These reduced capacities are for initial board bring-up only.
+                        ; */
+                        ;#define LINLEN          128	/*  Must be at least 102: the 4-symbols-per-line table
+                        ;                                dump at the end of main writes 4 * 25 + 2 bytes into
+                        ;                                linbuf.  At 96 it spilled 6 bytes into binbuf.  */
+                        ;#define BUFSIZE          16
+                        ;#define SYMBOLS         101	/*  MUST BE ODD - slookup's probe step is d = 1, 3, 5, ...
+                        ;                                and its "table full" test is d == SYMBOLS, which an even
+                        ;                                SYMBOLS never reaches.  With a power of two the probe
+                        ;                                only ever visits 4 of the slots (h advances by k*k).  */
+                        ;#define INCLUDE_DEPTH     1
+                        ;#define MAXXREF            4
+                        ;#include "R99gbl.h"
+                        ;/*
+                        ; TMS990 Series Cross-Assembler  v. 1.0
+                        ; January, 1985
+                        ; Copyright (c) 1980 William C. Colley, III.
+                        ; Modified for the 990 Series by Alexander Cameron.
+                        ; File:	a99.gbl
+                        ; Global macro substitutions and external variable declarations.
+                        ; */
+                        ;/*  Build-size profile.  */
+                        ;/*  Define symbol table parameters:  REL files now allow 4 bits to define
+                        ; * the SYMLEN. The original spec allowed 3 bits
+                        ; *
+                        ; */
+                        ;#define	SYMLEN	16	/*  Symbol buffer size: 15 chars + terminating null. */
+                        ;#define	PADDING	"               "	/*  SYMLEN - 1 blanks.	15		*/
+                        ;#define ENTBIT 4	/* Sets ENTRY bit in symflg 			*/
+                        ;#define EQUBIT 16	/* Equivalence - defined via an equate 		*/
+                        ;#define DUPBIT 32	/* Equivalence - defined via an equate 		*/
+                        ;#define EXTBIT 8	/* Sets EXTERNAL bit in symflg			*/
+                        ;#define	DEFBIT	2	/* Sets DEFINED bit				*/
+                        ;#define RELBIT 1	/* Sets RELOCATION bit in symflg		*/
+                        ;#define COMBIT 12	/* Sets COMMON bits in symflg			*/
+                        ;/*  Number of if statements that can be nested:  */
+                        ;#define	IFDEPTH	16
+                        ;/*  BDOS functions called directly:  */
+                        ;#define	LISTOUT	5	/*  Put character to list device.		*/
+                        ;#define	LOGDISK	14	/*  Log in disk drive.				*/
+                        ;#define	GETDISK	25	/*  Get currently logged in disk.		*/
+                        ;/*  Define flag values:  */
+                        ;#define	TRUE	1	/*  General use.				*/
+                        ;#define	FALSE	0
+                        ;#define	SKIP	TRUE	/*  Used with skip flag in getchr.		*/
+                        ;#define	NOSKIP	FALSE
+                        ;#define	BIGST	TRUE	/*  Used to tell kind of string in getitem.	*/
+                        ;#define	SMALST	FALSE
+                        ;#define	NOCODE	0	/*  Used to tell the hex generator what to do.	*/
+                        ;#define	PUTCODE	1
+                        ;#define	FLUSH	2
+                        ;#define	NOMORE	3
+                        ;#define EXTADDR 4
+                        ;/*  File descriptors:  */
+                        ;#define	LODISK	0	/*  Lowest numbered disk.			*/
+                        ;#define	NOFILE	-1	/*  No file specified.				*/
+                        ;#define	CONO	-2	/*  Console output.				*/
+                        ;#define	LST	   -3	/*  List device.				*/
+                        ;/*  Items can have the following attributes:  */
+                        ;#define	ALPHA	0	/*  Alphabetic character.			*/
+                        ;#define	NUMERIC	1	/*  Numeric digit (0-9).			*/
+                        ;#define	END_LIN	2	/*  End-of-Line marker (cr or ;).		*/
+                        ;#define	COMMA	3	/*  Field separator (,).			*/
+                        ;#define	OPERATR	4	/*  Operator (* - GE < ( SHR etc.).		*/
+                        ;#define	BAS_DES	5	/*  Base designator ($ % @).			*/
+                        ;#define	QUOTE	6	/*  String delimiter (" ').			*/
+                        ;#define	TRASH	7
+                        ;#define	VALUE	8	/*  Evaluated expression.			*/
+                        ;#define	BLANK	10	/*  White space (spc tab).			*/
+                        ;#define COLON	12
+                        ;#define HATCH 	13
+                        ;/*  Some tokens for composite operators:  */
+                        ;#define GTTKN		'>'
+                        ;#define EQTKN		'='
+                        ;#define LTTKN		'<'
+                        ;#define	NO_OPR	0	/*  No operator.				*/
+                        ;#define	GRTEQ	1	/*  Greater than or equal to.			*/
+                        ;#define	NOTEQ	2	/*  Not equal to.				*/
+                        ;#define	LESEQ	3	/*  Less than or equal to.			*/
+                        ;#define	AND	4	/*  And.					*/
+                        ;#define	OR	5	/*  Or.						*/
+                        ;#define	XOR	6	/*  Exclusive or.				*/
+                        ;#define	NOT	7	/*  1's complement.				*/
+                        ;#define	MOD	8	/*  Mod--divide and return remainder.		*/
+                        ;#define	SHL	9	/*  Shift left.					*/
+                        ;#define	SHR	10	/*  Shift right.				*/
+                        ;#define	HIGH	11	/*  High byte of.				*/
+                        ;#define	LOW	12	/*  Low byte of.				*/
+                        ;/*  Operator precedence values:  */
+                        ;#define	UOP1	0	/*  Unary +, unary -.				*/
+                        ;#define	MULT	1	/*  *, /, MOD, SHL, SHR.			*/
+                        ;#define	ADDIT	2	/*  Binary +, binary -.				*/
+                        ;#define	RELAT	3	/*  >, =, <, >=, <>, <=.			*/
+                        ;#define	UOP2	4	/*  NOT.					*/
+                        ;#define	LOG1	5	/*  And.					*/
+                        ;#define	LOG2	6	/*  OR, XOR.					*/
+                        ;#define	UOP3	7	/*  HIGH, LOW.					*/
+                        ;#define	RPREN	8	/*  ).						*/
+                        ;#define	LPREN	9	/*  (.						*/
+                        ;#define	ENDEX	10	/*  CR, ;, ,.					*/
+                        ;#define	START	11	/*  Start of expression.			*/
+                        ;/*  Bits of opcode attribute byte.  */
+                        ;#define	PSOP	0x80	/*  Pseudo-op.					*/
+                        ;#define	DIROK	0x40	/*  Non-pseudo-op is OK for direct addressing.	*/
+                        ;#define	IFGROUP	0x40	/*  Pseudo-op is IF, ELSE, ENDI.		*/
+                        ;/*  Address modes for the 9900 instruction set 				*/
+                        ;#define WREG		0
+                        ;#define	INDIRECT 	1
+                        ;#define SYMBOLIC	2
+                        ;#define INDEXED 	3
+                        ;#define AUTOINC		4
+                        ;/*  Misc control chars */
+                        ;#define	LFCHAR	10	/*  Line feed.  NOTE: smallcp compiles '\n' as CR
+                        ;			    (13), so the LF has to be spelled out.  Never use
+                        ;			    '\r' either - smallcp reads it as the letter 'r'.  */
+                        ;#define CPMEOF	0x1A
+                        ;#define CTLS	19	/* Control S for stopping */
+                        ;#define CTLC    0x03	/* Control C aborts */
+                        ;#define NOSORT TRUE	/* Controls whether or not we want the table sorted */
+                        ;#define SORT FALSE
+                        ;#define INTEL8 TRUE    /* Generate Intel 16 or 32 Format */
+                        ;#define FILE char
+                        ;struct diskbuf {
+                        ;	int fd;
+                        ;	unsigned char *pointr;
+                        ;	unsigned char *endpoint;
+                        ;	unsigned char space[BUFSIZE];
+                        ;	FILE *fp;
+                        ;};
+                        ;extern struct diskbuf sorbuf, lstbuf, hexbuf;
+                        ;/*  Set up the symbol table: */
+                        ;struct symbtbl {
+                        ;	char symname[SYMLEN];
+                        ;	unsigned symvalu;
+                        ;	unsigned char symflg;
+                        ;	unsigned char sympad;	/*  keeps the entry EVEN in length - see below  */
+                        ;};
+                        ;/*  sympad is not optional.  Without it an entry is 19 bytes, so every odd
+                        ;    numbered slot starts on an ODD address and symvalu (offset 16) lands on
+                        ;    an odd address too.  The 99105 forces word accesses even, so the store
+                        ;    goes to offset 15/16 instead of 16/17 and wipes symname[15].  The value
+                        ;    reads back consistently, but the name no longer matches, so symcmp fails
+                        ;    and the same symbol gets added twice.  */
+                        ;extern struct symbtbl symtbl[SYMBOLS], *symend, *sympoint;
+                        ;/*  If stack and stack pointer.  */
+                        ;extern unsigned ifsp;
+                        ;extern unsigned ifstack[IFDEPTH + 1];
+                        ;/*  Buffer to hold current line:  */
+                        ;extern char *linptr, linbuf[LINLEN];
+                        ;/*  Buffer to hold the code generated by a line.  */
+                        ;extern unsigned char binbuf[LINLEN], *bptr;
+                        ;extern int nbytes;
+                        ;/*  Buffers for the hex generator.  */
+                        ;extern char chksum, hxbytes, *hxlnptr, hxlnbuf[88];
+                        ;/*  Miscellanious mailboxes:  */
+                        ;extern unsigned char extflg; /*  Indicates external symbol			*/
+                        ;extern unsigned char entflg; /*  Indicates and entry symbol			*/
+                        ;extern unsigned char relflg; /*  Indicates whether inst operand need relocation */
+                        ;extern int errcode; /*  Error records.				*/
+                        ;extern int errcount;
+                        ;extern int evalerr; /*  Flag to tell of error in eval.		*/
+                        ;extern unsigned backflg, oldattr; /*  Item push-back buffer.			*/
+                        ;extern unsigned oldvalu;
+                        ;extern int curdrive; /*  Place to save drive that was current
+                        ; disk when assembly started.		*/
+                        ;extern int hexflg; /*  Flag for asmline to tell hex
+                        ; generator what to do.			*/
+                        ;extern int directok; /*  All symbols on line pre-defined.		*/
+                        ;extern unsigned pc; /*  Assembly program counter.			*/
+                        ;extern unsigned progsize;
+                        ;extern unsigned address; /*  Address to be put into listed line.		*/
+                        ;extern char pass; /*  Which pass the assembly is in.		*/
+                        ;extern char addrmode;
+                        ;extern char quitflag; /*  Used in eval to detect INDEXED expressions  */
+                        ;/*added by [AC]  */
+                        ;extern unsigned char quoteflg;
+                        ;/*-----------
+                        ; rel variables
+                        ; ------------*/
+                        ;extern unsigned char outchunk, /* current output chunk in REL file */
+                        ;outrem, /* remaining bits in outchunk */
+                        ;item, /* current item code */
+                        ;type; /* type field */
+                        ;extern unsigned field; /* current bit field */
+                        ;extern char symbol[SYMLEN], /* current string */
+                        ;progname[SYMLEN]; /* programme module's name */
+                        ;extern unsigned nssymbols;
+                        ;extern unsigned itemflg[3]; /* type of item found in getitem
+                        ; itemflg[0] = current item found
+                        ; itemflg[1] = operand 1 item type
+                        ; itemflg[2] = operand 2 item type
+                        ; */
+                        ;extern unsigned symptr[3]; /* external or entry symbol pointer
+                        ; symptr[0] -> current symbol
+                        ; symptr[1] -> operand 1 symbol
+                        ; symptr[2] -> operand 2 symbol
+                        ; */
+                        ;/* Missing symbols required by overlay modules */
+                        ;extern int err_cnt;
+                        ;extern int loc_ctr;
+                        ;extern int parse_line();
+                        ;extern int emit_code();
+                        ;extern int list_line();
+                        ;/*  Some trivial functions:  */
+                        ;#define	backchr	linptr--		/*  Push back a character.	*/
+                        ;#include "REL99.h"
+                        ;/*
+                        ;** rel.h -- header for REL file processing
+                        ;*/
+                        ;			/* item-type codes */
+                        ;#define ABS       0	/* absolute item */
+                        ;#define PREL      1	/* program (code) relative item */
+                        ;#define DREL      2	/* data relative item */
+                        ;#define CREL      3	/* common relative item */
+                        ;#define ENAME     4	/* entry name */
+                        ;#define CNAME     5	/* common block name */
+                        ;#define PNAME     6	/* program name */
+                        ;#define LNAME     7	/* library name */
+                        ;#define EXT       8	/* extension link-item */
+                        ;#define CSIZE     9	/* common size & name */
+                        ;#define XCHAIN   10	/* external-reference-chain head & name */
+                        ;#define EPOINT   11	/* entry point location & name */
+                        ;#define XMOFF    12	/* external - offset */
+                        ;#define XPOFF    13	/* external + offset */
+                        ;#define DSIZE    14	/* data area size */
+                        ;#define SETLC    15	/* set location counter for loading */
+                        ;#define CHAIN    16	/* chain address (fill chain with loc ctr)  */
+                        ;#define PSIZE    17	/* program (code) size */
+                        ;#define EPROG    18	/* end of program */
+                        ;#define EFILE    19	/* end of file */
+                        ;#define MAXSYM   15	/* maximum symbol length allowed in REL file */
+                        ;#define ONES     0xffff	/* all one bits */
+                        ;/* Extensions used by the current R99 source. */
+                        ;#define BITPSYM          4
+                        ;#define MAXSYM99        15
+                        ;#define AORG_MARK        SETLC
+                        ;#define REL99_EXT_XREFS  "XREFS           "
+                        ;#include "R99Ext.h"
+                        ;/*
+                        ; TMS9900/99105 Cross-Assembler external declarations.
+                        ; Refactored for the Small C 2.2 declaration model.  Small C does not
+                        ; implement ANSI prototypes, so these declarations intentionally carry
+                        ; no parameter lists or return-type promises.
+                        ; */
+                        ;extern setfiles();
+                        ;extern getopr();
+                        ;extern getopc();
+                        ;extern getopcod();
+                        ;extern getattr();
+                        ;extern entnam();
+                        ;extern putlin();
+                        ;extern ishex();
+                        ;extern _aton();
+                        ;extern putbits();
+                        ;extern getchr();
+                        ;extern putchr();
+                        ;extern putbyt();
+                        ;extern putrchr();
+                        ;extern rputchr();
+                        ;extern slookup();
+                        ;extern addsym();
+                        ;extern sortsym();
+                        ;extern _psop();
+                        ;extern _normop();
+                        ;extern getname();
+                        ;extern symcmp();
+                        ;extern asmline();
+                        ;extern getitem();
+                        ;extern getlin();
+                        ;extern source_rewind();
+                        ;extern include_source();
+                        ;extern push_source();
+                        ;extern close_includes();
+                        ;extern wipeout();
+                        ;extern puthex2();
+                        ;extern puthex4();
+                        ;extern putdec();
+                        ;extern getprec();
+                        ;extern markerr();
+                        ;extern hash();
+                        ;extern toupper();
+                        ;extern putabs2();
+                        ;extern putabs();
+                        ;extern eval();
+                        ;extern chkoprat();
+                        ;extern flush();
+                        ;extern gflush();
+                        ;extern rflush();
+                        ;extern getnum();
+                        ;extern relsyms();
+                        ;extern putrel();
+                        ;extern putfld();
+                        ;extern putsym();
+                        ;extern xref_add();
+                        ;extern xref_reset();
+                        ;extern xref_emit();
+                        ;extern lineout();
+                        ;extern relout();
+                        ;extern relhead();
+                        ;extern backitem();
+                        ;extern bbsearch();
+                        ;extern numopcs();
+                        ;extern numoprs();
+                        ;extern movchr();
+                        ;extern seek();
+                        ;extern flushlin();
+                        ;extern puts2();
+                        ;extern puts3();
+                        ;extern putls();
+                        ;extern cant();
+                        ;extern error2();
+                        ;extern error();
+                        ;#define GETKN	    1
+                        ;#define NETKN		2
+                        ;#define LETKN		3
+                        ;#define ANDTKN		4
+                        ;#define ORTKN		5
+                        ;#define XORTKN		6
+                        ;#define NOTTKN		7
+                        ;#define MODTKN		8
+                        ;#define SHLTKN		9
+                        ;#define SHRTKN		10
+                        ;#define HITKN		11
+                        ;#define LOWTKN		12
+                        ;#define OPCODE_SLOT 5
+                        ;char opcode_table[505] = {
+                        opcode_table:;    65, 0, 0, 0, 0, 65, 66, 0, 0, 0, 65, 66,
+                        ;    83, 0, 0, 65, 73, 0, 0, 0, 65, 78, 68, 73,
+                        ;    0, 65, 79, 82, 71, 0, 66, 0, 0, 0, 0, 66,
+                        ;    73, 78, 68, 0, 66, 76, 0, 0, 0, 66, 76, 83,
+                        ;    75, 0, 66, 76, 87, 80, 0, 66, 83, 83, 0, 0,
+                        ;    66, 89, 84, 69, 0, 67, 0, 0, 0, 0, 67, 66,
+                        ;    0, 0, 0, 67, 73, 0, 0, 0, 67, 75, 79, 70,
+                        ;    0, 67, 75, 79, 78, 0, 67, 76, 82, 0, 0, 67,
+                        ;    79, 67, 0, 0, 67, 90, 67, 0, 0, 68, 69, 67,
+                        ;    0, 0, 68, 69, 67, 84, 0, 68, 73, 86, 0, 0,
+                        ;    68, 73, 86, 83, 0, 68, 88, 79, 80, 0, 69, 76,
+                        ;    83, 69, 0, 69, 78, 68, 0, 0, 69, 78, 68, 73,
+                        ;    0, 69, 78, 84, 0, 0, 69, 81, 85, 0, 0, 69,
+                        ;    86, 69, 78, 0, 69, 88, 84, 0, 0, 73, 68, 76,
+                        ;    69, 0, 73, 70, 0, 0, 0, 73, 78, 67, 0, 0,
+                        ;    73, 78, 67, 76, 0, 73, 78, 67, 84, 0, 73, 78,
+                        ;    86, 0, 0, 74, 69, 81, 0, 0, 74, 71, 84, 0,
+                        ;    0, 74, 72, 0, 0, 0, 74, 72, 69, 0, 0, 74,
+                        ;    76, 0, 0, 0, 74, 76, 69, 0, 0, 74, 76, 84,
+                        ;    0, 0, 74, 77, 80, 0, 0, 74, 78, 67, 0, 0,
+                        ;    74, 78, 69, 0, 0, 74, 78, 79, 0, 0, 74, 79,
+                        ;    67, 0, 0, 74, 79, 80, 0, 0, 76, 68, 67, 82,
+                        ;    0, 76, 73, 0, 0, 0, 76, 73, 77, 73, 0, 76,
+                        ;    82, 69, 88, 0, 76, 83, 84, 0, 0, 76, 87, 80,
+                        ;    0, 0, 76, 87, 80, 73, 0, 77, 79, 86, 0, 0,
+                        ;    77, 79, 86, 66, 0, 77, 80, 89, 0, 0, 77, 80,
+                        ;    89, 83, 0, 78, 65, 77, 0, 0, 78, 69, 71, 0,
+                        ;    0, 78, 79, 80, 0, 0, 79, 82, 71, 0, 0, 79,
+                        ;    82, 73, 0, 0, 82, 83, 69, 84, 0, 82, 84, 0,
+                        ;    0, 0, 82, 84, 87, 80, 0, 83, 0, 0, 0, 0,
+                        ;    83, 66, 0, 0, 0, 83, 66, 79, 0, 0, 83, 66,
+                        ;    90, 0, 0, 83, 69, 84, 0, 0, 83, 69, 84, 79,
+                        ;    0, 83, 76, 65, 0, 0, 83, 79, 67, 0, 0, 83,
+                        ;    79, 67, 66, 0, 83, 82, 65, 0, 0, 83, 82, 67,
+                        ;    0, 0, 83, 82, 76, 0, 0, 83, 84, 67, 82, 0,
+                        ;    83, 84, 83, 84, 0, 83, 84, 87, 80, 0, 83, 87,
+                        ;    80, 66, 0, 83, 90, 67, 0, 0, 83, 90, 67, 66,
+                        ;    0, 84, 66, 0, 0, 0, 84, 67, 77, 66, 0, 84,
+                        ;    69, 88, 84, 0, 84, 77, 66, 0, 0, 84, 82, 79,
+                        ;    70, 0, 84, 82, 79, 78, 0, 84, 83, 77, 66, 0,
+                        ;    87, 79, 82, 68, 0, 87, 82, 69, 78, 0, 88, 0,
+                        ;    0, 0, 0, 88, 79, 80, 0, 0, 88, 79, 82, 0,
+                        ;    0
+  0000   4100 0000      	BYTE 65,0,0,0,0,65,66,0,0,0,65,66
+  0004   0041 4200      
+  0008   0000 4142      
+  000C   5300 0041      	BYTE 83,0,0,65,73,0,0,0,65,78,68,73
+  0010   4900 0000      
+  0014   414E 4449      
+  0018   0041 4F52      	BYTE 0,65,79,82,71,0,66,0,0,0,0,66
+  001C   4700 4200      
+  0020   0000 0042      
+  0024   494E 4400      	BYTE 73,78,68,0,66,76,0,0,0,66,76,83
+  0028   424C 0000      
+  002C   0042 4C53      
+  0030   4B00 424C      	BYTE 75,0,66,76,87,80,0,66,83,83,0,0
+  0034   5750 0042      
+  0038   5353 0000      
+  003C   4259 5445      	BYTE 66,89,84,69,0,67,0,0,0,0,67,66
+  0040   0043 0000      
+  0044   0000 4342      
+  0048   0000 0043      	BYTE 0,0,0,67,73,0,0,0,67,75,79,70
+  004C   4900 0000      
+  0050   434B 4F46      
+  0054   0043 4B4F      	BYTE 0,67,75,79,78,0,67,76,82,0,0,67
+  0058   4E00 434C      
+  005C   5200 0043      
+  0060   4F43 0000      	BYTE 79,67,0,0,67,90,67,0,0,68,69,67
+  0064   435A 4300      
+  0068   0044 4543      
+  006C   0000 4445      	BYTE 0,0,68,69,67,84,0,68,73,86,0,0
+  0070   4354 0044      
+  0074   4956 0000      
+  0078   4449 5653      	BYTE 68,73,86,83,0,68,88,79,80,0,69,76
+  007C   0044 584F      
+  0080   5000 454C      
+  0084   5345 0045      	BYTE 83,69,0,69,78,68,0,0,69,78,68,73
+  0088   4E44 0000      
+  008C   454E 4449      
+  0090   0045 4E54      	BYTE 0,69,78,84,0,0,69,81,85,0,0,69
+  0094   0000 4551      
+  0098   5500 0045      
+  009C   5645 4E00      	BYTE 86,69,78,0,69,88,84,0,0,73,68,76
+  00A0   4558 5400      
+  00A4   0049 444C      
+  00A8   4500 4946      	BYTE 69,0,73,70,0,0,0,73,78,67,0,0
+  00AC   0000 0049      
+  00B0   4E43 0000      
+  00B4   494E 434C      	BYTE 73,78,67,76,0,73,78,67,84,0,73,78
+  00B8   0049 4E43      
+  00BC   5400 494E      
+  00C0   5600 004A      	BYTE 86,0,0,74,69,81,0,0,74,71,84,0
+  00C4   4551 0000      
+  00C8   4A47 5400      
+  00CC   004A 4800      	BYTE 0,74,72,0,0,0,74,72,69,0,0,74
+  00D0   0000 4A48      
+  00D4   4500 004A      
+  00D8   4C00 0000      	BYTE 76,0,0,0,74,76,69,0,0,74,76,84
+  00DC   4A4C 4500      
+  00E0   004A 4C54      
+  00E4   0000 4A4D      	BYTE 0,0,74,77,80,0,0,74,78,67,0,0
+  00E8   5000 004A      
+  00EC   4E43 0000      
+  00F0   4A4E 4500      	BYTE 74,78,69,0,0,74,78,79,0,0,74,79
+  00F4   004A 4E4F      
+  00F8   0000 4A4F      
+  00FC   4300 004A      	BYTE 67,0,0,74,79,80,0,0,76,68,67,82
+  0100   4F50 0000      
+  0104   4C44 4352      
+  0108   004C 4900      	BYTE 0,76,73,0,0,0,76,73,77,73,0,76
+  010C   0000 4C49      
+  0110   4D49 004C      
+  0114   5245 5800      	BYTE 82,69,88,0,76,83,84,0,0,76,87,80
+  0118   4C53 5400      
+  011C   004C 5750      
+  0120   0000 4C57      	BYTE 0,0,76,87,80,73,0,77,79,86,0,0
+  0124   5049 004D      
+  0128   4F56 0000      
+  012C   4D4F 5642      	BYTE 77,79,86,66,0,77,80,89,0,0,77,80
+  0130   004D 5059      
+  0134   0000 4D50      
+  0138   5953 004E      	BYTE 89,83,0,78,65,77,0,0,78,69,71,0
+  013C   414D 0000      
+  0140   4E45 4700      
+  0144   004E 4F50      	BYTE 0,78,79,80,0,0,79,82,71,0,0,79
+  0148   0000 4F52      
+  014C   4700 004F      
+  0150   5249 0000      	BYTE 82,73,0,0,82,83,69,84,0,82,84,0
+  0154   5253 4554      
+  0158   0052 5400      
+  015C   0000 5254      	BYTE 0,0,82,84,87,80,0,83,0,0,0,0
+  0160   5750 0053      
+  0164   0000 0000      
+  0168   5342 0000      	BYTE 83,66,0,0,0,83,66,79,0,0,83,66
+  016C   0053 424F      
+  0170   0000 5342      
+  0174   5A00 0053      	BYTE 90,0,0,83,69,84,0,0,83,69,84,79
+  0178   4554 0000      
+  017C   5345 544F      
+  0180   0053 4C41      	BYTE 0,83,76,65,0,0,83,79,67,0,0,83
+  0184   0000 534F      
+  0188   4300 0053      
+  018C   4F43 4200      	BYTE 79,67,66,0,83,82,65,0,0,83,82,67
+  0190   5352 4100      
+  0194   0053 5243      
+  0198   0000 5352      	BYTE 0,0,83,82,76,0,0,83,84,67,82,0
+  019C   4C00 0053      
+  01A0   5443 5200      
+  01A4   5354 5354      	BYTE 83,84,83,84,0,83,84,87,80,0,83,87
+  01A8   0053 5457      
+  01AC   5000 5357      
+  01B0   5042 0053      	BYTE 80,66,0,83,90,67,0,0,83,90,67,66
+  01B4   5A43 0000      
+  01B8   535A 4342      
+  01BC   0054 4200      	BYTE 0,84,66,0,0,0,84,67,77,66,0,84
+  01C0   0000 5443      
+  01C4   4D42 0054      
+  01C8   4558 5400      	BYTE 69,88,84,0,84,77,66,0,0,84,82,79
+  01CC   544D 4200      
+  01D0   0054 524F      
+  01D4   4600 5452      	BYTE 70,0,84,82,79,78,0,84,83,77,66,0
+  01D8   4F4E 0054      
+  01DC   534D 4200      
+  01E0   574F 5244      	BYTE 87,79,82,68,0,87,82,69,78,0,88,0
+  01E4   0057 5245      
+  01E8   4E00 5800      
+  01EC   0000 0058      	BYTE 0,0,0,88,79,80,0,0,88,79,82,0
+  01F0   4F50 0000      
+  01F4   584F 5200      
+  01F8   00             	BYTE 0
+  01F9   00             	EVEN
+                        ;unsigned char opcode_attr[101] = { 0x09, 0x09, 0x01, 0x35, 0x35, 0x80, 0x01,
+                        opcode_attr:;		0x01, 0x01, 0x35, 0x01, 0x80, 0x80, 0x09, 0x09, 0x35, 0x00, 0x00, 0x01,
+                        ;		0x19, 0x19, 0x01, 0x01, 0x19, 0x01, 0xC0, 0xC0, 0x80, 0xC0, 0x80, 0x80,
+                        ;		0x80, 0x80, 0x00, 0xC0, 0x01, 0x80, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x02,
+                        ;		0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x19, 0x35, 0x06, 0x00,
+                        ;		0x05, 0x05, 0x06, 0x09, 0x09, 0x19, 0x01, 0x80, 0x01, 0x00, 0x80, 0x35,
+                        ;		0x00, 0x00, 0x00, 0x09, 0x09, 0x04, 0x04, 0x80, 0x01, 0x2D, 0x09, 0x09,
+                        ;		0x2D, 0x2D, 0x2D, 0x09, 0x05, 0x05, 0x01, 0x09, 0x09, 0x04, 0x07, 0x80,
+                        ;		0x07, 0x00, 0x00, 0x07, 0x80, 0x00, 0x01, 0x19, 0x19 };
+  01FA   0909 0135      	BYTE 9,9,1,53,53,-128,1,1,1,53,1,-128
+  01FE   3580 0101      
+  0202   0135 0180      
+  0206   8009 0935      	BYTE -128,9,9,53,0,0,1,25,25,1,1,25
+  020A   0000 0119      
+  020E   1901 0119      
+  0212   01C0 C080      	BYTE 1,-64,-64,-128,-64,-128,-128,-128,-128,0,-64,1
+  0216   C080 8080      
+  021A   8000 C001      
+  021E   8001 0102      	BYTE -128,1,1,2,2,2,2,2,2,2,2,2
+  0222   0202 0202      
+  0226   0202 0202      
+  022A   0202 0202      	BYTE 2,2,2,2,25,53,6,0,5,5,6,9
+  022E   1935 0600      
+  0232   0505 0609      
+  0236   0919 0180      	BYTE 9,25,1,-128,1,0,-128,53,0,0,0,9
+  023A   0100 8035      
+  023E   0000 0009      
+  0242   0904 0480      	BYTE 9,4,4,-128,1,45,9,9,45,45,45,9
+  0246   012D 0909      
+  024A   2D2D 2D09      
+  024E   0505 0109      	BYTE 5,5,1,9,9,4,7,-128,7,0,0,7
+  0252   0904 0780      
+  0256   0700 0007      
+  025A   8000 0119      	BYTE -128,0,1,25,25
+  025E   19             
+  025F   00             	EVEN
+                        ;unsigned opcode_opcode[101] = { 0xA000, 0xB000, 0x0740, 0x0220,
+                        opcode_opcode:;		0x0240, 0x0000, 0x0440, 0x0140, 0x0680, 0x00B0, 0x0400, 0x0005, 0x0002,
+                        ;		0x8000, 0x9000, 0x0280, 0x03C0, 0x03A0, 0x04C0, 0x2000, 0x2400, 0x0600,
+                        ;		0x0640, 0x3C00, 0x0180, 0x000C, 0x0007, 0x0006, 0x0008, 0x000E, 0x0001,
+                        ;		0x000B, 0x000D, 0x0340, 0x0009, 0x0580, 0x0010, 0x05C0, 0x0540, 0x1300, 0x1500,
+                        ;		0x1B00, 0x1400, 0x1A00, 0x1200, 0x1100, 0x1000, 0x1700, 0x1600, 0x1900,
+                        ;		0x1800, 0x1C00, 0x3000, 0x0200, 0x0300, 0x03E0, 0x0080, 0x0090, 0x02E0,
+                        ;		0xC000, 0xD000, 0x3800, 0x01C0, 0x000F, 0x0500, 0x1000, 0x0000, 0x0260,
+                        ;		0x0360, 0x045B, 0x0380, 0x6000, 0x7000, 0x1D00, 0x1E00, 0x000A, 0x0700,
+                        ;		0x0A00, 0xE000, 0xF000, 0x0800, 0x0B00, 0x0900, 0x3400, 0x02C0, 0x02A0,
+                        ;		0x06C0, 0x4000, 0x5000, 0x1F00, 0x0C0A, 0x0004, 0x0C09, 0x03C0, 0x03E0,
+                        ;		0x0C0B, 0x0003, 0x03A0, 0x0480, 0x2C00, 0x2800 };
+  0260   A000 B000      	WORD -24576,-20480,1856,544,576,0,1088,320,1664,176,1024,5
+  0264   0740 0220      
+  0268   0240 0000      
+  026C   0440 0140      
+  0270   0680 00B0      
+  0274   0400 0005      
+  0278   0002 8000      	WORD 2,-32768,-28672,640,960,928,1216,8192,9216,1536,1600,15360
+  027C   9000 0280      
+  0280   03C0 03A0      
+  0284   04C0 2000      
+  0288   2400 0600      
+  028C   0640 3C00      
+  0290   0180 000C      	WORD 384,12,7,6,8,14,1,11,13,832,9,1408
+  0294   0007 0006      
+  0298   0008 000E      
+  029C   0001 000B      
+  02A0   000D 0340      
+  02A4   0009 0580      
+  02A8   0010 05C0      	WORD 16,1472,1344,4864,5376,6912,5120,6656,4608,4352,4096,5888
+  02AC   0540 1300      
+  02B0   1500 1B00      
+  02B4   1400 1A00      
+  02B8   1200 1100      
+  02BC   1000 1700      
+  02C0   1600 1900      	WORD 5632,6400,6144,7168,12288,512,768,992,128,144,736,-16384
+  02C4   1800 1C00      
+  02C8   3000 0200      
+  02CC   0300 03E0      
+  02D0   0080 0090      
+  02D4   02E0 C000      
+  02D8   D000 3800      	WORD -12288,14336,448,15,1280,4096,0,608,864,1115,896,24576
+  02DC   01C0 000F      
+  02E0   0500 1000      
+  02E4   0000 0260      
+  02E8   0360 045B      
+  02EC   0380 6000      
+  02F0   7000 1D00      	WORD 28672,7424,7680,10,1792,2560,-8192,-4096,2048,2816,2304,13312
+  02F4   1E00 000A      
+  02F8   0700 0A00      
+  02FC   E000 F000      
+  0300   0800 0B00      
+  0304   0900 3400      
+  0308   02C0 02A0      	WORD 704,672,1728,16384,20480,7936,3082,4,3081,960,992,3083
+  030C   06C0 4000      
+  0310   5000 1F00      
+  0314   0C0A 0004      
+  0318   0C09 03C0      
+  031C   03E0 0C0B      
+  0320   0003 03A0      	WORD 3,928,1152,11264,10240
+  0324   0480 2C00      
+  0328   2800           
+                        ;#define OPR_SLOT 5
+                        ;char opr_table[75] = {
+                        opr_table:;    65, 78, 68, 0, 0, 69, 81, 0, 0, 0, 71, 69,
+                        ;    0, 0, 0, 71, 84, 0, 0, 0, 72, 73, 71, 72,
+                        ;    0, 76, 69, 0, 0, 0, 76, 79, 87, 0, 0, 76,
+                        ;    84, 0, 0, 0, 77, 79, 68, 0, 0, 78, 69, 0,
+                        ;    0, 0, 78, 79, 84, 0, 0, 79, 82, 0, 0, 0,
+                        ;    83, 72, 76, 0, 0, 83, 72, 82, 0, 0, 88, 79,
+                        ;    82, 0, 0
+  032A   414E 4400      	BYTE 65,78,68,0,0,69,81,0,0,0,71,69
+  032E   0045 5100      
+  0332   0000 4745      
+  0336   0000 0047      	BYTE 0,0,0,71,84,0,0,0,72,73,71,72
+  033A   5400 0000      
+  033E   4849 4748      
+  0342   004C 4500      	BYTE 0,76,69,0,0,0,76,79,87,0,0,76
+  0346   0000 4C4F      
+  034A   5700 004C      
+  034E   5400 0000      	BYTE 84,0,0,0,77,79,68,0,0,78,69,0
+  0352   4D4F 4400      
+  0356   004E 4500      
+  035A   0000 4E4F      	BYTE 0,0,78,79,84,0,0,79,82,0,0,0
+  035E   5400 004F      
+  0362   5200 0000      
+  0366   5348 4C00      	BYTE 83,72,76,0,0,83,72,82,0,0,88,79
+  036A   0053 4852      
+  036E   0000 584F      
+  0372   5200 00        	BYTE 82,0,0
+  0375   00             	EVEN
+                        ;unsigned char opr_attr[15] = {
+                        opr_attr:;ANDTKN, EQTKN, GETKN, GTTKN, HITKN, LETKN, LOWTKN, LTTKN, MODTKN, NETKN, NOTTKN,
+                        ;ORTKN, SHLTKN, SHRTKN, XORTKN };
+  0376   043D 013E      	BYTE 4,61,1,62,11,3,12,60,8,2,7,5
+  037A   0B03 0C3C      
+  037E   0802 0705      
+  0382   090A 06        	BYTE 9,10,6
+  0385   00             	EVEN
+                        ;unsigned char char_attr[128] = {
+                        char_attr:;	/*BLOCK TRASH 9 */
+                        ;	END_LIN, TRASH, TRASH, TRASH, TRASH, TRASH, TRASH, TRASH, TRASH,
+                        ;	BLANK, END_LIN, TRASH, TRASH, END_LIN,
+                        ;	TRASH, TRASH, TRASH, TRASH, TRASH, TRASH, TRASH, TRASH, TRASH,
+                        ;	TRASH, TRASH, TRASH, TRASH, TRASH, TRASH, TRASH, TRASH, TRASH,
+                        ;	BLANK, ALPHA, QUOTE, HATCH, OPERATR, BAS_DES, ALPHA, QUOTE,
+                        ;	OPERATR, OPERATR, OPERATR, OPERATR, COMMA, OPERATR, ALPHA, OPERATR,
+                        ;	/* 0x30 decimal 48 */
+                        ;	NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC,
+                        ;	NUMERIC, NUMERIC,
+                        ;	/* 3A, 58 */
+                        ;	COLON, END_LIN, OPERATR, OPERATR, OPERATR, ALPHA, OPERATR,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA, ALPHA,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA,
+                        ;	ALPHA, ALPHA, ALPHA, ALPHA, TRASH };
+  0386   0207 0707      	BYTE 2,7,7,7,7,7,7,7,7,10,2,7
+  038A   0707 0707      
+  038E   070A 0207      
+  0392   0702 0707      	BYTE 7,2,7,7,7,7,7,7,7,7,7,7
+  0396   0707 0707      
+  039A   0707 0707      
+  039E   0707 0707      	BYTE 7,7,7,7,7,7,7,7,10,0,6,13
+  03A2   0707 0707      
+  03A6   0A00 060D      
+  03AA   0405 0006      	BYTE 4,5,0,6,4,4,4,4,3,4,0,4
+  03AE   0404 0404      
+  03B2   0304 0004      
+  03B6   0101 0101      	BYTE 1,1,1,1,1,1,1,1,1,1,12,2
+  03BA   0101 0101      
+  03BE   0101 0C02      
+  03C2   0404 0400      	BYTE 4,4,4,0,4,0,0,0,0,0,0,0
+  03C6   0400 0000      
+  03CA   0000 0000      
+  03CE   0000 0000      	BYTE 0,0,0,0,0,0,0,0,0,0,0,0
+  03D2   0000 0000      
+  03D6   0000 0000      
+  03DA   0000 0000      	BYTE 0,0,0,0,0,0,0,0,0,0,0,0
+  03DE   0000 0000      
+  03E2   0000 0000      
+  03E6   0000 0000      	BYTE 0,0,0,0,0,0,0,0,0,0,0,0
+  03EA   0000 0000      
+  03EE   0000 0000      
+  03F2   0000 0000      	BYTE 0,0,0,0,0,0,0,0,0,0,0,0
+  03F6   0000 0000      
+  03FA   0000 0000      
+  03FE   0000 0000      	BYTE 0,0,0,0,0,0,0,7
+  0402   0000 0007      
+                        ;numopcs()
+  0406                  	EVEN
+                        numopcs:
+                        ;{
+                        ;modstk(newsp,save)
+                        ;	return 100;
+                        ;modstk(newsp,save)
+                        ;const1(val)
+  0406   0204 0064      	LI R4,100
+                        ;modstk(newsp,save)
+  040A   2DC0           	RET
+                        ;}
+                        ;numoprs()
+  040C                  	EVEN
+                        numoprs:
+                        ;{
+                        ;	return 14;
+                        ;modstk(newsp,save)
+                        ;const1(val)
+  040C   0204 000E      	LI R4,14
+                        ;modstk(newsp,save)
+  0410   2DC0           	RET
+                        ;}
+                        ;getattr(c)
+  0412                  	EVEN
+                        getattr:
+                        ;unsigned c;
+                        ;{
+                        ;	return char_attr[c];
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  0412   0204 0386      	LI R4,char_attr
+                        ;zpush()
+  0416   064A           	DECT SP
+  0418   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  041A   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;scale(type,tag)
+                        ;zpop()
+  041E   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0420   A103           	A R3,R4
+                        ;indirect ccgchar
+  0422   D114           	MOVB *R4,R4
+  0424   0884           	SRA R4,8
+                        ;modstk(newsp,save)
+  0426   2DC0           	RET
+                        ;}
+                        ;getopc(index, opcode_m, opcode, attrib)
+  0428                  	EVEN
+                        getopc:
+                        ;unsigned index;
+                        ;char *opcode_m;
+                        ;unsigned *opcode;
+                        ;unsigned char *attrib;
+                        ;{
+                        ;	char *s;
+                        ;	char *d;
+                        ;	s = opcode_table + index * OPCODE_SLOT;
+                        ;modstk(newsp,save)
+  0428   022A FFFC      	AI SP,-4
+                        ;address(ptr)
+  042C   0204 0000      	LI R4,opcode_table
+                        ;zpush()
+  0430   064A           	DECT SP
+  0432   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0434   C12A 000E      	MOV @14(SP),R4 ;optimised load
+                        ;zpush()
+  0438   C0C4           	MOV R4,R3 ;optimised push/pop
+  043A   0204 0005      	LI R4,5
+  043E   06A0 0000      	BL @_ccmult##
+                        ;zpop()
+  0442   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0444   A103           	A R3,R4
+                        ;put2tos()
+  0446   CA84 0002      	MOV R4,@2(SP)
+                        ;	d = opcode_m;
+                        ;getloc(sym, off)
+  044A   C12A 000A      	MOV @10(SP),R4 ;optimised load
+                        ;puttos()
+  044E   C684           	MOV R4,*SP
+                        ;	while (*s != '\0') {
+                        cc11:
+                        ;getloc(sym, off)
+  0450   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0454   D114           	MOVB *R4,R4
+  0456   0884           	SRA R4,8
+  0458   C104           	MOV R4,R4
+  045A   1602           	JNE $+6
+  045C   0460 0496      	B @cc12
+                        ;		*d++ = *s++;
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0460   C10A           	MOV SP,R4
+                        ;zpush()
+  0462   064A           	DECT SP
+  0464   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0466   C114           	MOV *R4,R4
+                        ;inc()
+  0468   0584           	INC R4
+                        ;zpop()
+  046A   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  046C   C4C4           	MOV R4,*R3
+                        ;	dec()
+  046E   0604           	DEC R4
+                        ;zpush()
+  0470   064A           	DECT SP
+  0472   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0474   0204 0004      	LI R4,4
+  0478   A10A           	A SP,R4
+                        ;zpush()
+  047A   064A           	DECT SP
+  047C   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  047E   C114           	MOV *R4,R4
+                        ;inc()
+  0480   0584           	INC R4
+                        ;zpop()
+  0482   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0484   C4C4           	MOV R4,*R3
+                        ;	dec()
+  0486   0604           	DEC R4
+                        ;indirect ccgchar
+  0488   D114           	MOVB *R4,R4
+  048A   0884           	SRA R4,8
+                        ;zpop()
+  048C   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  048E   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	}
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0492   0460 0450      	B @cc11
+                        cc12:
+                        ;	*d = '\0';
+                        ;getloc(sym, off)
+  0496   C11A           	MOV *SP,R4 ;optimised load
+                        ;zpush()
+  0498   C0C4           	MOV R4,R3 ;optimised push/pop
+  049A   04C4           	CLR R4
+                        ;putstk - char
+  049C   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	*attrib = opcode_attr[index];
+                        ;getloc(sym, off)
+  04A0   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;zpush()
+  04A4   064A           	DECT SP
+  04A6   C684           	MOV R4,*SP
+                        ;address(ptr)
+  04A8   0204 01FA      	LI R4,opcode_attr
+                        ;zpush()
+  04AC   064A           	DECT SP
+  04AE   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  04B0   C12A 0010      	MOV @16(SP),R4 ;optimised load
+                        ;scale(type,tag)
+                        ;zpop()
+  04B4   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  04B6   A103           	A R3,R4
+                        ;indirect ccgchar
+  04B8   D114           	MOVB *R4,R4
+  04BA   0884           	SRA R4,8
+                        ;zpop()
+  04BC   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  04BE   C4C4           	MOV R4,*R3
+                        ;	*opcode = opcode_opcode[index];
+                        ;getloc(sym, off)
+  04C0   C12A 0008      	MOV @8(SP),R4 ;optimised load
+                        ;zpush()
+  04C4   064A           	DECT SP
+  04C6   C684           	MOV R4,*SP
+                        ;address(ptr)
+  04C8   0204 0260      	LI R4,opcode_opcode
+                        ;zpush()
+  04CC   064A           	DECT SP
+  04CE   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  04D0   C12A 0010      	MOV @16(SP),R4 ;optimised load
+                        ;scale(type,tag)
+                        ;	doublereg()
+  04D4   A104           	A R4,R4
+                        ;zpop()
+  04D6   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  04D8   A103           	A R3,R4
+                        ;indirect ccgint
+  04DA   C114           	MOV *R4,R4
+                        ;zpop()
+  04DC   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  04DE   C4C4           	MOV R4,*R3
+                        ;}
+                        ;modstk(newsp,save)
+  04E0   022A 0004      	AI SP,4
+                        ;modstk(newsp,save)
+  04E4   2DC0           	RET
+                        ;getopr(index, opr_m, opr_code, opr_attrib)
+  04E6                  	EVEN
+                        getopr:
+                        ;unsigned index;
+                        ;char *opr_m;
+                        ;unsigned *opr_code;
+                        ;unsigned char *opr_attrib;
+                        ;{
+                        ;	char *s;
+                        ;	char *d;
+                        ;	s = opr_table + index * OPR_SLOT;
+                        ;modstk(newsp,save)
+  04E6   022A FFFC      	AI SP,-4
+                        ;address(ptr)
+  04EA   0204 032A      	LI R4,opr_table
+                        ;zpush()
+  04EE   064A           	DECT SP
+  04F0   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  04F2   C12A 000E      	MOV @14(SP),R4 ;optimised load
+                        ;zpush()
+  04F6   C0C4           	MOV R4,R3 ;optimised push/pop
+  04F8   0204 0005      	LI R4,5
+  04FC   06A0 0000      	BL @_ccmult##
+                        ;zpop()
+  0500   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0502   A103           	A R3,R4
+                        ;put2tos()
+  0504   CA84 0002      	MOV R4,@2(SP)
+                        ;	d = opr_m;
+                        ;getloc(sym, off)
+  0508   C12A 000A      	MOV @10(SP),R4 ;optimised load
+                        ;puttos()
+  050C   C684           	MOV R4,*SP
+                        ;	while (*s != '\0') {
+                        cc14:
+                        ;getloc(sym, off)
+  050E   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0512   D114           	MOVB *R4,R4
+  0514   0884           	SRA R4,8
+  0516   C104           	MOV R4,R4
+  0518   1602           	JNE $+6
+  051A   0460 0554      	B @cc15
+                        ;		*d++ = *s++;
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  051E   C10A           	MOV SP,R4
+                        ;zpush()
+  0520   064A           	DECT SP
+  0522   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0524   C114           	MOV *R4,R4
+                        ;inc()
+  0526   0584           	INC R4
+                        ;zpop()
+  0528   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  052A   C4C4           	MOV R4,*R3
+                        ;	dec()
+  052C   0604           	DEC R4
+                        ;zpush()
+  052E   064A           	DECT SP
+  0530   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0532   0204 0004      	LI R4,4
+  0536   A10A           	A SP,R4
+                        ;zpush()
+  0538   064A           	DECT SP
+  053A   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  053C   C114           	MOV *R4,R4
+                        ;inc()
+  053E   0584           	INC R4
+                        ;zpop()
+  0540   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0542   C4C4           	MOV R4,*R3
+                        ;	dec()
+  0544   0604           	DEC R4
+                        ;indirect ccgchar
+  0546   D114           	MOVB *R4,R4
+  0548   0884           	SRA R4,8
+                        ;zpop()
+  054A   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  054C   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	}
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0550   0460 050E      	B @cc14
+                        cc15:
+                        ;	*d = '\0';
+                        ;getloc(sym, off)
+  0554   C11A           	MOV *SP,R4 ;optimised load
+                        ;zpush()
+  0556   C0C4           	MOV R4,R3 ;optimised push/pop
+  0558   04C4           	CLR R4
+                        ;putstk - char
+  055A   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	*opr_attrib = opr_attr[index];
+                        ;getloc(sym, off)
+  055E   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;zpush()
+  0562   064A           	DECT SP
+  0564   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0566   0204 0376      	LI R4,opr_attr
+                        ;zpush()
+  056A   064A           	DECT SP
+  056C   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  056E   C12A 0010      	MOV @16(SP),R4 ;optimised load
+                        ;scale(type,tag)
+                        ;zpop()
+  0572   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0574   A103           	A R3,R4
+                        ;indirect ccgchar
+  0576   D114           	MOVB *R4,R4
+  0578   0884           	SRA R4,8
+                        ;zpop()
+  057A   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  057C   C4C4           	MOV R4,*R3
+                        ;}
+                        ;modstk(newsp,save)
+  057E   022A 0004      	AI SP,4
+                        ;modstk(newsp,save)
+  0582   2DC0           	RET
+                        	EXT flushlin
+                        	EXT oldvalu
+                        	EXT entnam
+                        	EXT hxlnbuf
+                        	EXT errcount
+                        	EXT hash
+                        	EXT _aton
+                        	EXT getprec
+                        	EXT putsym
+                        	EXT wipeout
+                        	EXT error2
+                        	EXT quitflag
+                        	EXT symend
+                        	EXT bptr
+                        	EXT symbol
+                        	EXT emit_code
+                        	EXT ifsp
+                        	EXT symcmp
+                        	EXT include_source
+                        	EXT eval
+                        	EXT bbsearch
+                        	EXT putrchr
+                        	EXT rputchr
+                        	ENT opcode_attr
+                        	EXT nssymbols
+                        	EXT hxlnptr
+                        	EXT chkoprat
+                        	EXT item
+                        	EXT symtbl
+                        	EXT linbuf
+                        	EXT evalerr
+                        	EXT pass
+                        	EXT seek
+                        	EXT source_rewind
+                        	ENT opr_table
+                        	EXT symptr
+                        	EXT err_cnt
+                        	EXT field
+                        	EXT getopcod
+                        	EXT ifstack
+                        	EXT _psop
+                        	EXT sortsym
+                        	EXT close_includes
+                        	EXT extflg
+                        	EXT linptr
+                        	EXT backitem
+                        	EXT errcode
+                        	EXT relsyms
+                        	EXT addsym
+                        	EXT push_source
+                        	EXT toupper
+                        	EXT nbytes
+                        	EXT markerr
+                        	EXT relflg
+                        	EXT type
+                        	EXT sympoint
+                        	EXT quoteflg
+                        	EXT flush
+                        	EXT loc_ctr
+                        	EXT error
+                        	EXT backflg
+                        	EXT directok
+                        	EXT progname
+                        	EXT _normop
+                        	EXT ishex
+                        	EXT relout
+                        	EXT movchr
+                        	EXT xref_emit
+                        	EXT binbuf
+                        	ENT opcode_opcode
+                        	EXT rflush
+                        	EXT lstbuf
+                        	EXT xref_add
+                        	ENT opcode_table
+                        	EXT xref_reset
+                        	EXT lineout
+                        	EXT pc
+                        	EXT itemflg
+                        	EXT chksum
+                        	ENT numopcs
+                        	EXT progsize
+                        	EXT addrmode
+                        	EXT address
+                        	ENT numoprs
+                        	EXT putabs2
+                        	EXT puts2
+                        	EXT puts3
+                        	EXT parse_line
+                        	EXT getchr
+                        	ENT char_attr
+                        	EXT putabs
+                        	EXT putdec
+                        	EXT slookup
+                        	EXT oldattr
+                        	EXT asmline
+                        	EXT sorbuf
+                        	EXT putchr
+                        	EXT getlin
+                        	EXT gflush
+                        	EXT curdrive
+                        	EXT putfld
+                        	EXT putls
+                        	EXT outchunk
+                        	EXT outrem
+                        	ENT getopc
+                        	ENT getattr
+                        	EXT getname
+                        	EXT setfiles
+                        	EXT puthex2
+                        	EXT puthex4
+                        	EXT relhead
+                        	ENT getopr
+                        	EXT putbyt
+                        	EXT putlin
+                        	EXT getnum
+                        	ENT opr_attr
+                        	EXT hexflg
+                        	EXT hexbuf
+                        	EXT cant
+                        	EXT putbits
+                        	EXT getitem
+                        	EXT putrel
+                        	EXT hxbytes
+                        	EXT list_line
+                        	EXT entflg
+  0584                  	EVEN
+  0584                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R8                0008   R9                0009   RET               2DC0'  
+SL                0009   SP                000A   WHEX              2E80'  WP                000D   
+WRITE             2F00'  _aton             0000*  _ccmult           0000*  _normop           0000*  
+_psop             0000*  address           0000*  addrmode          0000*  addsym            0000*  
+asmline           0000*  backflg           0000*  backitem          0000*  bbsearch          0000*  
+binbuf            0000*  bptr              0000*  cant              0000*  cc11              0450'  
+cc12              0496'  cc14              050E'  cc15              0554'  char_attr         0386'  
+chkoprat          0000*  chksum            0000*  close_includes    0000*  curdrive          0000*  
+directok          0000*  emit_code         0000*  entflg            0000*  entnam            0000*  
+err_cnt           0000*  errcode           0000*  errcount          0000*  error             0000*  
+error2            0000*  eval              0000*  evalerr           0000*  extflg            0000*  
+field             0000*  flush             0000*  flushlin          0000*  getattr           0412'  
+getchr            0000*  getitem           0000*  getlin            0000*  getname           0000*  
+getnum            0000*  getopc            0428'  getopcod          0000*  getopr            04E6'  
+getprec           0000*  gflush            0000*  hash              0000*  hexbuf            0000*  
+hexflg            0000*  hxbytes           0000*  hxlnbuf           0000*  hxlnptr           0000*  
+ifsp              0000*  ifstack           0000*  include_source    0000*  ishex             0000*  
+item              0000*  itemflg           0000*  linbuf            0000*  lineout           0000*  
+linptr            0000*  list_line         0000*  loc_ctr           0000*  lstbuf            0000*  
+markerr           0000*  movchr            0000*  nbytes            0000*  nssymbols         0000*  
+numopcs           0406'  numoprs           040C'  oldattr           0000*  oldvalu           0000*  
+opcode_attr       01FA'  opcode_opcode     0260'  opcode_table      0000'  opr_attr          0376'  
+opr_table         032A'  outchunk          0000*  outrem            0000*  parse_line        0000*  
+pass              0000*  pc                0000*  progname          0000*  progsize          0000*  
+push_source       0000*  putabs            0000*  putabs2           0000*  putbits           0000*  
+putbyt            0000*  putchr            0000*  putdec            0000*  putfld            0000*  
+puthex2           0000*  puthex4           0000*  putlin            0000*  putls             0000*  
+putrchr           0000*  putrel            0000*  puts2             0000*  puts3             0000*  
+putsym            0000*  quitflag          0000*  quoteflg          0000*  relflg            0000*  
+relhead           0000*  relout            0000*  relsyms           0000*  rflush            0000*  
+rputchr           0000*  seek              0000*  setfiles          0000*  slookup           0000*  
+sorbuf            0000*  sortsym           0000*  source_rewind     0000*  symbol            0000*  
+symcmp            0000*  symend            0000*  sympoint          0000*  symptr            0000*  
+symtbl            0000*  toupper           0000*  type              0000*  wipeout           0000*  
+xref_add          0000*  xref_emit         0000*  xref_reset        0000*  
+

@@ -1,0 +1,3081 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000   02AD           	STWP WP 
+  0002   0460 0000      	B @_main## ; This calls iolib99 entry point
+                        ;/*
+                        ; 9900 Cross-Assembler  v. 2.1
+                        ; May, 1980
+                        ; Copyright (c) 1980 William C. Colley, III.
+                        ; File:	r99.c
+                        ; It all begins here.
+                        ; */
+                        ;/*  Get globals:  */
+                        ;#include "stdio.h"
+                        ;/*
+                        ;** STDIO.H -- Standard Small-C Definitions
+                        ;**
+                        ;** Copyright 1984  L. E. Payne and J. E. Hendrix
+                        ;*/
+                        ;#define stdin    0
+                        ;#define stdout   1
+                        ;#define stderr   2
+                        ;#define	ERR		(-2)
+                        ;#define EOF		(-1)
+                        ;#define YES      1
+                        ;#define NO       0
+                        ;#define NULL     0
+                        ;#define CR      0x0D /* '\r' */
+                        ;#define LF      0x0A /* '\n' */
+                        ;#define BELL     7
+                        ;#define SPACE  ' '
+                        ;#define NEWLINE LF      /*23*/ /*45*/
+                        ;#define FILE char
+                        ;/* Flags for the iobuf structure  */
+                        ;#define	_IOREAD	1 /* currently reading */
+                        ;#define	_IOWRT	2 /* currently writing */
+                        ;#define	_IORW	0x0080 /* opened as "r+w" */
+                        ;/* Flags for lseek and fseek */
+                        ;#define SEEK_SET  0
+                        ;#define SEEK_CUR  1
+                        ;#define SEEK_END  2
+                        ;#include "R99CFG.h"
+                        ;/*
+                        ; * R99 build-size configuration.
+                        ; *
+                        ; * TEMPORARY SBC TESTING PROFILE.
+                        ; *
+                        ; * Goal: keep the flat R99.COM image below >C000 when loaded at >0500.
+                        ; * These reduced capacities are for initial board bring-up only.
+                        ; */
+                        ;#define LINLEN          128	/*  Must be at least 102: the 4-symbols-per-line table
+                        ;                                dump at the end of main writes 4 * 25 + 2 bytes into
+                        ;                                linbuf.  At 96 it spilled 6 bytes into binbuf.  */
+                        ;#define BUFSIZE          16
+                        ;#define SYMBOLS         101	/*  MUST BE ODD - slookup's probe step is d = 1, 3, 5, ...
+                        ;                                and its "table full" test is d == SYMBOLS, which an even
+                        ;                                SYMBOLS never reaches.  With a power of two the probe
+                        ;                                only ever visits 4 of the slots (h advances by k*k).  */
+                        ;#define INCLUDE_DEPTH     1
+                        ;#define MAXXREF            4
+                        ;#include "R99gbl.h"
+                        ;/*
+                        ; TMS990 Series Cross-Assembler  v. 1.0
+                        ; January, 1985
+                        ; Copyright (c) 1980 William C. Colley, III.
+                        ; Modified for the 990 Series by Alexander Cameron.
+                        ; File:	a99.gbl
+                        ; Global macro substitutions and external variable declarations.
+                        ; */
+                        ;/*  Build-size profile.  */
+                        ;/*  Define symbol table parameters:  REL files now allow 4 bits to define
+                        ; * the SYMLEN. The original spec allowed 3 bits
+                        ; *
+                        ; */
+                        ;#define	SYMLEN	16	/*  Symbol buffer size: 15 chars + terminating null. */
+                        ;#define	PADDING	"               "	/*  SYMLEN - 1 blanks.	15		*/
+                        ;#define ENTBIT 4	/* Sets ENTRY bit in symflg 			*/
+                        ;#define EQUBIT 16	/* Equivalence - defined via an equate 		*/
+                        ;#define DUPBIT 32	/* Equivalence - defined via an equate 		*/
+                        ;#define EXTBIT 8	/* Sets EXTERNAL bit in symflg			*/
+                        ;#define	DEFBIT	2	/* Sets DEFINED bit				*/
+                        ;#define RELBIT 1	/* Sets RELOCATION bit in symflg		*/
+                        ;#define COMBIT 12	/* Sets COMMON bits in symflg			*/
+                        ;/*  Number of if statements that can be nested:  */
+                        ;#define	IFDEPTH	16
+                        ;/*  BDOS functions called directly:  */
+                        ;#define	LISTOUT	5	/*  Put character to list device.		*/
+                        ;#define	LOGDISK	14	/*  Log in disk drive.				*/
+                        ;#define	GETDISK	25	/*  Get currently logged in disk.		*/
+                        ;/*  Define flag values:  */
+                        ;#define	TRUE	1	/*  General use.				*/
+                        ;#define	FALSE	0
+                        ;#define	SKIP	TRUE	/*  Used with skip flag in getchr.		*/
+                        ;#define	NOSKIP	FALSE
+                        ;#define	BIGST	TRUE	/*  Used to tell kind of string in getitem.	*/
+                        ;#define	SMALST	FALSE
+                        ;#define	NOCODE	0	/*  Used to tell the hex generator what to do.	*/
+                        ;#define	PUTCODE	1
+                        ;#define	FLUSH	2
+                        ;#define	NOMORE	3
+                        ;#define EXTADDR 4
+                        ;/*  File descriptors:  */
+                        ;#define	LODISK	0	/*  Lowest numbered disk.			*/
+                        ;#define	NOFILE	-1	/*  No file specified.				*/
+                        ;#define	CONO	-2	/*  Console output.				*/
+                        ;#define	LST	   -3	/*  List device.				*/
+                        ;/*  Items can have the following attributes:  */
+                        ;#define	ALPHA	0	/*  Alphabetic character.			*/
+                        ;#define	NUMERIC	1	/*  Numeric digit (0-9).			*/
+                        ;#define	END_LIN	2	/*  End-of-Line marker (cr or ;).		*/
+                        ;#define	COMMA	3	/*  Field separator (,).			*/
+                        ;#define	OPERATR	4	/*  Operator (* - GE < ( SHR etc.).		*/
+                        ;#define	BAS_DES	5	/*  Base designator ($ % @).			*/
+                        ;#define	QUOTE	6	/*  String delimiter (" ').			*/
+                        ;#define	TRASH	7
+                        ;#define	VALUE	8	/*  Evaluated expression.			*/
+                        ;#define	BLANK	10	/*  White space (spc tab).			*/
+                        ;#define COLON	12
+                        ;#define HATCH 	13
+                        ;/*  Some tokens for composite operators:  */
+                        ;#define GTTKN		'>'
+                        ;#define EQTKN		'='
+                        ;#define LTTKN		'<'
+                        ;#define	NO_OPR	0	/*  No operator.				*/
+                        ;#define	GRTEQ	1	/*  Greater than or equal to.			*/
+                        ;#define	NOTEQ	2	/*  Not equal to.				*/
+                        ;#define	LESEQ	3	/*  Less than or equal to.			*/
+                        ;#define	AND	4	/*  And.					*/
+                        ;#define	OR	5	/*  Or.						*/
+                        ;#define	XOR	6	/*  Exclusive or.				*/
+                        ;#define	NOT	7	/*  1's complement.				*/
+                        ;#define	MOD	8	/*  Mod--divide and return remainder.		*/
+                        ;#define	SHL	9	/*  Shift left.					*/
+                        ;#define	SHR	10	/*  Shift right.				*/
+                        ;#define	HIGH	11	/*  High byte of.				*/
+                        ;#define	LOW	12	/*  Low byte of.				*/
+                        ;/*  Operator precedence values:  */
+                        ;#define	UOP1	0	/*  Unary +, unary -.				*/
+                        ;#define	MULT	1	/*  *, /, MOD, SHL, SHR.			*/
+                        ;#define	ADDIT	2	/*  Binary +, binary -.				*/
+                        ;#define	RELAT	3	/*  >, =, <, >=, <>, <=.			*/
+                        ;#define	UOP2	4	/*  NOT.					*/
+                        ;#define	LOG1	5	/*  And.					*/
+                        ;#define	LOG2	6	/*  OR, XOR.					*/
+                        ;#define	UOP3	7	/*  HIGH, LOW.					*/
+                        ;#define	RPREN	8	/*  ).						*/
+                        ;#define	LPREN	9	/*  (.						*/
+                        ;#define	ENDEX	10	/*  CR, ;, ,.					*/
+                        ;#define	START	11	/*  Start of expression.			*/
+                        ;/*  Bits of opcode attribute byte.  */
+                        ;#define	PSOP	0x80	/*  Pseudo-op.					*/
+                        ;#define	DIROK	0x40	/*  Non-pseudo-op is OK for direct addressing.	*/
+                        ;#define	IFGROUP	0x40	/*  Pseudo-op is IF, ELSE, ENDI.		*/
+                        ;/*  Address modes for the 9900 instruction set 				*/
+                        ;#define WREG		0
+                        ;#define	INDIRECT 	1
+                        ;#define SYMBOLIC	2
+                        ;#define INDEXED 	3
+                        ;#define AUTOINC		4
+                        ;/*  Misc control chars */
+                        ;#define	LFCHAR	10	/*  Line feed.  NOTE: smallcp compiles '\n' as CR
+                        ;			    (13), so the LF has to be spelled out.  Never use
+                        ;			    '\r' either - smallcp reads it as the letter 'r'.  */
+                        ;#define CPMEOF	0x1A
+                        ;#define CTLS	19	/* Control S for stopping */
+                        ;#define CTLC    0x03	/* Control C aborts */
+                        ;#define NOSORT TRUE	/* Controls whether or not we want the table sorted */
+                        ;#define SORT FALSE
+                        ;#define INTEL8 TRUE    /* Generate Intel 16 or 32 Format */
+                        ;#define FILE char
+                        ;struct diskbuf {
+                        ;	int fd;
+                        ;	unsigned char *pointr;
+                        ;	unsigned char *endpoint;
+                        ;	unsigned char space[BUFSIZE];
+                        ;	FILE *fp;
+                        ;};
+                        ;extern struct diskbuf sorbuf, lstbuf, hexbuf;
+                        ;/*  Set up the symbol table: */
+                        ;struct symbtbl {
+                        ;	char symname[SYMLEN];
+                        ;	unsigned symvalu;
+                        ;	unsigned char symflg;
+                        ;	unsigned char sympad;	/*  keeps the entry EVEN in length - see below  */
+                        ;};
+                        ;/*  sympad is not optional.  Without it an entry is 19 bytes, so every odd
+                        ;    numbered slot starts on an ODD address and symvalu (offset 16) lands on
+                        ;    an odd address too.  The 99105 forces word accesses even, so the store
+                        ;    goes to offset 15/16 instead of 16/17 and wipes symname[15].  The value
+                        ;    reads back consistently, but the name no longer matches, so symcmp fails
+                        ;    and the same symbol gets added twice.  */
+                        ;extern struct symbtbl symtbl[SYMBOLS], *symend, *sympoint;
+                        ;/*  If stack and stack pointer.  */
+                        ;extern unsigned ifsp;
+                        ;extern unsigned ifstack[IFDEPTH + 1];
+                        ;/*  Buffer to hold current line:  */
+                        ;extern char *linptr, linbuf[LINLEN];
+                        ;/*  Buffer to hold the code generated by a line.  */
+                        ;extern unsigned char binbuf[LINLEN], *bptr;
+                        ;extern int nbytes;
+                        ;/*  Buffers for the hex generator.  */
+                        ;extern char chksum, hxbytes, *hxlnptr, hxlnbuf[88];
+                        ;/*  Miscellanious mailboxes:  */
+                        ;extern unsigned char extflg; /*  Indicates external symbol			*/
+                        ;extern unsigned char entflg; /*  Indicates and entry symbol			*/
+                        ;extern unsigned char relflg; /*  Indicates whether inst operand need relocation */
+                        ;extern int errcode; /*  Error records.				*/
+                        ;extern int errcount;
+                        ;extern int evalerr; /*  Flag to tell of error in eval.		*/
+                        ;extern unsigned backflg, oldattr; /*  Item push-back buffer.			*/
+                        ;extern unsigned oldvalu;
+                        ;extern int curdrive; /*  Place to save drive that was current
+                        ; disk when assembly started.		*/
+                        ;extern int hexflg; /*  Flag for asmline to tell hex
+                        ; generator what to do.			*/
+                        ;extern int directok; /*  All symbols on line pre-defined.		*/
+                        ;extern unsigned pc; /*  Assembly program counter.			*/
+                        ;extern unsigned progsize;
+                        ;extern unsigned address; /*  Address to be put into listed line.		*/
+                        ;extern char pass; /*  Which pass the assembly is in.		*/
+                        ;extern char addrmode;
+                        ;extern char quitflag; /*  Used in eval to detect INDEXED expressions  */
+                        ;/*added by [AC]  */
+                        ;extern unsigned char quoteflg;
+                        ;/*-----------
+                        ; rel variables
+                        ; ------------*/
+                        ;extern unsigned char outchunk, /* current output chunk in REL file */
+                        ;outrem, /* remaining bits in outchunk */
+                        ;item, /* current item code */
+                        ;type; /* type field */
+                        ;extern unsigned field; /* current bit field */
+                        ;extern char symbol[SYMLEN], /* current string */
+                        ;progname[SYMLEN]; /* programme module's name */
+                        ;extern unsigned nssymbols;
+                        ;extern unsigned itemflg[3]; /* type of item found in getitem
+                        ; itemflg[0] = current item found
+                        ; itemflg[1] = operand 1 item type
+                        ; itemflg[2] = operand 2 item type
+                        ; */
+                        ;extern unsigned symptr[3]; /* external or entry symbol pointer
+                        ; symptr[0] -> current symbol
+                        ; symptr[1] -> operand 1 symbol
+                        ; symptr[2] -> operand 2 symbol
+                        ; */
+                        ;/* Missing symbols required by overlay modules */
+                        ;extern int err_cnt;
+                        ;extern int loc_ctr;
+                        ;extern int parse_line();
+                        ;extern int emit_code();
+                        ;extern int list_line();
+                        ;/*  Some trivial functions:  */
+                        ;#define	backchr	linptr--		/*  Push back a character.	*/
+                        ;#include "R99Ext.h"
+                        ;/*
+                        ; TMS9900/99105 Cross-Assembler external declarations.
+                        ; Refactored for the Small C 2.2 declaration model.  Small C does not
+                        ; implement ANSI prototypes, so these declarations intentionally carry
+                        ; no parameter lists or return-type promises.
+                        ; */
+                        ;extern setfiles();
+                        ;extern getopr();
+                        ;extern getopc();
+                        ;extern getopcod();
+                        ;extern getattr();
+                        ;extern entnam();
+                        ;extern putlin();
+                        ;extern ishex();
+                        ;extern _aton();
+                        ;extern putbits();
+                        ;extern getchr();
+                        ;extern putchr();
+                        ;extern putbyt();
+                        ;extern putrchr();
+                        ;extern rputchr();
+                        ;extern slookup();
+                        ;extern addsym();
+                        ;extern sortsym();
+                        ;extern _psop();
+                        ;extern _normop();
+                        ;extern getname();
+                        ;extern symcmp();
+                        ;extern asmline();
+                        ;extern getitem();
+                        ;extern getlin();
+                        ;extern source_rewind();
+                        ;extern include_source();
+                        ;extern push_source();
+                        ;extern close_includes();
+                        ;extern wipeout();
+                        ;extern puthex2();
+                        ;extern puthex4();
+                        ;extern putdec();
+                        ;extern getprec();
+                        ;extern markerr();
+                        ;extern hash();
+                        ;extern toupper();
+                        ;extern putabs2();
+                        ;extern putabs();
+                        ;extern eval();
+                        ;extern chkoprat();
+                        ;extern flush();
+                        ;extern gflush();
+                        ;extern rflush();
+                        ;extern getnum();
+                        ;extern relsyms();
+                        ;extern putrel();
+                        ;extern putfld();
+                        ;extern putsym();
+                        ;extern xref_add();
+                        ;extern xref_reset();
+                        ;extern xref_emit();
+                        ;extern lineout();
+                        ;extern relout();
+                        ;extern relhead();
+                        ;extern backitem();
+                        ;extern bbsearch();
+                        ;extern numopcs();
+                        ;extern numoprs();
+                        ;extern movchr();
+                        ;extern seek();
+                        ;extern flushlin();
+                        ;extern puts2();
+                        ;extern puts3();
+                        ;extern putls();
+                        ;extern cant();
+                        ;extern error2();
+                        ;extern error();
+                        ;#include "fcntl.h"
+                        ;#define _O_RDONLY 0
+                        ;#define _O_WRONLY 1
+                        ;#define _O_RDWR   2
+                        ;#define _O_APPEND 0x0008
+                        ;#define _O_CREAT  0x0100
+                        ;#define _O_TRUNC  0x0200
+                        ;#define _O_EXCL   0x0400
+                        ;#define _O_TEXT   0x4000
+                        ;#define _O_BINARY 0x8000
+                        ;extern char srcname[24];
+                        ;extern avail();
+                        ;/*  The assembler starts here.  */
+                        ;/* Diagnostic only: dump the raw Pass-1 symbol table without altering it. */
+                        ;p1dump()
+  0006                  	EVEN
+                        p1dump:
+                        ;{
+                        ;modstk(newsp,save)
+                        ;	int i, j;
+                        ;	struct symbtbl *sp;
+                        ;	putls("\nPASS 1 SYMBOL TABLE\n");
+                        ;modstk(newsp,save)
+  0006   022A FFFA      	AI SP,-6
+                        ;constant(lval)
+  000A   0204 01EA      	LI R4,cc1+0
+                        ;zpush()
+  000E   064A           	DECT SP
+  0010   C684           	MOV R4,*SP
+                        ;zcall()
+  0012   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0016   05CA           	INCT SP
+                        ;	putls("SLOT SYMBOL           VALUE FLAGS\n");
+                        ;constant(lval)
+  0018   0204 0200      	LI R4,cc1+22
+                        ;zpush()
+  001C   064A           	DECT SP
+  001E   C684           	MOV R4,*SP
+                        ;zcall()
+  0020   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0024   05CA           	INCT SP
+                        ;	for (i = 0; i < SYMBOLS; i++) {
+                        ;getloc(sym, off)
+  0026   0204 0004      	LI R4,4
+  002A   A10A           	A SP,R4
+                        ;zpush()
+  002C   C0C4           	MOV R4,R3 ;optimised push/pop
+  002E   04C4           	CLR R4
+                        ;putstk - int
+  0030   C4C4           	MOV R4,*R3
+                        cc4:
+                        ;getloc(sym, off)
+  0032   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;zpush()
+  0036   C0C4           	MOV R4,R3 ;optimised push/pop
+  0038   0204 0065      	LI R4,101
+                        ;_cclt
+  003C   8103           	C R3,R4 ;optimised
+  003E   1102           	JLT $+6
+  0040   0460 01E4      	B @cc3
+                        ;jump(label)
+  0044   0460 0060      	B @cc5
+                        cc2:
+                        ;getloc(sym, off)
+  0048   0204 0004      	LI R4,4
+  004C   A10A           	A SP,R4
+                        ;zpush()
+  004E   064A           	DECT SP
+  0050   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0052   C114           	MOV *R4,R4
+                        ;inc()
+  0054   0584           	INC R4
+                        ;zpop()
+  0056   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0058   C4C4           	MOV R4,*R3
+                        ;	dec()
+  005A   0604           	DEC R4
+                        ;jump(label)
+  005C   0460 0032      	B @cc4
+                        cc5:
+                        ;		sp = symtbl + i;
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  0060   0204 0000      	LI R4,symtbl
+                        ;zpush()
+  0064   064A           	DECT SP
+  0066   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0068   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;scale(type,tag)
+  006C   064A           	DECT SP
+  006E   C683           	MOV R3,*SP
+                        ;const2(val)
+  0070   0203 0014      	LI R3,20
+  0074   06A0 0000      	BL @_ccmult##
+  0078   C0FA           	MOV *SP+,R3
+                        ;zpop()
+  007A   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  007C   A103           	A R3,R4
+                        ;puttos()
+  007E   C684           	MOV R4,*SP
+                        ;		if ((sp->symname[0] & 0x7f) != '\0') {
+                        ;getloc(sym, off)
+  0080   C11A           	MOV *SP,R4 ;optimised load
+                        ;indirect ccgchar
+  0082   D114           	MOVB *R4,R4
+  0084   0884           	SRA R4,8
+                        ;zpush()
+  0086   C0C4           	MOV R4,R3 ;optimised push/pop
+  0088   0204 007F      	LI R4,127
+                        ;zand()
+  008C   0543           	INV R3
+  008E   4103           	SZC R3,R4
+  0090   C104           	MOV R4,R4
+  0092   1602           	JNE $+6
+  0094   0460 01E0      	B @cc6
+                        ;			linptr = linbuf;
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  0098   0204 0000      	LI R4,linbuf
+                        ;putmem(sym)
+  009C   C804 0000      	MOV R4,@linptr
+                        ;			linptr = puthex2(i, linptr);
+                        ;getloc(sym, off)
+  00A0   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;zpush()
+  00A4   064A           	DECT SP
+  00A6   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  00A8   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  00AC   064A           	DECT SP
+  00AE   C684           	MOV R4,*SP
+                        ;zcall()
+  00B0   2DA0 0000      	CALL @puthex2
+                        ;modstk(newsp,save)
+  00B4   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  00B8   C804 0000      	MOV R4,@linptr
+                        ;			*linptr++ = ' ';
+                        ;getmem(sym)
+  00BC   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  00C0   0584           	INC R4
+                        ;putmem(sym)
+  00C2   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  00C6   0604           	DEC R4
+                        ;zpush()
+  00C8   C0C4           	MOV R4,R3 ;optimised push/pop
+  00CA   0204 0020      	LI R4,32
+                        ;putstk - char
+  00CE   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;			for (j = 0; j < SYMLEN; j++)
+                        ;const1(val)
+  00D2   04C4           	CLR R4
+                        ;put2tos()
+  00D4   CA84 0002      	MOV R4,@2(SP)
+                        cc9:
+                        ;getloc(sym, off)
+  00D8   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  00DC   C0C4           	MOV R4,R3 ;optimised push/pop
+  00DE   0204 0010      	LI R4,16
+                        ;_cclt
+  00E2   8103           	C R3,R4 ;optimised
+  00E4   1102           	JLT $+6
+  00E6   0460 013E      	B @cc8
+                        ;jump(label)
+  00EA   0460 0106      	B @cc10
+                        cc7:
+                        ;getloc(sym, off)
+  00EE   0204 0002      	LI R4,2
+  00F2   A10A           	A SP,R4
+                        ;zpush()
+  00F4   064A           	DECT SP
+  00F6   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  00F8   C114           	MOV *R4,R4
+                        ;inc()
+  00FA   0584           	INC R4
+                        ;zpop()
+  00FC   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  00FE   C4C4           	MOV R4,*R3
+                        ;	dec()
+  0100   0604           	DEC R4
+                        ;jump(label)
+  0102   0460 00D8      	B @cc9
+                        cc10:
+                        ;				*linptr++ = sp->symname[j] & 0x7f;
+                        ;getmem(sym)
+  0106   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  010A   0584           	INC R4
+                        ;putmem(sym)
+  010C   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  0110   0604           	DEC R4
+                        ;zpush()
+  0112   064A           	DECT SP
+  0114   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0116   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  011A   064A           	DECT SP
+  011C   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  011E   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;scale(type,tag)
+                        ;zpop()
+  0122   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0124   A103           	A R3,R4
+                        ;indirect ccgchar
+  0126   D114           	MOVB *R4,R4
+  0128   0884           	SRA R4,8
+                        ;zpush()
+  012A   C0C4           	MOV R4,R3 ;optimised push/pop
+  012C   0204 007F      	LI R4,127
+                        ;zand()
+  0130   0543           	INV R3
+  0132   4103           	SZC R3,R4
+                        ;zpop()
+  0134   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0136   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;jump(label)
+  013A   0460 00EE      	B @cc7
+                        cc8:
+                        ;			*linptr++ = ' ';
+                        ;getmem(sym)
+  013E   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  0142   0584           	INC R4
+                        ;putmem(sym)
+  0144   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  0148   0604           	DEC R4
+                        ;zpush()
+  014A   C0C4           	MOV R4,R3 ;optimised push/pop
+  014C   0204 0020      	LI R4,32
+                        ;putstk - char
+  0150   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;			linptr = puthex4(sp->symvalu, linptr);
+                        ;getloc(sym, off)
+  0154   C11A           	MOV *SP,R4 ;optimised load
+                        ;const2(val)
+  0156   0203 0010      	LI R3,16
+                        ;	zadd()
+  015A   A103           	A R3,R4
+                        ;indirect ccgint
+  015C   C114           	MOV *R4,R4
+                        ;zpush()
+  015E   064A           	DECT SP
+  0160   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0162   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  0166   064A           	DECT SP
+  0168   C684           	MOV R4,*SP
+                        ;zcall()
+  016A   2DA0 0000      	CALL @puthex4
+                        ;modstk(newsp,save)
+  016E   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  0172   C804 0000      	MOV R4,@linptr
+                        ;			*linptr++ = ' ';
+                        ;getmem(sym)
+  0176   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  017A   0584           	INC R4
+                        ;putmem(sym)
+  017C   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  0180   0604           	DEC R4
+                        ;zpush()
+  0182   C0C4           	MOV R4,R3 ;optimised push/pop
+  0184   0204 0020      	LI R4,32
+                        ;putstk - char
+  0188   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;			linptr = puthex2(sp->symflg, linptr);
+                        ;getloc(sym, off)
+  018C   C11A           	MOV *SP,R4 ;optimised load
+                        ;const2(val)
+  018E   0203 0012      	LI R3,18
+                        ;	zadd()
+  0192   A103           	A R3,R4
+                        ;indirect ccgchar
+  0194   D114           	MOVB *R4,R4
+  0196   0884           	SRA R4,8
+                        ;zpush()
+  0198   064A           	DECT SP
+  019A   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  019C   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  01A0   064A           	DECT SP
+  01A2   C684           	MOV R4,*SP
+                        ;zcall()
+  01A4   2DA0 0000      	CALL @puthex2
+                        ;modstk(newsp,save)
+  01A8   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  01AC   C804 0000      	MOV R4,@linptr
+                        ;			*linptr++ = '\n';
+                        ;getmem(sym)
+  01B0   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  01B4   0584           	INC R4
+                        ;putmem(sym)
+  01B6   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  01BA   0604           	DEC R4
+                        ;zpush()
+  01BC   C0C4           	MOV R4,R3 ;optimised push/pop
+  01BE   0204 000D      	LI R4,13
+                        ;putstk - char
+  01C2   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;			*linptr = '\0';
+                        ;getmem(sym)
+  01C6   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  01CA   C0C4           	MOV R4,R3 ;optimised push/pop
+  01CC   04C4           	CLR R4
+                        ;putstk - char
+  01CE   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;			putls(linbuf);
+                        ;address(ptr)
+  01D2   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  01D6   064A           	DECT SP
+  01D8   C684           	MOV R4,*SP
+                        ;zcall()
+  01DA   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  01DE   05CA           	INCT SP
+                        ;		}
+                        ;modstk(newsp,save)
+                        ;	}
+                        cc6:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  01E0   0460 0048      	B @cc2
+                        cc3:
+                        ;}
+                        ;modstk(newsp,save)
+  01E4   022A 0006      	AI SP,6
+                        ;modstk(newsp,save)
+  01E8   2DC0           	RET
+  01EA   0D50 4153      cc1:	BYTE 13,80,65,83,83,32,49,32,83,89,77,66
+  01EE   5320 3120      
+  01F2   5359 4D42      
+  01F6   4F4C 2054      	BYTE 79,76,32,84,65,66,76,69,13,0,83,76
+  01FA   4142 4C45      
+  01FE   0D00 534C      
+  0202   4F54 2053      	BYTE 79,84,32,83,89,77,66,79,76,32,32,32
+  0206   594D 424F      
+  020A   4C20 2020      
+  020E   2020 2020      	BYTE 32,32,32,32,32,32,32,32,86,65,76,85
+  0212   2020 2020      
+  0216   5641 4C55      
+  021A   4520 464C      	BYTE 69,32,70,76,65,71,83,13,0
+  021E   4147 530D      
+  0222   00             
+  0223   00             	EVEN
+                        ;main(argc, argv)
+  0224                  	EVEN
+                        main:
+                        ;int argc;
+                        ;int *argv;
+                        ;{
+                        ;	int n, m;
+                        ;	unsigned u;
+                        ;	putls("\n----------------------------------------------");
+                        ;modstk(newsp,save)
+  0224   022A FFFA      	AI SP,-6
+                        ;constant(lval)
+  0228   0204 0958      	LI R4,cc11+0
+                        ;zpush()
+  022C   064A           	DECT SP
+  022E   C684           	MOV R4,*SP
+                        ;zcall()
+  0230   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0234   05CA           	INCT SP
+                        ;	putls("\nTMS9900 Relocatable Cross-Assembler  vers 2.0\n");
+                        ;constant(lval)
+  0236   0204 0988      	LI R4,cc11+48
+                        ;zpush()
+  023A   064A           	DECT SP
+  023C   C684           	MOV R4,*SP
+                        ;zcall()
+  023E   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0242   05CA           	INCT SP
+                        ;	putls("Copyright (c) 1980  William C. Colley, III\n");
+                        ;constant(lval)
+  0244   0204 09B8      	LI R4,cc11+96
+                        ;zpush()
+  0248   064A           	DECT SP
+  024A   C684           	MOV R4,*SP
+                        ;zcall()
+  024C   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0250   05CA           	INCT SP
+                        ;	putls("(TMS 99105A version by Alexander. Cameron Jan 1984 and May 2015 )\n");
+                        ;constant(lval)
+  0252   0204 09E4      	LI R4,cc11+140
+                        ;zpush()
+  0256   064A           	DECT SP
+  0258   C684           	MOV R4,*SP
+                        ;zcall()
+  025A   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  025E   05CA           	INCT SP
+                        ;	putls("----------------------------------------------\n");
+                        ;constant(lval)
+  0260   0204 0A27      	LI R4,cc11+207
+                        ;zpush()
+  0264   064A           	DECT SP
+  0266   C684           	MOV R4,*SP
+                        ;zcall()
+  0268   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  026C   05CA           	INCT SP
+                        ;	putls("Available memory = ");
+                        ;constant(lval)
+  026E   0204 0A57      	LI R4,cc11+255
+                        ;zpush()
+  0272   064A           	DECT SP
+  0274   C684           	MOV R4,*SP
+                        ;zcall()
+  0276   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  027A   05CA           	INCT SP
+                        ;	linptr = linbuf;
+                        ;address(ptr)
+  027C   0204 0000      	LI R4,linbuf
+                        ;putmem(sym)
+  0280   C804 0000      	MOV R4,@linptr
+                        ;	linptr = putdec(avail(), linptr);
+                        ;zcall()
+  0284   2DA0 0000      	CALL @avail
+                        ;modstk(newsp,save)
+                        ;zpush()
+  0288   064A           	DECT SP
+  028A   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  028C   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  0290   064A           	DECT SP
+  0292   C684           	MOV R4,*SP
+                        ;zcall()
+  0294   2DA0 0000      	CALL @putdec
+                        ;modstk(newsp,save)
+  0298   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  029C   C804 0000      	MOV R4,@linptr
+                        ;	*linptr = '\0';
+                        ;getmem(sym)
+  02A0   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  02A4   C0C4           	MOV R4,R3 ;optimised push/pop
+  02A6   04C4           	CLR R4
+                        ;putstk - char
+  02A8   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	putls(linbuf);
+                        ;address(ptr)
+  02AC   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  02B0   064A           	DECT SP
+  02B2   C684           	MOV R4,*SP
+                        ;zcall()
+  02B4   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  02B8   05CA           	INCT SP
+                        ;	putls(" bytes\n");
+                        ;constant(lval)
+  02BA   0204 0A6B      	LI R4,cc11+275
+                        ;zpush()
+  02BE   064A           	DECT SP
+  02C0   C684           	MOV R4,*SP
+                        ;zcall()
+  02C2   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  02C6   05CA           	INCT SP
+                        ;	setfiles(argc, argv);
+                        ;getloc(sym, off)
+  02C8   C12A 000A      	MOV @10(SP),R4 ;optimised load
+                        ;zpush()
+  02CC   064A           	DECT SP
+  02CE   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  02D0   C12A 000A      	MOV @10(SP),R4 ;optimised load
+                        ;zpush()
+  02D4   064A           	DECT SP
+  02D6   C684           	MOV R4,*SP
+                        ;zcall()
+  02D8   2DA0 0AE6      	CALL @setfiles
+                        ;modstk(newsp,save)
+  02DC   022A 0004      	AI SP,4
+                        ;	sympoint = symtbl; /*  Initialize symbol table.	*/
+                        ;address(ptr)
+  02E0   0204 0000      	LI R4,symtbl
+                        ;putmem(sym)
+  02E4   C804 0000      	MOV R4,@sympoint
+                        ;	symend = symtbl + SYMBOLS;
+                        ;address(ptr)
+  02E8   0204 0000      	LI R4,symtbl
+                        ;const2(val)
+  02EC   0203 07E4      	LI R3,2020
+                        ;	zadd()
+  02F0   A103           	A R3,R4
+                        ;putmem(sym)
+  02F2   C804 0000      	MOV R4,@symend
+                        ;	memset(sympoint, '\0', SYMBOLS * sizeof(struct symbtbl)); /* symflg added  */
+                        ;getmem(sym)
+  02F6   C120 0000      	MOV @sympoint,R4
+                        ;zpush()
+  02FA   064A           	DECT SP
+  02FC   C684           	MOV R4,*SP
+                        ;const1(val)
+  02FE   04C4           	CLR R4
+                        ;zpush()
+  0300   064A           	DECT SP
+  0302   C684           	MOV R4,*SP
+                        ;const1(val)
+  0304   0204 07E4      	LI R4,2020
+                        ;zpush()
+  0308   064A           	DECT SP
+  030A   C684           	MOV R4,*SP
+                        ;zcall()
+  030C   2DA0 0000      	CALL @memset
+                        ;modstk(newsp,save)
+  0310   022A 0006      	AI SP,6
+                        ;	memset(itemflg, '\0', 3); /*  Initialize encode buffer	*/
+                        ;address(ptr)
+  0314   0204 0000      	LI R4,itemflg
+                        ;zpush()
+  0318   064A           	DECT SP
+  031A   C684           	MOV R4,*SP
+                        ;const1(val)
+  031C   04C4           	CLR R4
+                        ;zpush()
+  031E   064A           	DECT SP
+  0320   C684           	MOV R4,*SP
+                        ;const1(val)
+  0322   0204 0003      	LI R4,3
+                        ;zpush()
+  0326   064A           	DECT SP
+  0328   C684           	MOV R4,*SP
+                        ;zcall()
+  032A   2DA0 0000      	CALL @memset
+                        ;modstk(newsp,save)
+  032E   022A 0006      	AI SP,6
+                        ;	memset(symptr, '\0', 3);
+                        ;address(ptr)
+  0332   0204 0000      	LI R4,symptr
+                        ;zpush()
+  0336   064A           	DECT SP
+  0338   C684           	MOV R4,*SP
+                        ;const1(val)
+  033A   04C4           	CLR R4
+                        ;zpush()
+  033C   064A           	DECT SP
+  033E   C684           	MOV R4,*SP
+                        ;const1(val)
+  0340   0204 0003      	LI R4,3
+                        ;zpush()
+  0344   064A           	DECT SP
+  0346   C684           	MOV R4,*SP
+                        ;zcall()
+  0348   2DA0 0000      	CALL @memset
+                        ;modstk(newsp,save)
+  034C   022A 0006      	AI SP,6
+                        ;	ifsp = 0; /*  Initialise if stack.	*/
+                        ;const1(val)
+  0350   04C4           	CLR R4
+                        ;putmem(sym)
+  0352   C804 0000      	MOV R4,@ifsp
+                        ;	ifstack[ifsp] = 0xffff;
+                        ;address(ptr)
+  0356   0204 0000      	LI R4,ifstack
+                        ;zpush()
+  035A   064A           	DECT SP
+  035C   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  035E   C120 0000      	MOV @ifsp,R4
+                        ;scale(type,tag)
+                        ;	doublereg()
+  0362   A104           	A R4,R4
+                        ;zpop()
+  0364   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  0366   A103           	A R3,R4
+                        ;zpush()
+  0368   C0C4           	MOV R4,R3 ;optimised push/pop
+  036A   0204 FFFF      	LI R4,65535
+                        ;putstk - int
+  036E   C4C4           	MOV R4,*R3
+                        ;	hxbytes = 0; /*  Initialise hex generator.	*/
+                        ;const1(val)
+  0370   04C4           	CLR R4
+                        ;putmem(sym)
+  0372   D82D 0009      	MOVB @2*R4+1(WP),@hxbytes
+  0376   0000           
+                        ;	pc = errcount = progsize = 0;
+                        ;const1(val)
+  0378   04C4           	CLR R4
+                        ;putmem(sym)
+  037A   C804 0000      	MOV R4,@progsize
+                        ;putmem(sym)
+  037E   C804 0000      	MOV R4,@errcount
+                        ;putmem(sym)
+  0382   C804 0000      	MOV R4,@pc
+                        ;	pass = 1;
+                        ;const1(val)
+  0386   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  038A   D82D 0009      	MOVB @2*R4+1(WP),@pass
+  038E   0000           
+                        ;	if (lstbuf.fd == CONO)
+                        ;address(ptr)
+  0390   0204 0000      	LI R4,lstbuf
+                        ;indirect ccgint
+  0394   C114           	MOV *R4,R4
+                        ;zpush()
+  0396   C0C4           	MOV R4,R3 ;optimised push/pop
+  0398   0204 FFFE      	LI R4,-2
+                        ;_cceq
+  039C   8103           	C R3,R4 ;optimised
+  039E   1302           	JEQ $+6
+  03A0   0460 03B2      	B @cc12
+                        ;		puts("Pass 1\n");
+                        ;constant(lval)
+  03A4   0204 0A73      	LI R4,cc11+283
+                        ;zpush()
+  03A8   064A           	DECT SP
+  03AA   C684           	MOV R4,*SP
+                        ;zcall()
+  03AC   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  03B0   05CA           	INCT SP
+                        ;	while (pass != 3) /*  The actual assembly starts here.	*/
+                        cc12:
+                        cc13:
+                        ;getmem(sym)
+  03B2   D120 0000      	MOVB @pass,R4
+  03B6   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  03B8   C0C4           	MOV R4,R3 ;optimised push/pop
+  03BA   0204 0003      	LI R4,3
+                        ;_ccne
+  03BE   8103           	C R3,R4 ;optimised
+  03C0   1602           	JNE $+6
+  03C2   0460 04F4      	B @cc14
+                        ;	{
+                        ;		errcode = ' ';
+                        ;modstk(newsp,save)
+                        ;const1(val)
+  03C6   0204 0020      	LI R4,32
+                        ;putmem(sym)
+  03CA   C804 0000      	MOV R4,@errcode
+                        ;		if (!getlin()) {
+                        ;zcall()
+  03CE   2DA0 0000      	CALL @getlin
+                        ;modstk(newsp,save)
+  03D2   06A0 0000      	BL @_cclneg##
+  03D6   C104           	MOV R4,R4
+  03D8   1602           	JNE $+6
+  03DA   0460 0426      	B @cc15
+                        ;			strcpy(linbuf, "\tEND\t\t;You forgot this!\n");
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  03DE   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  03E2   064A           	DECT SP
+  03E4   C684           	MOV R4,*SP
+                        ;constant(lval)
+  03E6   0204 0A7B      	LI R4,cc11+291
+                        ;zpush()
+  03EA   064A           	DECT SP
+  03EC   C684           	MOV R4,*SP
+                        ;zcall()
+  03EE   2DA0 0000      	CALL @strcpy
+                        ;modstk(newsp,save)
+  03F2   022A 0004      	AI SP,4
+                        ;			linptr = linbuf;
+                        ;address(ptr)
+  03F6   0204 0000      	LI R4,linbuf
+                        ;putmem(sym)
+  03FA   C804 0000      	MOV R4,@linptr
+                        ;			markerr('*');
+                        ;const1(val)
+  03FE   0204 002A      	LI R4,42
+                        ;zpush()
+  0402   064A           	DECT SP
+  0404   C684           	MOV R4,*SP
+                        ;zcall()
+  0406   2DA0 0000      	CALL @markerr
+                        ;modstk(newsp,save)
+  040A   05CA           	INCT SP
+                        ;			ifstack[ifsp] = 0xffff;
+                        ;address(ptr)
+  040C   0204 0000      	LI R4,ifstack
+                        ;zpush()
+  0410   064A           	DECT SP
+  0412   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0414   C120 0000      	MOV @ifsp,R4
+                        ;scale(type,tag)
+                        ;	doublereg()
+  0418   A104           	A R4,R4
+                        ;zpop()
+  041A   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  041C   A103           	A R3,R4
+                        ;zpush()
+  041E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0420   0204 FFFF      	LI R4,65535
+                        ;putstk - int
+  0424   C4C4           	MOV R4,*R3
+                        ;		}
+                        ;modstk(newsp,save)
+                        ;		asmline(); /*  Get binary from line.	*/
+                        cc15:
+                        ;zcall()
+  0426   2DA0 0000      	CALL @asmline
+                        ;modstk(newsp,save)
+                        ;		if (pass > 1) {
+                        ;getmem(sym)
+  042A   D120 0000      	MOVB @pass,R4
+  042E   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;zpush()
+  0430   C0C4           	MOV R4,R3 ;optimised push/pop
+  0432   0204 0001      	LI R4,1
+                        ;_ccgt
+  0436   8103           	C R3,R4 ;optimised
+  0438   1502           	JGT $+6
+  043A   0460 044A      	B @cc16
+                        ;			lineout(); /*  In pass 2, list line.	*/
+                        ;modstk(newsp,save)
+                        ;zcall()
+  043E   2DA0 0000      	CALL @lineout
+                        ;modstk(newsp,save)
+                        ;			relout(); /*  In pass 2, build rel file.	*/
+                        ;zcall()
+  0442   2DA0 0000      	CALL @relout
+                        ;modstk(newsp,save)
+                        ;		} else
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0446   0460 045A      	B @cc17
+                        cc16:
+                        ;			progsize += nbytes; /* keep track of module size */
+                        ;getmem(sym)
+  044A   C120 0000      	MOV @progsize,R4
+                        ;zpush()
+  044E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0450   C120 0000      	MOV @nbytes,R4
+                        ;	zadd()
+  0454   A103           	A R3,R4
+                        ;putmem(sym)
+  0456   C804 0000      	MOV R4,@progsize
+                        cc17:
+                        ;		pc += nbytes;
+                        ;getmem(sym)
+  045A   C120 0000      	MOV @pc,R4
+                        ;zpush()
+  045E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0460   C120 0000      	MOV @nbytes,R4
+                        ;	zadd()
+  0464   A103           	A R3,R4
+                        ;putmem(sym)
+  0466   C804 0000      	MOV R4,@pc
+                        ;		if (pass == 0) /*  This indicates end of pass 1.	*/
+                        ;getmem(sym)
+  046A   D120 0000      	MOVB @pass,R4
+  046E   0884           	SRA R4,8 ;ccsxt - sign extend
+                        ;eq0(label)
+  0470   C104           	MOV R4,R4
+  0472   1302           	JEQ $+6
+  0474   0460 04F0      	B @cc18
+                        ;		{
+                        ;			if (lstbuf.fd == CONO)
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  0478   0204 0000      	LI R4,lstbuf
+                        ;indirect ccgint
+  047C   C114           	MOV *R4,R4
+                        ;zpush()
+  047E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0480   0204 FFFE      	LI R4,-2
+                        ;_cceq
+  0484   8103           	C R3,R4 ;optimised
+  0486   1302           	JEQ $+6
+  0488   0460 0490      	B @cc19
+                        ;				p1dump(); /*  diagnostic: raw slot view of the table  */
+                        ;zcall()
+  048C   2DA0 0006      	CALL @p1dump
+                        ;modstk(newsp,save)
+                        ;			pass = 2;
+                        cc19:
+                        ;const1(val)
+  0490   0204 0002      	LI R4,2
+                        ;putmem(sym)
+  0494   D82D 0009      	MOVB @2*R4+1(WP),@pass
+  0498   0000           
+                        ;			pc = 0;
+                        ;const1(val)
+  049A   04C4           	CLR R4
+                        ;putmem(sym)
+  049C   C804 0000      	MOV R4,@pc
+                        ;			errcount = 0; /*  pass 2 re-reports every error  */
+                        ;const1(val)
+  04A0   04C4           	CLR R4
+                        ;putmem(sym)
+  04A2   C804 0000      	MOV R4,@errcount
+                        ;			ifsp = 0;
+                        ;const1(val)
+  04A6   04C4           	CLR R4
+                        ;putmem(sym)
+  04A8   C804 0000      	MOV R4,@ifsp
+                        ;			ifstack[ifsp] = 0xffff;
+                        ;address(ptr)
+  04AC   0204 0000      	LI R4,ifstack
+                        ;zpush()
+  04B0   064A           	DECT SP
+  04B2   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  04B4   C120 0000      	MOV @ifsp,R4
+                        ;scale(type,tag)
+                        ;	doublereg()
+  04B8   A104           	A R4,R4
+                        ;zpop()
+  04BA   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  04BC   A103           	A R3,R4
+                        ;zpush()
+  04BE   C0C4           	MOV R4,R3 ;optimised push/pop
+  04C0   0204 FFFF      	LI R4,65535
+                        ;putstk - int
+  04C4   C4C4           	MOV R4,*R3
+                        ;			source_rewind();
+                        ;zcall()
+  04C6   2DA0 0000      	CALL @source_rewind
+                        ;modstk(newsp,save)
+                        ;			relhead(); /*  module header - must follow the rewind  */
+                        ;zcall()
+  04CA   2DA0 0000      	CALL @relhead
+                        ;modstk(newsp,save)
+                        ;			if (lstbuf.fd == CONO)
+                        ;address(ptr)
+  04CE   0204 0000      	LI R4,lstbuf
+                        ;indirect ccgint
+  04D2   C114           	MOV *R4,R4
+                        ;zpush()
+  04D4   C0C4           	MOV R4,R3 ;optimised push/pop
+  04D6   0204 FFFE      	LI R4,-2
+                        ;_cceq
+  04DA   8103           	C R3,R4 ;optimised
+  04DC   1302           	JEQ $+6
+  04DE   0460 04F0      	B @cc20
+                        ;				puts("Pass 2\n");
+                        ;constant(lval)
+  04E2   0204 0A94      	LI R4,cc11+316
+                        ;zpush()
+  04E6   064A           	DECT SP
+  04E8   C684           	MOV R4,*SP
+                        ;zcall()
+  04EA   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04EE   05CA           	INCT SP
+                        ;		}
+                        cc20:
+                        ;modstk(newsp,save)
+                        ;	}
+                        cc18:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  04F0   0460 03B2      	B @cc13
+                        cc14:
+                        ;	/*  print statistics  */
+                        ;	putls("Programme size = ");
+                        ;constant(lval)
+  04F4   0204 0A9C      	LI R4,cc11+324
+                        ;zpush()
+  04F8   064A           	DECT SP
+  04FA   C684           	MOV R4,*SP
+                        ;zcall()
+  04FC   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0500   05CA           	INCT SP
+                        ;linptr = linbuf;
+                        ;address(ptr)
+  0502   0204 0000      	LI R4,linbuf
+                        ;putmem(sym)
+  0506   C804 0000      	MOV R4,@linptr
+                        ;linptr = putdec(progsize, linptr);
+                        ;getmem(sym)
+  050A   C120 0000      	MOV @progsize,R4
+                        ;zpush()
+  050E   064A           	DECT SP
+  0510   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0512   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  0516   064A           	DECT SP
+  0518   C684           	MOV R4,*SP
+                        ;zcall()
+  051A   2DA0 0000      	CALL @putdec
+                        ;modstk(newsp,save)
+  051E   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  0522   C804 0000      	MOV R4,@linptr
+                        ;*linptr = '\0';
+                        ;getmem(sym)
+  0526   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  052A   C0C4           	MOV R4,R3 ;optimised push/pop
+  052C   04C4           	CLR R4
+                        ;putstk - char
+  052E   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;putls(linbuf);
+                        ;address(ptr)
+  0532   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  0536   064A           	DECT SP
+  0538   C684           	MOV R4,*SP
+                        ;zcall()
+  053A   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  053E   05CA           	INCT SP
+                        ;putls("  ");
+                        ;constant(lval)
+  0540   0204 0AAE      	LI R4,cc11+342
+                        ;zpush()
+  0544   064A           	DECT SP
+  0546   C684           	MOV R4,*SP
+                        ;zcall()
+  0548   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  054C   05CA           	INCT SP
+                        ;linptr = linbuf;
+                        ;address(ptr)
+  054E   0204 0000      	LI R4,linbuf
+                        ;putmem(sym)
+  0552   C804 0000      	MOV R4,@linptr
+                        ;linptr = puthex4(progsize, linptr);
+                        ;getmem(sym)
+  0556   C120 0000      	MOV @progsize,R4
+                        ;zpush()
+  055A   064A           	DECT SP
+  055C   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  055E   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  0562   064A           	DECT SP
+  0564   C684           	MOV R4,*SP
+                        ;zcall()
+  0566   2DA0 0000      	CALL @puthex4
+                        ;modstk(newsp,save)
+  056A   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  056E   C804 0000      	MOV R4,@linptr
+                        ;*linptr = '\0';
+                        ;getmem(sym)
+  0572   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  0576   C0C4           	MOV R4,R3 ;optimised push/pop
+  0578   04C4           	CLR R4
+                        ;putstk - char
+  057A   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;putls(linbuf);
+                        ;address(ptr)
+  057E   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  0582   064A           	DECT SP
+  0584   C684           	MOV R4,*SP
+                        ;zcall()
+  0586   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  058A   05CA           	INCT SP
+                        ;putls("(Hex)\n");
+                        ;constant(lval)
+  058C   0204 0AB1      	LI R4,cc11+345
+                        ;zpush()
+  0590   064A           	DECT SP
+  0592   C684           	MOV R4,*SP
+                        ;zcall()
+  0594   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  0598   05CA           	INCT SP
+                        ;	u = (SYMBOLS - nssymbols);
+                        ;getmem(sym)
+  059A   C120 0000      	MOV @nssymbols,R4
+                        ;const2(val)
+  059E   0203 0065      	LI R3,101
+                        ;zsub()
+  05A2   60C4           	S R4,R3
+  05A4   C103           	MOV R3,R4
+                        ;puttos()
+  05A6   C684           	MOV R4,*SP
+                        ;	u = 100 * u / SYMBOLS;
+                        ;getloc(sym, off)
+  05A8   C11A           	MOV *SP,R4 ;optimised load
+                        ;const2(val)
+  05AA   0203 0064      	LI R3,100
+  05AE   06A0 0000      	BL @_ccmult##
+                        ;zpush()
+  05B2   C0C4           	MOV R4,R3 ;optimised push/pop
+  05B4   0204 0065      	LI R4,101
+  05B8   06A0 0000      	BL @_ccdiv##
+                        ;puttos()
+  05BC   C684           	MOV R4,*SP
+                        ;	putls("\nSymbol table use factor = ");
+                        ;constant(lval)
+  05BE   0204 0AB8      	LI R4,cc11+352
+                        ;zpush()
+  05C2   064A           	DECT SP
+  05C4   C684           	MOV R4,*SP
+                        ;zcall()
+  05C6   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  05CA   05CA           	INCT SP
+                        ;linptr = linbuf;
+                        ;address(ptr)
+  05CC   0204 0000      	LI R4,linbuf
+                        ;putmem(sym)
+  05D0   C804 0000      	MOV R4,@linptr
+                        ;linptr = putdec(100 - u, linptr);
+                        ;getloc(sym, off)
+  05D4   C11A           	MOV *SP,R4 ;optimised load
+                        ;const2(val)
+  05D6   0203 0064      	LI R3,100
+                        ;zsub()
+  05DA   60C4           	S R4,R3
+  05DC   C103           	MOV R3,R4
+                        ;zpush()
+  05DE   064A           	DECT SP
+  05E0   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  05E2   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  05E6   064A           	DECT SP
+  05E8   C684           	MOV R4,*SP
+                        ;zcall()
+  05EA   2DA0 0000      	CALL @putdec
+                        ;modstk(newsp,save)
+  05EE   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  05F2   C804 0000      	MOV R4,@linptr
+                        ;*linptr = '\0';
+                        ;getmem(sym)
+  05F6   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  05FA   C0C4           	MOV R4,R3 ;optimised push/pop
+  05FC   04C4           	CLR R4
+                        ;putstk - char
+  05FE   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;putls(linbuf);
+                        ;address(ptr)
+  0602   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  0606   064A           	DECT SP
+  0608   C684           	MOV R4,*SP
+                        ;zcall()
+  060A   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  060E   05CA           	INCT SP
+                        ;putls("%\n");
+                        ;constant(lval)
+  0610   0204 0AD4      	LI R4,cc11+380
+                        ;zpush()
+  0614   064A           	DECT SP
+  0616   C684           	MOV R4,*SP
+                        ;zcall()
+  0618   2DA0 0000      	CALL @putls
+                        ;modstk(newsp,save)
+  061C   05CA           	INCT SP
+                        ;	/*  List number of errors.	*/
+                        ;	linptr = linbuf;
+                        ;address(ptr)
+  061E   0204 0000      	LI R4,linbuf
+                        ;putmem(sym)
+  0622   C804 0000      	MOV R4,@linptr
+                        ;	*linptr++ = '\n';
+                        ;getmem(sym)
+  0626   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  062A   0584           	INC R4
+                        ;putmem(sym)
+  062C   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  0630   0604           	DEC R4
+                        ;zpush()
+  0632   C0C4           	MOV R4,R3 ;optimised push/pop
+  0634   0204 000D      	LI R4,13
+                        ;putstk - char
+  0638   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	if (errcount == 0)
+                        ;getmem(sym)
+  063C   C120 0000      	MOV @errcount,R4
+                        ;eq0(label)
+  0640   C104           	MOV R4,R4
+  0642   1302           	JEQ $+6
+  0644   0460 0664      	B @cc21
+                        ;		strcpy(linptr, "No");
+                        ;getmem(sym)
+  0648   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  064C   064A           	DECT SP
+  064E   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0650   0204 0AD7      	LI R4,cc11+383
+                        ;zpush()
+  0654   064A           	DECT SP
+  0656   C684           	MOV R4,*SP
+                        ;zcall()
+  0658   2DA0 0000      	CALL @strcpy
+                        ;modstk(newsp,save)
+  065C   022A 0004      	AI SP,4
+                        ;	else {
+                        ;jump(label)
+  0660   0460 068C      	B @cc22
+                        cc21:
+                        ;		linptr = putdec(errcount, linptr);
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0664   C120 0000      	MOV @errcount,R4
+                        ;zpush()
+  0668   064A           	DECT SP
+  066A   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  066C   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  0670   064A           	DECT SP
+  0672   C684           	MOV R4,*SP
+                        ;zcall()
+  0674   2DA0 0000      	CALL @putdec
+                        ;modstk(newsp,save)
+  0678   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  067C   C804 0000      	MOV R4,@linptr
+                        ;		*linptr = '\0';
+                        ;getmem(sym)
+  0680   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  0684   C0C4           	MOV R4,R3 ;optimised push/pop
+  0686   04C4           	CLR R4
+                        ;putstk - char
+  0688   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	}
+                        ;modstk(newsp,save)
+                        cc22:
+                        ;	strcat(linbuf, " error(s).\n");
+                        ;address(ptr)
+  068C   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  0690   064A           	DECT SP
+  0692   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0694   0204 0ADA      	LI R4,cc11+386
+                        ;zpush()
+  0698   064A           	DECT SP
+  069A   C684           	MOV R4,*SP
+                        ;zcall()
+  069C   2DA0 0000      	CALL @strcat
+                        ;modstk(newsp,save)
+  06A0   022A 0004      	AI SP,4
+                        ;	puts(linbuf);
+                        ;address(ptr)
+  06A4   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  06A8   064A           	DECT SP
+  06AA   C684           	MOV R4,*SP
+                        ;zcall()
+  06AC   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  06B0   05CA           	INCT SP
+                        ;	if (lstbuf.fd != CONO && lstbuf.fd != NOFILE) {
+                        ;address(ptr)
+  06B2   0204 0000      	LI R4,lstbuf
+                        ;indirect ccgint
+  06B6   C114           	MOV *R4,R4
+                        ;zpush()
+  06B8   C0C4           	MOV R4,R3 ;optimised push/pop
+  06BA   0204 FFFE      	LI R4,-2
+                        ;_ccne
+  06BE   8103           	C R3,R4 ;optimised
+  06C0   1602           	JNE $+6
+  06C2   0460 06E0      	B @cc24
+                        ;address(ptr)
+  06C6   0204 0000      	LI R4,lstbuf
+                        ;indirect ccgint
+  06CA   C114           	MOV *R4,R4
+                        ;zpush()
+  06CC   C0C4           	MOV R4,R3 ;optimised push/pop
+  06CE   0704           	SETO R4
+                        ;_ccne
+  06D0   8103           	C R3,R4 ;optimised
+  06D2   1602           	JNE $+6
+  06D4   0460 06E0      	B @cc24
+                        ;const1(val)
+  06D8   0204 0001      	LI R4,1
+                        ;jump(label)
+  06DC   0460 06E2      	B @cc25
+                        cc24:
+                        ;const1(val)
+  06E0   04C4           	CLR R4
+                        cc25:
+  06E2   C104           	MOV R4,R4
+  06E4   1602           	JNE $+6
+  06E6   0460 0702      	B @cc23
+                        ;		putlin(linbuf, &lstbuf);
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  06EA   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  06EE   064A           	DECT SP
+  06F0   C684           	MOV R4,*SP
+                        ;address(ptr)
+  06F2   0204 0000      	LI R4,lstbuf
+                        ;zpush()
+  06F6   064A           	DECT SP
+  06F8   C684           	MOV R4,*SP
+                        ;zcall()
+  06FA   2DA0 0000      	CALL @putlin
+                        ;modstk(newsp,save)
+  06FE   022A 0004      	AI SP,4
+                        ;		/*		putchr('\f',&lstbuf); */
+                        ;	}
+                        ;modstk(newsp,save)
+                        ;	if (lstbuf.fd != NOFILE) /*  If needed, sort and list
+                        ;	 symbol table.		*/
+                        cc23:
+                        ;address(ptr)
+  0702   0204 0000      	LI R4,lstbuf
+                        ;indirect ccgint
+  0706   C114           	MOV *R4,R4
+                        ;zpush()
+  0708   C0C4           	MOV R4,R3 ;optimised push/pop
+  070A   0704           	SETO R4
+                        ;_ccne
+  070C   8103           	C R3,R4 ;optimised
+  070E   1602           	JNE $+6
+  0710   0460 0934      	B @cc26
+                        ;	{
+                        ;		n = nssymbols;
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0714   0204 0004      	LI R4,4
+  0718   A10A           	A SP,R4
+                        ;zpush()
+  071A   C0C4           	MOV R4,R3 ;optimised push/pop
+  071C   C120 0000      	MOV @nssymbols,R4
+                        ;putstk - int
+  0720   C4C4           	MOV R4,*R3
+                        ;		sympoint = symtbl;
+                        ;address(ptr)
+  0722   0204 0000      	LI R4,symtbl
+                        ;putmem(sym)
+  0726   C804 0000      	MOV R4,@sympoint
+                        ;		while (n > 0) {
+                        cc27:
+                        ;getloc(sym, off)
+  072A   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;gt0(label)
+  072E   C104           	MOV R4,R4
+  0730   1502           	JGT $+6
+  0732   0460 091C      	B @cc28
+                        ;			linptr = linbuf;
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  0736   0204 0000      	LI R4,linbuf
+                        ;putmem(sym)
+  073A   C804 0000      	MOV R4,@linptr
+                        ;			for (m = 0; m < 4; m++) {
+                        ;const1(val)
+  073E   04C4           	CLR R4
+                        ;put2tos()
+  0740   CA84 0002      	MOV R4,@2(SP)
+                        cc31:
+                        ;getloc(sym, off)
+  0744   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;zpush()
+  0748   C0C4           	MOV R4,R3 ;optimised push/pop
+  074A   0204 0004      	LI R4,4
+                        ;_cclt
+  074E   8103           	C R3,R4 ;optimised
+  0750   1102           	JLT $+6
+  0752   0460 08DE      	B @cc30
+                        ;jump(label)
+  0756   0460 0772      	B @cc32
+                        cc29:
+                        ;getloc(sym, off)
+  075A   0204 0002      	LI R4,2
+  075E   A10A           	A SP,R4
+                        ;zpush()
+  0760   064A           	DECT SP
+  0762   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0764   C114           	MOV *R4,R4
+                        ;inc()
+  0766   0584           	INC R4
+                        ;zpop()
+  0768   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  076A   C4C4           	MOV R4,*R3
+                        ;	dec()
+  076C   0604           	DEC R4
+                        ;jump(label)
+  076E   0460 0744      	B @cc31
+                        cc32:
+                        ;				memcpy(linptr, sympoint->symname, SYMLEN);
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0772   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  0776   064A           	DECT SP
+  0778   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  077A   C120 0000      	MOV @sympoint,R4
+                        ;zpush()
+  077E   064A           	DECT SP
+  0780   C684           	MOV R4,*SP
+                        ;const1(val)
+  0782   0204 0010      	LI R4,16
+                        ;zpush()
+  0786   064A           	DECT SP
+  0788   C684           	MOV R4,*SP
+                        ;zcall()
+  078A   2DA0 0000      	CALL @memcpy
+                        ;modstk(newsp,save)
+  078E   022A 0006      	AI SP,6
+                        ;				linptr += SYMLEN;					/* Don't know why this works */
+                        ;getmem(sym)
+  0792   C120 0000      	MOV @linptr,R4
+                        ;const2(val)
+  0796   0203 0010      	LI R3,16
+                        ;	zadd()
+  079A   A103           	A R3,R4
+                        ;putmem(sym)
+  079C   C804 0000      	MOV R4,@linptr
+                        ;				*linptr++ = ' ';
+                        ;getmem(sym)
+  07A0   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  07A4   0584           	INC R4
+                        ;putmem(sym)
+  07A6   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  07AA   0604           	DEC R4
+                        ;zpush()
+  07AC   C0C4           	MOV R4,R3 ;optimised push/pop
+  07AE   0204 0020      	LI R4,32
+                        ;putstk - char
+  07B2   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;				*linptr++ = ' ';
+                        ;getmem(sym)
+  07B6   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  07BA   0584           	INC R4
+                        ;putmem(sym)
+  07BC   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  07C0   0604           	DEC R4
+                        ;zpush()
+  07C2   C0C4           	MOV R4,R3 ;optimised push/pop
+  07C4   0204 0020      	LI R4,32
+                        ;putstk - char
+  07C8   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;				linptr = puthex4(sympoint->symvalu, linptr);
+                        ;getmem(sym)
+  07CC   C120 0000      	MOV @sympoint,R4
+                        ;const2(val)
+  07D0   0203 0010      	LI R3,16
+                        ;	zadd()
+  07D4   A103           	A R3,R4
+                        ;indirect ccgint
+  07D6   C114           	MOV *R4,R4
+                        ;zpush()
+  07D8   064A           	DECT SP
+  07DA   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  07DC   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  07E0   064A           	DECT SP
+  07E2   C684           	MOV R4,*SP
+                        ;zcall()
+  07E4   2DA0 0000      	CALL @puthex4
+                        ;modstk(newsp,save)
+  07E8   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  07EC   C804 0000      	MOV R4,@linptr
+                        ;				if (sympoint->symflg & EXTBIT)
+                        ;getmem(sym)
+  07F0   C120 0000      	MOV @sympoint,R4
+                        ;const2(val)
+  07F4   0203 0012      	LI R3,18
+                        ;	zadd()
+  07F8   A103           	A R3,R4
+                        ;indirect ccgchar
+  07FA   D114           	MOVB *R4,R4
+  07FC   0884           	SRA R4,8
+                        ;zpush()
+  07FE   C0C4           	MOV R4,R3 ;optimised push/pop
+  0800   0204 0008      	LI R4,8
+                        ;zand()
+  0804   0543           	INV R3
+  0806   4103           	SZC R3,R4
+  0808   C104           	MOV R4,R4
+  080A   1602           	JNE $+6
+  080C   0460 082A      	B @cc33
+                        ;					*linptr++ = '*'; /* mark external */
+                        ;getmem(sym)
+  0810   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  0814   0584           	INC R4
+                        ;putmem(sym)
+  0816   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  081A   0604           	DEC R4
+                        ;zpush()
+  081C   C0C4           	MOV R4,R3 ;optimised push/pop
+  081E   0204 002A      	LI R4,42
+                        ;putstk - char
+  0822   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;				else if (sympoint->symflg & RELBIT)
+                        ;jump(label)
+  0826   0460 087A      	B @cc34
+                        cc33:
+                        ;getmem(sym)
+  082A   C120 0000      	MOV @sympoint,R4
+                        ;const2(val)
+  082E   0203 0012      	LI R3,18
+                        ;	zadd()
+  0832   A103           	A R3,R4
+                        ;indirect ccgchar
+  0834   D114           	MOVB *R4,R4
+  0836   0884           	SRA R4,8
+                        ;zpush()
+  0838   C0C4           	MOV R4,R3 ;optimised push/pop
+  083A   0204 0001      	LI R4,1
+                        ;zand()
+  083E   0543           	INV R3
+  0840   4103           	SZC R3,R4
+  0842   C104           	MOV R4,R4
+  0844   1602           	JNE $+6
+  0846   0460 0864      	B @cc35
+                        ;					*linptr++ = '\''; /* mark relocatable */
+                        ;getmem(sym)
+  084A   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  084E   0584           	INC R4
+                        ;putmem(sym)
+  0850   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  0854   0604           	DEC R4
+                        ;zpush()
+  0856   C0C4           	MOV R4,R3 ;optimised push/pop
+  0858   0204 0027      	LI R4,39
+                        ;putstk - char
+  085C   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;				else
+                        ;jump(label)
+  0860   0460 087A      	B @cc36
+                        cc35:
+                        ;					*linptr++ = ' ';
+                        ;getmem(sym)
+  0864   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  0868   0584           	INC R4
+                        ;putmem(sym)
+  086A   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  086E   0604           	DEC R4
+                        ;zpush()
+  0870   C0C4           	MOV R4,R3 ;optimised push/pop
+  0872   0204 0020      	LI R4,32
+                        ;putstk - char
+  0876   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        cc36:
+                        cc34:
+                        ;				*linptr++ = ' ';
+                        ;getmem(sym)
+  087A   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  087E   0584           	INC R4
+                        ;putmem(sym)
+  0880   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  0884   0604           	DEC R4
+                        ;zpush()
+  0886   C0C4           	MOV R4,R3 ;optimised push/pop
+  0888   0204 0020      	LI R4,32
+                        ;putstk - char
+  088C   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;				*linptr++ = ' ';
+                        ;getmem(sym)
+  0890   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  0894   0584           	INC R4
+                        ;putmem(sym)
+  0896   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  089A   0604           	DEC R4
+                        ;zpush()
+  089C   C0C4           	MOV R4,R3 ;optimised push/pop
+  089E   0204 0020      	LI R4,32
+                        ;putstk - char
+  08A2   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;				sympoint++;
+                        ;getmem(sym)
+  08A6   C120 0000      	MOV @sympoint,R4
+                        ;const2(val)
+  08AA   0203 0014      	LI R3,20
+                        ;	zadd()
+  08AE   A103           	A R3,R4
+                        ;putmem(sym)
+  08B0   C804 0000      	MOV R4,@sympoint
+                        ;const2(val)
+  08B4   0203 FFEC      	LI R3,-20
+                        ;	zadd()
+  08B8   A103           	A R3,R4
+                        ;				if (--n <= 0)
+                        ;getloc(sym, off)
+  08BA   0204 0004      	LI R4,4
+  08BE   A10A           	A SP,R4
+                        ;zpush()
+  08C0   064A           	DECT SP
+  08C2   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  08C4   C114           	MOV *R4,R4
+                        ;	dec()
+  08C6   0604           	DEC R4
+                        ;zpop()
+  08C8   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  08CA   C4C4           	MOV R4,*R3
+                        ;le0(label)
+  08CC   0284 0000      	CI R4,0
+  08D0   1202           	JLE $+6
+  08D2   0460 08DA      	B @cc37
+                        ;					break;
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  08D6   0460 08DE      	B @cc30
+                        ;			}
+                        cc37:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  08DA   0460 075A      	B @cc29
+                        cc30:
+                        ;			*linptr++ = '\n';
+                        ;getmem(sym)
+  08DE   C120 0000      	MOV @linptr,R4
+                        ;inc()
+  08E2   0584           	INC R4
+                        ;putmem(sym)
+  08E4   C804 0000      	MOV R4,@linptr
+                        ;	dec()
+  08E8   0604           	DEC R4
+                        ;zpush()
+  08EA   C0C4           	MOV R4,R3 ;optimised push/pop
+  08EC   0204 000D      	LI R4,13
+                        ;putstk - char
+  08F0   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;			*linptr = '\0';
+                        ;getmem(sym)
+  08F4   C120 0000      	MOV @linptr,R4
+                        ;zpush()
+  08F8   C0C4           	MOV R4,R3 ;optimised push/pop
+  08FA   04C4           	CLR R4
+                        ;putstk - char
+  08FC   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;			putlin(linbuf, &lstbuf);
+                        ;address(ptr)
+  0900   0204 0000      	LI R4,linbuf
+                        ;zpush()
+  0904   064A           	DECT SP
+  0906   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0908   0204 0000      	LI R4,lstbuf
+                        ;zpush()
+  090C   064A           	DECT SP
+  090E   C684           	MOV R4,*SP
+                        ;zcall()
+  0910   2DA0 0000      	CALL @putlin
+                        ;modstk(newsp,save)
+  0914   022A 0004      	AI SP,4
+                        ;		}
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0918   0460 072A      	B @cc27
+                        cc28:
+                        ;		putchr(CPMEOF, &lstbuf);
+                        ;const1(val)
+  091C   0204 001A      	LI R4,26
+                        ;zpush()
+  0920   064A           	DECT SP
+  0922   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0924   0204 0000      	LI R4,lstbuf
+                        ;zpush()
+  0928   064A           	DECT SP
+  092A   C684           	MOV R4,*SP
+                        ;zcall()
+  092C   2DA0 0000      	CALL @putchr
+                        ;modstk(newsp,save)
+  0930   022A 0004      	AI SP,4
+                        ;	}
+                        ;modstk(newsp,save)
+                        ;	flush(&lstbuf);
+                        cc26:
+                        ;address(ptr)
+  0934   0204 0000      	LI R4,lstbuf
+                        ;zpush()
+  0938   064A           	DECT SP
+  093A   C684           	MOV R4,*SP
+                        ;zcall()
+  093C   2DA0 0000      	CALL @flush
+                        ;modstk(newsp,save)
+  0940   05CA           	INCT SP
+                        ;	fclose(sorbuf.fd);
+                        ;address(ptr)
+  0942   0204 0000      	LI R4,sorbuf
+                        ;indirect ccgint
+  0946   C114           	MOV *R4,R4
+                        ;zpush()
+  0948   064A           	DECT SP
+  094A   C684           	MOV R4,*SP
+                        ;zcall()
+  094C   2DA0 0000      	CALL @fclose
+                        ;modstk(newsp,save)
+  0950   05CA           	INCT SP
+                        ;	//wipeout("\r");
+                        ;}
+                        ;modstk(newsp,save)
+  0952   022A 0006      	AI SP,6
+                        ;modstk(newsp,save)
+  0956   2DC0           	RET
+  0958   0D2D 2D2D      cc11:	BYTE 13,45,45,45,45,45,45,45,45,45,45,45
+  095C   2D2D 2D2D      
+  0960   2D2D 2D2D      
+  0964   2D2D 2D2D      	BYTE 45,45,45,45,45,45,45,45,45,45,45,45
+  0968   2D2D 2D2D      
+  096C   2D2D 2D2D      
+  0970   2D2D 2D2D      	BYTE 45,45,45,45,45,45,45,45,45,45,45,45
+  0974   2D2D 2D2D      
+  0978   2D2D 2D2D      
+  097C   2D2D 2D2D      	BYTE 45,45,45,45,45,45,45,45,45,45,45,0
+  0980   2D2D 2D2D      
+  0984   2D2D 2D00      
+  0988   0D54 4D53      	BYTE 13,84,77,83,57,57,48,48,32,82,101,108
+  098C   3939 3030      
+  0990   2052 656C      
+  0994   6F63 6174      	BYTE 111,99,97,116,97,98,108,101,32,67,114,111
+  0998   6162 6C65      
+  099C   2043 726F      
+  09A0   7373 2D41      	BYTE 115,115,45,65,115,115,101,109,98,108,101,114
+  09A4   7373 656D      
+  09A8   626C 6572      
+  09AC   2020 7665      	BYTE 32,32,118,101,114,115,32,50,46,48,13,0
+  09B0   7273 2032      
+  09B4   2E30 0D00      
+  09B8   436F 7079      	BYTE 67,111,112,121,114,105,103,104,116,32,40,99
+  09BC   7269 6768      
+  09C0   7420 2863      
+  09C4   2920 3139      	BYTE 41,32,49,57,56,48,32,32,87,105,108,108
+  09C8   3830 2020      
+  09CC   5769 6C6C      
+  09D0   6961 6D20      	BYTE 105,97,109,32,67,46,32,67,111,108,108,101
+  09D4   432E 2043      
+  09D8   6F6C 6C65      
+  09DC   792C 2049      	BYTE 121,44,32,73,73,73,13,0,40,84,77,83
+  09E0   4949 0D00      
+  09E4   2854 4D53      
+  09E8   2039 3931      	BYTE 32,57,57,49,48,53,65,32,118,101,114,115
+  09EC   3035 4120      
+  09F0   7665 7273      
+  09F4   696F 6E20      	BYTE 105,111,110,32,98,121,32,65,108,101,120,97
+  09F8   6279 2041      
+  09FC   6C65 7861      
+  0A00   6E64 6572      	BYTE 110,100,101,114,46,32,67,97,109,101,114,111
+  0A04   2E20 4361      
+  0A08   6D65 726F      
+  0A0C   6E20 4A61      	BYTE 110,32,74,97,110,32,49,57,56,52,32,97
+  0A10   6E20 3139      
+  0A14   3834 2061      
+  0A18   6E64 204D      	BYTE 110,100,32,77,97,121,32,50,48,49,53,32
+  0A1C   6179 2032      
+  0A20   3031 3520      
+  0A24   290D 002D      	BYTE 41,13,0,45,45,45,45,45,45,45,45,45
+  0A28   2D2D 2D2D      
+  0A2C   2D2D 2D2D      
+  0A30   2D2D 2D2D      	BYTE 45,45,45,45,45,45,45,45,45,45,45,45
+  0A34   2D2D 2D2D      
+  0A38   2D2D 2D2D      
+  0A3C   2D2D 2D2D      	BYTE 45,45,45,45,45,45,45,45,45,45,45,45
+  0A40   2D2D 2D2D      
+  0A44   2D2D 2D2D      
+  0A48   2D2D 2D2D      	BYTE 45,45,45,45,45,45,45,45,45,45,45,45
+  0A4C   2D2D 2D2D      
+  0A50   2D2D 2D2D      
+  0A54   2D0D 0041      	BYTE 45,13,0,65,118,97,105,108,97,98,108,101
+  0A58   7661 696C      
+  0A5C   6162 6C65      
+  0A60   206D 656D      	BYTE 32,109,101,109,111,114,121,32,61,32,0,32
+  0A64   6F72 7920      
+  0A68   3D20 0020      
+  0A6C   6279 7465      	BYTE 98,121,116,101,115,13,0,80,97,115,115,32
+  0A70   730D 0050      
+  0A74   6173 7320      
+  0A78   310D 0009      	BYTE 49,13,0,9,69,78,68,9,9,59,89,111
+  0A7C   454E 4409      
+  0A80   093B 596F      
+  0A84   7520 666F      	BYTE 117,32,102,111,114,103,111,116,32,116,104,105
+  0A88   7267 6F74      
+  0A8C   2074 6869      
+  0A90   7321 0D00      	BYTE 115,33,13,0,80,97,115,115,32,50,13,0
+  0A94   5061 7373      
+  0A98   2032 0D00      
+  0A9C   5072 6F67      	BYTE 80,114,111,103,114,97,109,109,101,32,115,105
+  0AA0   7261 6D6D      
+  0AA4   6520 7369      
+  0AA8   7A65 203D      	BYTE 122,101,32,61,32,0,32,32,0,40,72,101
+  0AAC   2000 2020      
+  0AB0   0028 4865      
+  0AB4   7829 0D00      	BYTE 120,41,13,0,13,83,121,109,98,111,108,32
+  0AB8   0D53 796D      
+  0ABC   626F 6C20      
+  0AC0   7461 626C      	BYTE 116,97,98,108,101,32,117,115,101,32,102,97
+  0AC4   6520 7573      
+  0AC8   6520 6661      
+  0ACC   6374 6F72      	BYTE 99,116,111,114,32,61,32,0,37,13,0,78
+  0AD0   203D 2000      
+  0AD4   250D 004E      
+  0AD8   6F00 2065      	BYTE 111,0,32,101,114,114,111,114,40,115,41,46
+  0ADC   7272 6F72      
+  0AE0   2873 292E      
+  0AE4   0D00           	BYTE 13,0
+                        ;/*
+                        ; Function to set up the file structure.  Routine is called with
+                        ; the original argc and argv from main().
+                        ; */
+                        ;setfiles(argc, argv)
+  0AE6                  	EVEN
+                        setfiles:
+                        ;int argc;
+                        ;int *argv;
+                        ;{
+                        ;	char sorfname[24], lstfname[24], hexfname[24], *tptr, *arg;
+                        ;	int noobj;
+                        ;	/*
+                        ;	 *  R99 <file> [switches]
+                        ;	 *
+                        ;	 *      -L      listing to <file>.L99      (also -LA..-LD, -L-)
+                        ;	 *      -LX     listing to the console
+                        ;	 *      -LY     listing to the list device
+                        ;	 *      -N      no object file - syntax check only
+                        ;	 *      -R, -H  object to <file>.R99: this is the DEFAULT, and the
+                        ;	 *              switch is still accepted so old command lines work
+                        ;	 *      -S      accepted and ignored; the source name is the file name
+                        ;	 *
+                        ;	 *  The .R99 object is produced by DEFAULT.  A leading '-' is optional
+                        ;	 *  on every switch, so the older bare forms (LX, L-, H-) still work.
+                        ;	 */
+                        ;	if (--argc == 0)
+                        ;modstk(newsp,save)
+  0AE6   022A FFB2      	AI SP,-78
+                        ;getloc(sym, off)
+  0AEA   0204 0052      	LI R4,82
+  0AEE   A10A           	A SP,R4
+                        ;zpush()
+  0AF0   064A           	DECT SP
+  0AF2   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0AF4   C114           	MOV *R4,R4
+                        ;	dec()
+  0AF6   0604           	DEC R4
+                        ;zpop()
+  0AF8   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0AFA   C4C4           	MOV R4,*R3
+                        ;eq0(label)
+  0AFC   C104           	MOV R4,R4
+  0AFE   1302           	JEQ $+6
+  0B00   0460 0B12      	B @cc39
+                        ;		wipeout("\nNo file info supplied.\n");
+                        ;constant(lval)
+  0B04   0204 0EC8      	LI R4,cc38+0
+                        ;zpush()
+  0B08   064A           	DECT SP
+  0B0A   C684           	MOV R4,*SP
+                        ;zcall()
+  0B0C   2DA0 0000      	CALL @wipeout
+                        ;modstk(newsp,save)
+  0B10   05CA           	INCT SP
+                        ;	argv++;
+                        cc39:
+                        ;getloc(sym, off)
+  0B12   0204 0050      	LI R4,80
+  0B16   A10A           	A SP,R4
+                        ;zpush()
+  0B18   064A           	DECT SP
+  0B1A   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0B1C   C114           	MOV *R4,R4
+                        ;inct()
+  0B1E   05C4           	INCT R4
+                        ;zpop()
+  0B20   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0B22   C4C4           	MOV R4,*R3
+                        ;	dect()
+  0B24   0644           	DECT R4
+                        ;	sorbuf.fd = lstbuf.fd = hexbuf.fd = NOFILE;
+                        ;address(ptr)
+  0B26   0204 0000      	LI R4,sorbuf
+                        ;zpush()
+  0B2A   064A           	DECT SP
+  0B2C   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0B2E   0204 0000      	LI R4,lstbuf
+                        ;zpush()
+  0B32   064A           	DECT SP
+  0B34   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0B36   0204 0000      	LI R4,hexbuf
+                        ;zpush()
+  0B3A   C0C4           	MOV R4,R3 ;optimised push/pop
+  0B3C   0704           	SETO R4
+                        ;putstk - int
+  0B3E   C4C4           	MOV R4,*R3
+                        ;zpop()
+  0B40   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0B42   C4C4           	MOV R4,*R3
+                        ;zpop()
+  0B44   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0B46   C4C4           	MOV R4,*R3
+                        ;	lstbuf.pointr = lstbuf.space;
+                        ;address(ptr)
+  0B48   0204 0000      	LI R4,lstbuf
+                        ;inct()
+  0B4C   05C4           	INCT R4
+                        ;zpush()
+  0B4E   064A           	DECT SP
+  0B50   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0B52   0204 0000      	LI R4,lstbuf
+                        ;const2(val)
+  0B56   0203 0006      	LI R3,6
+                        ;	zadd()
+  0B5A   A103           	A R3,R4
+                        ;zpop()
+  0B5C   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0B5E   C4C4           	MOV R4,*R3
+                        ;	hexbuf.pointr = hexbuf.space;
+                        ;address(ptr)
+  0B60   0204 0000      	LI R4,hexbuf
+                        ;inct()
+  0B64   05C4           	INCT R4
+                        ;zpush()
+  0B66   064A           	DECT SP
+  0B68   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0B6A   0204 0000      	LI R4,hexbuf
+                        ;const2(val)
+  0B6E   0203 0006      	LI R3,6
+                        ;	zadd()
+  0B72   A103           	A R3,R4
+                        ;zpop()
+  0B74   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0B76   C4C4           	MOV R4,*R3
+                        ;	noobj = 0;
+                        ;const1(val)
+  0B78   04C4           	CLR R4
+                        ;puttos()
+  0B7A   C684           	MOV R4,*SP
+                        ;	sorfname[0] = '\0';
+                        ;getloc(sym, off)
+                        ;Char offset
+  0B7C   0204 0037      	LI R4,55
+  0B80   A10A           	A SP,R4
+                        ;zpush()
+  0B82   C0C4           	MOV R4,R3 ;optimised push/pop
+  0B84   04C4           	CLR R4
+                        ;putstk - char
+  0B86   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	arg = *argv++;
+                        ;getloc(sym, off)
+  0B8A   0204 0050      	LI R4,80
+  0B8E   A10A           	A SP,R4
+                        ;zpush()
+  0B90   064A           	DECT SP
+  0B92   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0B94   C114           	MOV *R4,R4
+                        ;inct()
+  0B96   05C4           	INCT R4
+                        ;zpop()
+  0B98   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0B9A   C4C4           	MOV R4,*R3
+                        ;	dect()
+  0B9C   0644           	DECT R4
+                        ;indirect ccgint
+  0B9E   C114           	MOV *R4,R4
+                        ;put2tos()
+  0BA0   CA84 0002      	MOV R4,@2(SP)
+                        ;	--argc;
+                        ;getloc(sym, off)
+  0BA4   0204 0052      	LI R4,82
+  0BA8   A10A           	A SP,R4
+                        ;zpush()
+  0BAA   064A           	DECT SP
+  0BAC   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0BAE   C114           	MOV *R4,R4
+                        ;	dec()
+  0BB0   0604           	DEC R4
+                        ;zpop()
+  0BB2   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0BB4   C4C4           	MOV R4,*R3
+                        ;	strcpy(progname, arg); /* copy programme name */
+                        ;address(ptr)
+  0BB6   0204 0000      	LI R4,progname
+                        ;zpush()
+  0BBA   064A           	DECT SP
+  0BBC   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0BBE   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;zpush()
+  0BC2   064A           	DECT SP
+  0BC4   C684           	MOV R4,*SP
+                        ;zcall()
+  0BC6   2DA0 0000      	CALL @strcpy
+                        ;modstk(newsp,save)
+  0BCA   022A 0004      	AI SP,4
+                        ;	strcat(sorfname, arg);
+                        ;getloc(sym, off)
+                        ;Char offset
+  0BCE   0204 0037      	LI R4,55
+  0BD2   A10A           	A SP,R4
+                        ;zpush()
+  0BD4   064A           	DECT SP
+  0BD6   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0BD8   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;zpush()
+  0BDC   064A           	DECT SP
+  0BDE   C684           	MOV R4,*SP
+                        ;zcall()
+  0BE0   2DA0 0000      	CALL @strcat
+                        ;modstk(newsp,save)
+  0BE4   022A 0004      	AI SP,4
+                        ;	for (tptr = sorfname; *tptr != '\0'; tptr++)
+                        ;getloc(sym, off)
+  0BE8   0204 0004      	LI R4,4
+  0BEC   A10A           	A SP,R4
+                        ;zpush()
+  0BEE   064A           	DECT SP
+  0BF0   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0BF2   0204 0039      	LI R4,57
+  0BF6   A10A           	A SP,R4
+                        ;zpop()
+  0BF8   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0BFA   C4C4           	MOV R4,*R3
+                        cc42:
+                        ;getloc(sym, off)
+  0BFC   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0C00   D114           	MOVB *R4,R4
+  0C02   0884           	SRA R4,8
+  0C04   C104           	MOV R4,R4
+  0C06   1602           	JNE $+6
+  0C08   0460 0C4E      	B @cc41
+                        ;jump(label)
+  0C0C   0460 0C28      	B @cc43
+                        cc40:
+                        ;getloc(sym, off)
+  0C10   0204 0004      	LI R4,4
+  0C14   A10A           	A SP,R4
+                        ;zpush()
+  0C16   064A           	DECT SP
+  0C18   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0C1A   C114           	MOV *R4,R4
+                        ;inc()
+  0C1C   0584           	INC R4
+                        ;zpop()
+  0C1E   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0C20   C4C4           	MOV R4,*R3
+                        ;	dec()
+  0C22   0604           	DEC R4
+                        ;jump(label)
+  0C24   0460 0BFC      	B @cc42
+                        cc43:
+                        ;		if (*tptr == '.')
+                        ;getloc(sym, off)
+  0C28   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0C2C   D114           	MOVB *R4,R4
+  0C2E   0884           	SRA R4,8
+                        ;zpush()
+  0C30   C0C4           	MOV R4,R3 ;optimised push/pop
+  0C32   0204 002E      	LI R4,46
+                        ;_cceq
+  0C36   8103           	C R3,R4 ;optimised
+  0C38   1302           	JEQ $+6
+  0C3A   0460 0C4A      	B @cc44
+                        ;			*tptr = '\0';
+                        ;getloc(sym, off)
+  0C3E   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;zpush()
+  0C42   C0C4           	MOV R4,R3 ;optimised push/pop
+  0C44   04C4           	CLR R4
+                        ;putstk - char
+  0C46   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;	strcpy(lstfname, sorfname);
+                        cc44:
+                        ;jump(label)
+  0C4A   0460 0C10      	B @cc40
+                        cc41:
+                        ;getloc(sym, off)
+                        ;Char offset
+  0C4E   0204 001F      	LI R4,31
+  0C52   A10A           	A SP,R4
+                        ;zpush()
+  0C54   064A           	DECT SP
+  0C56   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0C58   0204 0039      	LI R4,57
+  0C5C   A10A           	A SP,R4
+                        ;zpush()
+  0C5E   064A           	DECT SP
+  0C60   C684           	MOV R4,*SP
+                        ;zcall()
+  0C62   2DA0 0000      	CALL @strcpy
+                        ;modstk(newsp,save)
+  0C66   022A 0004      	AI SP,4
+                        ;	strcpy(hexfname, lstfname);
+                        ;getloc(sym, off)
+                        ;Char offset
+  0C6A   0204 0007      	LI R4,7
+  0C6E   A10A           	A SP,R4
+                        ;zpush()
+  0C70   064A           	DECT SP
+  0C72   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0C74   0204 0021      	LI R4,33
+  0C78   A10A           	A SP,R4
+                        ;zpush()
+  0C7A   064A           	DECT SP
+  0C7C   C684           	MOV R4,*SP
+                        ;zcall()
+  0C7E   2DA0 0000      	CALL @strcpy
+                        ;modstk(newsp,save)
+  0C82   022A 0004      	AI SP,4
+                        ;	strcat(sorfname, ".A99");
+                        ;getloc(sym, off)
+                        ;Char offset
+  0C86   0204 0037      	LI R4,55
+  0C8A   A10A           	A SP,R4
+                        ;zpush()
+  0C8C   064A           	DECT SP
+  0C8E   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0C90   0204 0EE1      	LI R4,cc38+25
+                        ;zpush()
+  0C94   064A           	DECT SP
+  0C96   C684           	MOV R4,*SP
+                        ;zcall()
+  0C98   2DA0 0000      	CALL @strcat
+                        ;modstk(newsp,save)
+  0C9C   022A 0004      	AI SP,4
+                        ;	strcat(lstfname, ".L99");
+                        ;getloc(sym, off)
+                        ;Char offset
+  0CA0   0204 001F      	LI R4,31
+  0CA4   A10A           	A SP,R4
+                        ;zpush()
+  0CA6   064A           	DECT SP
+  0CA8   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0CAA   0204 0EE6      	LI R4,cc38+30
+                        ;zpush()
+  0CAE   064A           	DECT SP
+  0CB0   C684           	MOV R4,*SP
+                        ;zcall()
+  0CB2   2DA0 0000      	CALL @strcat
+                        ;modstk(newsp,save)
+  0CB6   022A 0004      	AI SP,4
+                        ;	strcat(hexfname, ".R99");
+                        ;getloc(sym, off)
+                        ;Char offset
+  0CBA   0204 0007      	LI R4,7
+  0CBE   A10A           	A SP,R4
+                        ;zpush()
+  0CC0   064A           	DECT SP
+  0CC2   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0CC4   0204 0EEB      	LI R4,cc38+35
+                        ;zpush()
+  0CC8   064A           	DECT SP
+  0CCA   C684           	MOV R4,*SP
+                        ;zcall()
+  0CCC   2DA0 0000      	CALL @strcat
+                        ;modstk(newsp,save)
+  0CD0   022A 0004      	AI SP,4
+                        ;	while (argc > 0) {
+                        cc45:
+                        ;getloc(sym, off)
+  0CD4   C12A 0052      	MOV @82(SP),R4 ;optimised load
+                        ;gt0(label)
+  0CD8   C104           	MOV R4,R4
+  0CDA   1502           	JGT $+6
+  0CDC   0460 0E22      	B @cc46
+                        ;		arg = *argv++;
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0CE0   0204 0050      	LI R4,80
+  0CE4   A10A           	A SP,R4
+                        ;zpush()
+  0CE6   064A           	DECT SP
+  0CE8   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0CEA   C114           	MOV *R4,R4
+                        ;inct()
+  0CEC   05C4           	INCT R4
+                        ;zpop()
+  0CEE   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0CF0   C4C4           	MOV R4,*R3
+                        ;	dect()
+  0CF2   0644           	DECT R4
+                        ;indirect ccgint
+  0CF4   C114           	MOV *R4,R4
+                        ;put2tos()
+  0CF6   CA84 0002      	MOV R4,@2(SP)
+                        ;		--argc;
+                        ;getloc(sym, off)
+  0CFA   0204 0052      	LI R4,82
+  0CFE   A10A           	A SP,R4
+                        ;zpush()
+  0D00   064A           	DECT SP
+  0D02   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0D04   C114           	MOV *R4,R4
+                        ;	dec()
+  0D06   0604           	DEC R4
+                        ;zpop()
+  0D08   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0D0A   C4C4           	MOV R4,*R3
+                        ;		if (*arg == '-')
+                        ;getloc(sym, off)
+  0D0C   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0D10   D114           	MOVB *R4,R4
+  0D12   0884           	SRA R4,8
+                        ;zpush()
+  0D14   C0C4           	MOV R4,R3 ;optimised push/pop
+  0D16   0204 002D      	LI R4,45
+                        ;_cceq
+  0D1A   8103           	C R3,R4 ;optimised
+  0D1C   1302           	JEQ $+6
+  0D1E   0460 0D36      	B @cc47
+                        ;			arg++;
+                        ;getloc(sym, off)
+  0D22   0204 0002      	LI R4,2
+  0D26   A10A           	A SP,R4
+                        ;zpush()
+  0D28   064A           	DECT SP
+  0D2A   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0D2C   C114           	MOV *R4,R4
+                        ;inc()
+  0D2E   0584           	INC R4
+                        ;zpop()
+  0D30   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0D32   C4C4           	MOV R4,*R3
+                        ;	dec()
+  0D34   0604           	DEC R4
+                        ;		switch (*arg++) {
+                        cc47:
+                        ;getloc(sym, off)
+  0D36   0204 0002      	LI R4,2
+  0D3A   A10A           	A SP,R4
+                        ;zpush()
+  0D3C   064A           	DECT SP
+  0D3E   C684           	MOV R4,*SP
+                        ;indirect ccgint
+  0D40   C114           	MOV *R4,R4
+                        ;inc()
+  0D42   0584           	INC R4
+                        ;zpop()
+  0D44   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0D46   C4C4           	MOV R4,*R3
+                        ;	dec()
+  0D48   0604           	DEC R4
+                        ;indirect ccgchar
+  0D4A   D114           	MOVB *R4,R4
+  0D4C   0884           	SRA R4,8
+                        ;jump(label)
+  0D4E   0460 0E00      	B @cc50
+                        ;		case 'L':
+                        ;modstk(newsp,save)
+                        cc51:
+                        ;			switch (*arg) {
+                        ;getloc(sym, off)
+  0D52   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0D56   D114           	MOVB *R4,R4
+  0D58   0884           	SRA R4,8
+                        ;jump(label)
+  0D5A   0460 0DC2      	B @cc54
+                        ;			case 'X':
+                        ;modstk(newsp,save)
+                        cc55:
+                        ;				lstbuf.fd = CONO;
+                        ;address(ptr)
+  0D5E   0204 0000      	LI R4,lstbuf
+                        ;zpush()
+  0D62   C0C4           	MOV R4,R3 ;optimised push/pop
+  0D64   0204 FFFE      	LI R4,-2
+                        ;putstk - int
+  0D68   C4C4           	MOV R4,*R3
+                        ;				break;
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0D6A   0460 0DD4      	B @cc53
+                        ;			case 'Y':
+                        cc56:
+                        ;				lstbuf.fd = LST;
+                        ;address(ptr)
+  0D6E   0204 0000      	LI R4,lstbuf
+                        ;zpush()
+  0D72   C0C4           	MOV R4,R3 ;optimised push/pop
+  0D74   0204 FFFD      	LI R4,-3
+                        ;putstk - int
+  0D78   C4C4           	MOV R4,*R3
+                        ;				break;
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0D7A   0460 0DD4      	B @cc53
+                        ;			default:
+                        cc57:
+                        ;				if ((lstbuf.fd = fopen(lstfname, "w")) == 0)
+                        ;address(ptr)
+  0D7E   0204 0000      	LI R4,lstbuf
+                        ;zpush()
+  0D82   064A           	DECT SP
+  0D84   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0D86   0204 0021      	LI R4,33
+  0D8A   A10A           	A SP,R4
+                        ;zpush()
+  0D8C   064A           	DECT SP
+  0D8E   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0D90   0204 0EF0      	LI R4,cc38+40
+                        ;zpush()
+  0D94   064A           	DECT SP
+  0D96   C684           	MOV R4,*SP
+                        ;zcall()
+  0D98   2DA0 0000      	CALL @fopen
+                        ;modstk(newsp,save)
+  0D9C   022A 0004      	AI SP,4
+                        ;zpop()
+  0DA0   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0DA2   C4C4           	MOV R4,*R3
+                        ;eq0(label)
+  0DA4   C104           	MOV R4,R4
+  0DA6   1302           	JEQ $+6
+  0DA8   0460 0DBA      	B @cc58
+                        ;					wipeout("\nCan't open list.\n");
+                        ;constant(lval)
+  0DAC   0204 0EF2      	LI R4,cc38+42
+                        ;zpush()
+  0DB0   064A           	DECT SP
+  0DB2   C684           	MOV R4,*SP
+                        ;zcall()
+  0DB4   2DA0 0000      	CALL @wipeout
+                        ;modstk(newsp,save)
+  0DB8   05CA           	INCT SP
+                        ;				break;
+                        cc58:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0DBA   0460 0DD4      	B @cc53
+                        ;			}
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0DBE   0460 0DD4      	B @cc53
+                        cc54:
+  0DC2   2DA0 0000      	CALL @_ccswitc##
+  0DC6   0D5E 0058      	WORD cc55,88
+  0DCA   0D6E 0059      	WORD cc56,89
+  0DCE   0000           	WORD 0
+                        ;jump(label)
+  0DD0   0460 0D7E      	B @cc57
+                        cc53:
+                        ;			break;
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0DD4   0460 0E1E      	B @cc49
+                        ;		case 'N':
+                        cc59:
+                        ;			noobj = 1;
+                        ;const1(val)
+  0DD8   0204 0001      	LI R4,1
+                        ;puttos()
+  0DDC   C684           	MOV R4,*SP
+                        ;			break;
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0DDE   0460 0E1E      	B @cc49
+                        ;		case 'H':
+                        cc60:
+                        ;		case 'R':
+                        cc61:
+                        ;			noobj = 0; /* the object is the default anyway */
+                        ;const1(val)
+  0DE2   04C4           	CLR R4
+                        ;puttos()
+  0DE4   C684           	MOV R4,*SP
+                        ;			break;
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0DE6   0460 0E1E      	B @cc49
+                        ;		case 'S':
+                        cc62:
+                        ;			break; /* the source name is the file argument */
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0DEA   0460 0E1E      	B @cc49
+                        ;		default:
+                        cc63:
+                        ;			wipeout("\nIllegal command line.\n");
+                        ;constant(lval)
+  0DEE   0204 0F05      	LI R4,cc38+61
+                        ;zpush()
+  0DF2   064A           	DECT SP
+  0DF4   C684           	MOV R4,*SP
+                        ;zcall()
+  0DF6   2DA0 0000      	CALL @wipeout
+                        ;modstk(newsp,save)
+  0DFA   05CA           	INCT SP
+                        ;		}
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0DFC   0460 0E1E      	B @cc49
+                        cc50:
+  0E00   2DA0 0000      	CALL @_ccswitc##
+  0E04   0D52 004C      	WORD cc51,76
+  0E08   0DD8 004E      	WORD cc59,78
+  0E0C   0DE2 0048      	WORD cc60,72
+  0E10   0DE2 0052      	WORD cc61,82
+  0E14   0DEA 0053      	WORD cc62,83
+  0E18   0000           	WORD 0
+                        ;jump(label)
+  0E1A   0460 0DEE      	B @cc63
+                        cc49:
+                        ;	}
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0E1E   0460 0CD4      	B @cc45
+                        cc46:
+                        ;	strcpy(srcname, sorfname);
+                        ;address(ptr)
+  0E22   0204 0000      	LI R4,srcname
+                        ;zpush()
+  0E26   064A           	DECT SP
+  0E28   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0E2A   0204 0039      	LI R4,57
+  0E2E   A10A           	A SP,R4
+                        ;zpush()
+  0E30   064A           	DECT SP
+  0E32   C684           	MOV R4,*SP
+                        ;zcall()
+  0E34   2DA0 0000      	CALL @strcpy
+                        ;modstk(newsp,save)
+  0E38   022A 0004      	AI SP,4
+                        ;	if ((sorbuf.fd = fopen(sorfname, "r")) == 0)
+                        ;address(ptr)
+  0E3C   0204 0000      	LI R4,sorbuf
+                        ;zpush()
+  0E40   064A           	DECT SP
+  0E42   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0E44   0204 0039      	LI R4,57
+  0E48   A10A           	A SP,R4
+                        ;zpush()
+  0E4A   064A           	DECT SP
+  0E4C   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0E4E   0204 0F1D      	LI R4,cc38+85
+                        ;zpush()
+  0E52   064A           	DECT SP
+  0E54   C684           	MOV R4,*SP
+                        ;zcall()
+  0E56   2DA0 0000      	CALL @fopen
+                        ;modstk(newsp,save)
+  0E5A   022A 0004      	AI SP,4
+                        ;zpop()
+  0E5E   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0E60   C4C4           	MOV R4,*R3
+                        ;eq0(label)
+  0E62   C104           	MOV R4,R4
+  0E64   1302           	JEQ $+6
+  0E66   0460 0E78      	B @cc64
+                        ;		wipeout("\nCan't open source.\n");
+                        ;constant(lval)
+  0E6A   0204 0F1F      	LI R4,cc38+87
+                        ;zpush()
+  0E6E   064A           	DECT SP
+  0E70   C684           	MOV R4,*SP
+                        ;zcall()
+  0E72   2DA0 0000      	CALL @wipeout
+                        ;modstk(newsp,save)
+  0E76   05CA           	INCT SP
+                        ;	source_rewind();
+                        cc64:
+                        ;zcall()
+  0E78   2DA0 0000      	CALL @source_rewind
+                        ;modstk(newsp,save)
+                        ;	/*  Open the object LAST, so a source that will not open cannot
+                        ;	    leave an empty .R99 behind.  */
+                        ;	if (noobj == 0)
+                        ;getloc(sym, off)
+  0E7C   C11A           	MOV *SP,R4 ;optimised load
+                        ;eq0(label)
+  0E7E   C104           	MOV R4,R4
+  0E80   1302           	JEQ $+6
+  0E82   0460 0EC2      	B @cc65
+                        ;		if ((hexbuf.fd = fopen(hexfname, "w")) == 0)
+                        ;address(ptr)
+  0E86   0204 0000      	LI R4,hexbuf
+                        ;zpush()
+  0E8A   064A           	DECT SP
+  0E8C   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0E8E   0204 0009      	LI R4,9
+  0E92   A10A           	A SP,R4
+                        ;zpush()
+  0E94   064A           	DECT SP
+  0E96   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0E98   0204 0F34      	LI R4,cc38+108
+                        ;zpush()
+  0E9C   064A           	DECT SP
+  0E9E   C684           	MOV R4,*SP
+                        ;zcall()
+  0EA0   2DA0 0000      	CALL @fopen
+                        ;modstk(newsp,save)
+  0EA4   022A 0004      	AI SP,4
+                        ;zpop()
+  0EA8   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0EAA   C4C4           	MOV R4,*R3
+                        ;eq0(label)
+  0EAC   C104           	MOV R4,R4
+  0EAE   1302           	JEQ $+6
+  0EB0   0460 0EC2      	B @cc66
+                        ;			wipeout("\nCan't open R99 file.\n");
+                        ;constant(lval)
+  0EB4   0204 0F36      	LI R4,cc38+110
+                        ;zpush()
+  0EB8   064A           	DECT SP
+  0EBA   C684           	MOV R4,*SP
+                        ;zcall()
+  0EBC   2DA0 0000      	CALL @wipeout
+                        ;modstk(newsp,save)
+  0EC0   05CA           	INCT SP
+                        ;}
+                        cc66:
+                        cc65:
+                        ;modstk(newsp,save)
+  0EC2   022A 004E      	AI SP,78
+                        ;modstk(newsp,save)
+  0EC6   2DC0           	RET
+  0EC8   0D4E 6F20      cc38:	BYTE 13,78,111,32,102,105,108,101,32,105,110,102
+  0ECC   6669 6C65      
+  0ED0   2069 6E66      
+  0ED4   6F20 7375      	BYTE 111,32,115,117,112,112,108,105,101,100,46,13
+  0ED8   7070 6C69      
+  0EDC   6564 2E0D      
+  0EE0   002E 4139      	BYTE 0,46,65,57,57,0,46,76,57,57,0,46
+  0EE4   3900 2E4C      
+  0EE8   3939 002E      
+  0EEC   5239 3900      	BYTE 82,57,57,0,119,0,13,67,97,110,39,116
+  0EF0   7700 0D43      
+  0EF4   616E 2774      
+  0EF8   206F 7065      	BYTE 32,111,112,101,110,32,108,105,115,116,46,13
+  0EFC   6E20 6C69      
+  0F00   7374 2E0D      
+  0F04   000D 496C      	BYTE 0,13,73,108,108,101,103,97,108,32,99,111
+  0F08   6C65 6761      
+  0F0C   6C20 636F      
+  0F10   6D6D 616E      	BYTE 109,109,97,110,100,32,108,105,110,101,46,13
+  0F14   6420 6C69      
+  0F18   6E65 2E0D      
+  0F1C   0072 000D      	BYTE 0,114,0,13,67,97,110,39,116,32,111,112
+  0F20   4361 6E27      
+  0F24   7420 6F70      
+  0F28   656E 2073      	BYTE 101,110,32,115,111,117,114,99,101,46,13,0
+  0F2C   6F75 7263      
+  0F30   652E 0D00      
+  0F34   7700 0D43      	BYTE 119,0,13,67,97,110,39,116,32,111,112,101
+  0F38   616E 2774      
+  0F3C   206F 7065      
+  0F40   6E20 5239      	BYTE 110,32,82,57,57,32,102,105,108,101,46,13
+  0F44   3920 6669      
+  0F48   6C65 2E0D      
+  0F4C   00             	BYTE 0
+  0F4D   00             	EVEN
+                        	EXT flushlin
+                        	EXT oldvalu
+                        	EXT entnam
+                        	EXT hxlnbuf
+                        	EXT errcount
+                        	EXT hash
+                        	EXT _aton
+                        	EXT getprec
+                        	EXT strcpy
+                        	EXT putsym
+                        	EXT wipeout
+                        	EXT error2
+                        	EXT quitflag
+                        	EXT symend
+                        	EXT bptr
+                        	EXT symbol
+                        	EXT emit_code
+                        	EXT symcmp
+                        	EXT include_source
+                        	EXT ifsp
+                        	EXT eval
+                        	EXT bbsearch
+                        	ENT main
+                        	EXT putrchr
+                        	EXT rputchr
+                        	EXT memcpy
+                        	EXT nssymbols
+                        	EXT hxlnptr
+                        	EXT chkoprat
+                        	EXT item
+                        	EXT symtbl
+                        	EXT linbuf
+                        	EXT evalerr
+                        	EXT pass
+                        	EXT seek
+                        	EXT memset
+                        	EXT source_rewind
+                        	EXT symptr
+                        	EXT err_cnt
+                        	EXT field
+                        	EXT getopcod
+                        	EXT avail
+                        	EXT ifstack
+                        	EXT _psop
+                        	EXT sortsym
+                        	EXT close_includes
+                        	EXT extflg
+                        	EXT linptr
+                        	EXT backitem
+                        	EXT errcode
+                        	EXT relsyms
+                        	EXT addsym
+                        	EXT push_source
+                        	EXT toupper
+                        	EXT puts
+                        	EXT nbytes
+                        	EXT markerr
+                        	EXT relflg
+                        	EXT type
+                        	EXT sympoint
+                        	EXT fopen
+                        	EXT quoteflg
+                        	EXT flush
+                        	EXT loc_ctr
+                        	EXT error
+                        	EXT backflg
+                        	EXT directok
+                        	EXT progname
+                        	EXT _normop
+                        	EXT ishex
+                        	EXT relout
+                        	EXT movchr
+                        	EXT xref_emit
+                        	EXT binbuf
+                        	EXT rflush
+                        	EXT lstbuf
+                        	EXT xref_add
+                        	EXT xref_reset
+                        	EXT lineout
+                        	EXT pc
+                        	EXT itemflg
+                        	ENT p1dump
+                        	EXT fclose
+                        	EXT chksum
+                        	EXT numopcs
+                        	EXT srcname
+                        	EXT progsize
+                        	EXT addrmode
+                        	EXT address
+                        	EXT numoprs
+                        	EXT putabs2
+                        	EXT puts2
+                        	EXT puts3
+                        	EXT parse_line
+                        	EXT getchr
+                        	EXT putabs
+                        	EXT putdec
+                        	EXT slookup
+                        	EXT oldattr
+                        	EXT asmline
+                        	EXT sorbuf
+                        	EXT putchr
+                        	EXT getlin
+                        	EXT gflush
+                        	EXT curdrive
+                        	EXT putfld
+                        	EXT putls
+                        	EXT outchunk
+                        	EXT outrem
+                        	EXT getopc
+                        	EXT getattr
+                        	EXT getname
+                        	ENT setfiles
+                        	EXT puthex2
+                        	EXT puthex4
+                        	EXT relhead
+                        	EXT getopr
+                        	EXT putbyt
+                        	EXT putlin
+                        	EXT getnum
+                        	EXT hexflg
+                        	EXT hexbuf
+                        	EXT putbits
+                        	EXT getitem
+                        	EXT putrel
+                        	EXT cant
+                        	EXT strcat
+                        	EXT hxbytes
+                        	EXT entflg
+                        	EXT list_line
+  0F4E                  	EVEN
+  0F4E                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R8                0008   R9                0009   RET               2DC0'  
+SL                0009   SP                000A   WHEX              2E80'  WP                000D   
+WRITE             2F00'  _aton             0000*  _ccdiv            0000*  _cclneg           0000*  
+_ccmult           0000*  _ccswitc          0000*  _main             0000*  _normop           0000*  
+_psop             0000*  address           0000*  addrmode          0000*  addsym            0000*  
+asmline           0000*  avail             0000*  backflg           0000*  backitem          0000*  
+bbsearch          0000*  binbuf            0000*  bptr              0000*  cant              0000*  
+cc1               01EA'  cc10              0106'  cc11              0958'  cc12              03B2'  
+cc13              03B2'  cc14              04F4'  cc15              0426'  cc16              044A'  
+cc17              045A'  cc18              04F0'  cc19              0490'  cc2               0048'  
+cc20              04F0'  cc21              0664'  cc22              068C'  cc23              0702'  
+cc24              06E0'  cc25              06E2'  cc26              0934'  cc27              072A'  
+cc28              091C'  cc29              075A'  cc3               01E4'  cc30              08DE'  
+cc31              0744'  cc32              0772'  cc33              082A'  cc34              087A'  
+cc35              0864'  cc36              087A'  cc37              08DA'  cc38              0EC8'  
+cc39              0B12'  cc4               0032'  cc40              0C10'  cc41              0C4E'  
+cc42              0BFC'  cc43              0C28'  cc44              0C4A'  cc45              0CD4'  
+cc46              0E22'  cc47              0D36'  cc49              0E1E'  cc5               0060'  
+cc50              0E00'  cc51              0D52'  cc53              0DD4'  cc54              0DC2'  
+cc55              0D5E'  cc56              0D6E'  cc57              0D7E'  cc58              0DBA'  
+cc59              0DD8'  cc6               01E0'  cc60              0DE2'  cc61              0DE2'  
+cc62              0DEA'  cc63              0DEE'  cc64              0E78'  cc65              0EC2'  
+cc66              0EC2'  cc7               00EE'  cc8               013E'  cc9               00D8'  
+chkoprat          0000*  chksum            0000*  close_includes    0000*  curdrive          0000*  
+directok          0000*  emit_code         0000*  entflg            0000*  entnam            0000*  
+err_cnt           0000*  errcode           0000*  errcount          0000*  error             0000*  
+error2            0000*  eval              0000*  evalerr           0000*  extflg            0000*  
+fclose            0000*  field             0000*  flush             0000*  flushlin          0000*  
+fopen             0000*  getattr           0000*  getchr            0000*  getitem           0000*  
+getlin            0000*  getname           0000*  getnum            0000*  getopc            0000*  
+getopcod          0000*  getopr            0000*  getprec           0000*  gflush            0000*  
+hash              0000*  hexbuf            0000*  hexflg            0000*  hxbytes           0000*  
+hxlnbuf           0000*  hxlnptr           0000*  ifsp              0000*  ifstack           0000*  
+include_source    0000*  ishex             0000*  item              0000*  itemflg           0000*  
+linbuf            0000*  lineout           0000*  linptr            0000*  list_line         0000*  
+loc_ctr           0000*  lstbuf            0000*  main              0224'  markerr           0000*  
+memcpy            0000*  memset            0000*  movchr            0000*  nbytes            0000*  
+nssymbols         0000*  numopcs           0000*  numoprs           0000*  oldattr           0000*  
+oldvalu           0000*  outchunk          0000*  outrem            0000*  p1dump            0006'  
+parse_line        0000*  pass              0000*  pc                0000*  progname          0000*  
+progsize          0000*  push_source       0000*  putabs            0000*  putabs2           0000*  
+putbits           0000*  putbyt            0000*  putchr            0000*  putdec            0000*  
+putfld            0000*  puthex2           0000*  puthex4           0000*  putlin            0000*  
+putls             0000*  putrchr           0000*  putrel            0000*  puts              0000*  
+puts2             0000*  puts3             0000*  putsym            0000*  quitflag          0000*  
+quoteflg          0000*  relflg            0000*  relhead           0000*  relout            0000*  
+relsyms           0000*  rflush            0000*  rputchr           0000*  seek              0000*  
+setfiles          0AE6'  slookup           0000*  sorbuf            0000*  sortsym           0000*  
+source_rewind     0000*  srcname           0000*  strcat            0000*  strcpy            0000*  
+symbol            0000*  symcmp            0000*  symend            0000*  sympoint          0000*  
+symptr            0000*  symtbl            0000*  toupper           0000*  type              0000*  
+wipeout           0000*  xref_add          0000*  xref_emit         0000*  xref_reset        0000*  
+
