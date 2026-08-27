@@ -1,1 +1,1 @@
-This is a TMS99105 Native Reloctable Assembler.
+This is a native Reloctable Assembler for the TMS99105 SBC.
