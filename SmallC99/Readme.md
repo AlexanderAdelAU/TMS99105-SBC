@@ -1,4 +1,4 @@
-This is a native full featured SMALLC99 compiler that will run on paged memory architecture.
+This is a native full featured SMALLC99 compiler that will run on paged memory architecture.  It will produce an R99 object file that can be linked with a REL type linker.
 
 <p align="center">
   <img src="Smallc99.png" alt="SmallC99 Image" width="600">
