@@ -1,0 +1,41 @@
+;*******************************************************************
+;  CLISTUB.A99 -- M36a r3d resident entry for CC_CLI overlay
+;
+;  Linked only into SMALLC99.EXE. SKELTEST does not link this module.
+;  R_GETOPTS has two Small-C arguments (argc, argv), so it removes its
+;  caller return word before calling P_GETOPTS and restores it afterward.
+;  The entry is top-level and cannot nest; one resident save frame is
+;  therefore sufficient.
+;*******************************************************************
+
+        DXOP    CALL,6
+        DXOP    RET,7
+
+R0      EQU     0
+R1      EQU     1
+R2      EQU     2
+SP      EQU     10
+
+        INCL    "OVLDEFS.INC"
+        INCL    "OVLADDR.INC"
+
+        EXT     OVLMGR
+        EXT     CUR_WINA_ID
+
+CLIRET: WORD    0
+CLIID:  WORD    0
+
+R_GETOPTS:
+        MOV     *SP+,@CLIRET
+        MOV     @CUR_WINA_ID,@CLIID
+        LI      R1,OVL_CLI
+        CALL    @OVLMGR
+        CALL    @P_GETOPTS
+        MOV     @CLIID,R1
+        CALL    @OVLMGR
+        DECT    SP
+        MOV     @CLIRET,*SP
+        RET
+
+        ENT     R_GETOPTS
+        END

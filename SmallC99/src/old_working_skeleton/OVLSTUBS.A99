@@ -1,0 +1,172 @@
+;*******************************************************************
+;  OVLSTUBS.A99 - Resident cross-overlay trampolines
+;
+;  Lives resident, linked alongside OVLMGR. These are the ONLY
+;  functions allowed to call OVLMGR from inside a chain that started
+;  in an overlay -- per the safety invariant proven by OVLTEST.A99:
+;  only resident code may drive an overlay-to-overlay transition.
+;
+;  REACHING THESE FROM OVERLAY CODE: the proven POC never has an
+;  overlay module directly CALL an externally-linked resident symbol
+;  by absolute address -- the only resident-reaching mechanism it
+;  actually exercises is an indirect call through a memory vector
+;  (OVL_PRINT_VEC: resident stores PRINT's address there at startup,
+;  overlay code does MOV @OVL_PRINT_VEC,R0 / CALL *R0). So each
+;  trampoline gets the same treatment: a fixed memory vector,
+;  populated once by STUBINIT at startup, read and called indirectly
+;  by overlay code. No EXT/ENT needed between overlay modules and
+;  this file at all -- same as PRINT.
+;
+;  Pattern for every stub, always the same 5 steps:
+;    1. remember which overlay the CALLER was running in
+;    2. load the callee's overlay
+;    3. call its fixed jump-table slot
+;    4. reload the caller's overlay (so the caller is safe to resume)
+;    5. return
+;
+;  Step 1 uses a dedicated memory scratch word PER TRAMPOLINE (not
+;  one shared word) rather than a register, since TMS9900 supports
+;  memory-to-memory MOV. A single shared word is NOT safe here: this
+;  call graph legitimately nests two DIFFERENT trampolines at once
+;  (R_STMT is still mid-flight, waiting to restore DECL, when S_STMT
+;  calls R_TEST -- which would clobber a shared save slot). No single
+;  trampoline ever calls itself recursively, so one dedicated word
+;  per trampoline is sufficient without needing a real stack.
+;
+;  R1 remains the overlay-ID parameter register throughout, matching
+;  OVLMGR's own contract. Only R0/R12 (via OVLMGR) and R1 are used;
+;  everything else is untouched.
+;
+;  NAMING: all symbols kept <=12 chars (confirmed limit).
+;*******************************************************************
+
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R0	EQU	0
+R1	EQU	1
+
+;--- overlay class IDs, fixed dispatch addresses, and vector table
+;    addresses: via INCL now (second file in the rollout, after
+;    OVLMGR.A99 tested clean) ---
+	INCL	"OVLADDR.INC"
+
+	EXT	OVLMGR
+
+SAV_STMT:
+	WORD	0
+SAV_DECL:
+	WORD	0
+SAV_TEST:
+	WORD	0
+SAV_EXPR:
+	WORD	0
+SAV_CEXPR:
+	WORD	0
+SAV_STR:
+	WORD	0
+
+;*******************************************************************
+;  STUBINIT - populate the vector table with each trampoline's real
+;  (resident, link-resolved) address. Call once at startup, after
+;  OVLMGR_INIT, before any overlay code runs.
+;*******************************************************************
+STUBINIT:
+	LI	R0,R_STMT
+	MOV	R0,@VEC_R_STMT
+	LI	R0,R_DECL
+	MOV	R0,@VEC_R_DECL
+	LI	R0,R_TEST
+	MOV	R0,@VEC_R_TEST
+	LI	R0,R_EXPR
+	MOV	R0,@VEC_R_EXPR
+	LI	R0,R_CEXPR
+	MOV	R0,@VEC_R_CEXPR
+	LI	R0,R_STR
+	MOV	R0,@VEC_R_STR
+	RET
+
+;*******************************************************************
+;  R_STMT - reached via VEC_R_STMT by dofunction() (OVL_DECL) to
+;  reach statement() (OVL_STMT) and resume safely afterward.
+;*******************************************************************
+R_STMT:
+	MOV	@CUR_WINA_ID,@SAV_STMT
+	LI	R1,OVL_STMT
+	CALL	@OVLMGR
+	CALL	@S_STMT
+	MOV	@SAV_STMT,R1
+	CALL	@OVLMGR
+	RET
+
+;*******************************************************************
+;  R_DECL - reached via VEC_R_DECL by declloc() (OVL_STMT) to reach
+;  decl() (OVL_DECL) and resume safely afterward.
+;*******************************************************************
+R_DECL:
+	MOV	@CUR_WINA_ID,@SAV_DECL
+	LI	R1,OVL_DECL
+	CALL	@OVLMGR
+	CALL	@D_DECL
+	MOV	@SAV_DECL,R1
+	CALL	@OVLMGR
+	RET
+
+;*******************************************************************
+;  R_TEST - reached via VEC_R_TEST by doif()/dowhile()/dofor()
+;  (OVL_STMT) to reach test() (OVL_EXPR) and resume safely afterward.
+;*******************************************************************
+R_TEST:
+	MOV	@CUR_WINA_ID,@SAV_TEST
+	LI	R1,OVL_EXPR
+	CALL	@OVLMGR
+	CALL	@E_TEST
+	MOV	@SAV_TEST,R1
+	CALL	@OVLMGR
+	RET
+
+;*******************************************************************
+;  R_EXPR - reached via VEC_R_EXPR by doexpr() (resident) to reach
+;  expression() (OVL_EXPR) and resume safely afterward.
+;*******************************************************************
+R_EXPR:
+	MOV	@CUR_WINA_ID,@SAV_EXPR
+	LI	R1,OVL_EXPR
+	CALL	@OVLMGR
+	CALL	@E_EXPR
+	MOV	@SAV_EXPR,R1
+	CALL	@OVLMGR
+	RET
+
+;*******************************************************************
+;  R_CEXPR - reached via VEC_R_CEXPR by init()/needsub() (OVL_DECL)
+;  OR docase() (OVL_STMT) to reach constexpr() (OVL_EXPR).
+;  Caller-agnostic: restores whichever overlay was actually active.
+;*******************************************************************
+R_CEXPR:
+	MOV	@CUR_WINA_ID,@SAV_CEXPR
+	LI	R1,OVL_EXPR
+	CALL	@OVLMGR
+	CALL	@E_CEXPR
+	MOV	@SAV_CEXPR,R1
+	CALL	@OVLMGR
+	RET
+
+;*******************************************************************
+;  R_STR - reached via VEC_R_STR by init() (OVL_DECL) to reach
+;  string() (OVL_EXPR) and resume safely afterward.
+;*******************************************************************
+R_STR:
+	MOV	@CUR_WINA_ID,@SAV_STR
+	LI	R1,OVL_EXPR
+	CALL	@OVLMGR
+	CALL	@E_STR
+	MOV	@SAV_STR,R1
+	CALL	@OVLMGR
+	RET
+
+	ENT	STUBINIT
+
+	EXT	CUR_WINA_ID
+
+	END

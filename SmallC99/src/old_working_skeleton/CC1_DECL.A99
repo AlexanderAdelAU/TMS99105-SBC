@@ -1,0 +1,173 @@
+;*******************************************************************
+;  CC1_DECL.A99 - Overlay: Declaration/Function Parser (OVL_DECL)
+;  Assembled at AORG 4000H, linked: link99 -P4 cc1_decl.COM cc1_decl.R99
+;
+;  Skeleton stage: jump table + stub bodies wired to mirror the REAL
+;  call graph from CC1D.C, not arbitrary test hooks:
+;
+;    D_DODECL (dodeclare)
+;      -> DECLGLB_X (declglb)
+;           -> NEEDSUB_X (needsub)      -- real order: needsub first
+;                -> VEC_R_CEXPR (constexpr, in OVL_EXPR)
+;           -> INITIALS_X (initials)
+;                -> INIT_X (init)
+;                     -> VEC_R_STR (string, in OVL_EXPR)
+;                     -> VEC_R_CEXPR (constexpr, in OVL_EXPR)
+;
+;    D_DOFN (dofunction) -> VEC_R_STMT (statement, in OVL_STMT)
+;    D_DECL (decl) -- called from OVL_STMT via R_DECL trampoline
+;
+;  Confirmed against CC1D.C: declglb() calls needsub() (for array
+;  dimensions) THEN initials(); initials() calls init(); init() calls
+;  rstring() then rconstexpr(). Real code branches conditionally on
+;  their return values -- this stub calls both unconditionally in
+;  sequence, since there's no real parse state yet to branch on.
+;  That simplification gets corrected when real logic is ported in.
+;
+;  Reaching R_STMT/R_CEXPR/R_STR: no EXT here at all. Same as
+;  OVL_PRINT_VEC -- read a fixed memory vector (populated by
+;  STUBINIT at startup) and CALL indirectly through it.
+;*******************************************************************
+
+	DXOP	WRITE,12
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R0	EQU	0
+R1	EQU	1
+
+OVL_PRVEC:	EQU	02A0H
+VEC_R_STMT:	EQU	02A2H
+VEC_R_CEXPR:	EQU	02AAH
+VEC_R_STR:	EQU	02ACH
+
+	AORG	4000H
+
+;--- FIXED JUMP TABLE: must match OVLSTUBS.A99's D_* offsets ---
+D_DOFN:		B	@D_DOFN_X	; 4000H
+D_DODECL:	B	@D_DODC_X	; 2004H
+D_DECL:		B	@D_DECL_X	; 2008H
+
+;--- dofunction(): calls through VEC_R_STMT to prove DECL->STMT,
+;    prints again after it returns -- proof DECL survived STMT load.
+D_DOFN_X:
+	LI	R1,TX_DFN_IN
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_STMT,R0
+	CALL	*R0
+	LI	R1,TX_DFN_OUT
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+;--- dodeclare(): real logic dispatches to declglb() by type; stub
+;    goes straight to declglb() to widen the real chain below it.
+D_DODC_X:
+	LI	R1,TX_DODECL
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@DECLGLB_X
+	RET
+
+;--- decl(): reached from OVL_STMT via R_DECL. Leaf for now (real
+;    decl() doesn't cross overlays itself). ---
+D_DECL_X:
+	LI	R1,TX_DECL
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+;--- declglb(): real order is needsub() (for "[...]") then
+;    initials() -- same overlay, direct calls, no vector needed. ---
+DECLGLB_X:
+	LI	R1,TX_DECLGLB
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@NEEDSUB_X
+	CALL	@INITIALS_X
+	RET
+
+;--- needsub(): calls rconstexpr() to evaluate the array size. ---
+NEEDSUB_X:
+	LI	R1,TX_NEEDSUB
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_CEXPR,R0
+	CALL	*R0
+	RET
+
+;--- initials(): calls init() once per initializer (same overlay,
+;    direct call). ---
+INITIALS_X:
+	LI	R1,TX_INITIALS
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@INIT_X
+	RET
+
+;--- init(): real logic is rstring() else rconstexpr(); stub calls
+;    both unconditionally to prove both edges. ---
+INIT_X:
+	LI	R1,TX_INIT
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_STR,R0
+	CALL	*R0
+	MOV	@VEC_R_CEXPR,R0
+	CALL	*R0
+	RET
+
+TX_DFN_IN:
+	BYTE	0DH,0AH
+	TEXT	'[DECL] dofunction() - entered'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DFN_OUT:
+	BYTE	0DH,0AH
+	TEXT	'[DECL] dofunction() - resumed after R_STMT (DECL survived STMT load)'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DODECL:
+	BYTE	0DH,0AH
+	TEXT	'[DECL] dodeclare()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DECL:
+	BYTE	0DH,0AH
+	TEXT	'[DECL] decl() stub'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DECLGLB:
+	BYTE	0DH,0AH
+	TEXT	'[DECL] declglb()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_NEEDSUB:
+	BYTE	0DH,0AH
+	TEXT	'[DECL] needsub() -> constexpr()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_INITIALS:
+	BYTE	0DH,0AH
+	TEXT	'[DECL] initials()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_INIT:
+	BYTE	0DH,0AH
+	TEXT	'[DECL] init() -> string(), constexpr()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+	ENT	D_DOFN
+	ENT	D_DODECL
+	ENT	D_DECL
+
+	END

@@ -1,0 +1,257 @@
+;*******************************************************************
+;  CC3_EXPR.A99 - Overlay: Expression Analyzer (OVL_EXPR)
+;  Assembled at AORG 4000H, linked: link99 -P2 cc3_expr.COM cc3_expr.R99
+;
+;  Skeleton stage: jump table + empty bodies only. Real logic ported
+;  from CC3.C drops in here function-by-function once the trampoline
+;  plumbing is proven on the board.
+;
+;  NAMING: all symbols kept <=12 chars. Jump-table entries (E_TEST,
+;  E_CEXPR, E_EXPR, E_STR) must match OVLSTUBS.A99 exactly. Body
+;  labels use an _X suffix so they never collide with their own
+;  jump-table entry.
+;*******************************************************************
+
+	DXOP	WRITE,12
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R0	EQU	0
+R1	EQU	1
+
+OVL_PRVEC:	EQU	02A0H
+
+	AORG	4000H
+
+;--- FIXED JUMP TABLE: must match OVLSTUBS.A99's E_* offsets ---
+E_TEST:		B	@E_TEST_X	; 4000H
+E_CEXPR:	B	@E_CEXPRX	; 2004H
+E_EXPR:		B	@E_EXPR_X	; 2008H
+E_STR:		B	@E_STR_X	; 200CH
+
+;--- placeholder bodies: prove the call/return path, nothing else ---
+E_TEST_X:
+	LI	R1,TX_TEST
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+E_CEXPRX:
+	LI	R1,TX_CEXPR
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+E_EXPR_X:
+	LI	R1,TX_EXPR
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL1_X
+	RET
+
+;--- widening: real expression() is the top of a precedence-climbing
+;    chain (level1..level14 -> primary in classic Small-C). Proving
+;    14 levels of SAME-overlay CALL/RET nesting -- deeper than
+;    anything tested so far, and a different shape (a straight
+;    chain, not sibling dispatch) from the STMT widening. ---
+LEVEL1_X:
+	LI	R1,TX_LV1
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL2_X
+	RET
+
+LEVEL2_X:
+	LI	R1,TX_LV2
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL3_X
+	RET
+
+LEVEL3_X:
+	LI	R1,TX_LV3
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL4_X
+	RET
+
+LEVEL4_X:
+	LI	R1,TX_LV4
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL5_X
+	RET
+
+LEVEL5_X:
+	LI	R1,TX_LV5
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL6_X
+	RET
+
+LEVEL6_X:
+	LI	R1,TX_LV6
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL7_X
+	RET
+
+LEVEL7_X:
+	LI	R1,TX_LV7
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL8_X
+	RET
+
+LEVEL8_X:
+	LI	R1,TX_LV8
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL9_X
+	RET
+
+LEVEL9_X:
+	LI	R1,TX_LV9
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL10X
+	RET
+
+LEVEL10X:
+	LI	R1,TX_LV10
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL11X
+	RET
+
+LEVEL11X:
+	LI	R1,TX_LV11
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL12X
+	RET
+
+LEVEL12X:
+	LI	R1,TX_LV12
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL13X
+	RET
+
+LEVEL13X:
+	LI	R1,TX_LV13
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@LEVEL14X
+	RET
+
+LEVEL14X:
+	LI	R1,TX_LV14
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@PRIMARYX
+	RET
+
+PRIMARYX:
+	LI	R1,TX_PRIM
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+E_STR_X:
+	LI	R1,TX_STR
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+TX_TEST:
+	BYTE	0DH,0AH
+	TEXT	'[EXPR] test() stub'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_CEXPR:
+	BYTE	0DH,0AH
+	TEXT	'[EXPR] constexpr() stub'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_EXPR:
+	BYTE	0DH,0AH
+	TEXT	'[EXPR] expression() stub'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_LV1:
+	TEXT	'[EXPR] level1()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV2:
+	TEXT	'[EXPR] level2()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV3:
+	TEXT	'[EXPR] level3()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV4:
+	TEXT	'[EXPR] level4()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV5:
+	TEXT	'[EXPR] level5()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV6:
+	TEXT	'[EXPR] level6()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV7:
+	TEXT	'[EXPR] level7()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV8:
+	TEXT	'[EXPR] level8()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV9:
+	TEXT	'[EXPR] level9()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV10:
+	TEXT	'[EXPR] level10()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV11:
+	TEXT	'[EXPR] level11()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV12:
+	TEXT	'[EXPR] level12()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV13:
+	TEXT	'[EXPR] level13()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_LV14:
+	TEXT	'[EXPR] level14()'
+	BYTE	0DH,0AH,0
+	EVEN
+TX_PRIM:
+	TEXT	'[EXPR] primary()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_STR:
+	BYTE	0DH,0AH
+	TEXT	'[EXPR] string() stub'
+	BYTE	0DH,0AH,0
+	EVEN
+
+	ENT	E_TEST
+	ENT	E_CEXPR
+	ENT	E_EXPR
+	ENT	E_STR
+
+	END

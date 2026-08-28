@@ -1,0 +1,304 @@
+;*******************************************************************
+;  SKELTEST.A99 - Walking Skeleton Driver
+;
+;  Resident entry point. Plays the role OVLTEST.A99 played for the
+;  A/B proof of concept, but drives the real Small-C cross-overlay
+;  chain, widened to cover every proven edge so far:
+;
+;    SKELTEST (resident)
+;      1. D_DOFN (OVL_DFUN, page 6) -- dofunction()
+;           -> R_STMT (trampoline) -> S_STMT (OVL_STMT, page 3)
+;                -- statement() dispatches once each to:
+;                   DOIF_X      -> R_TEST  -> E_TEST   (OVL_EXPR)
+;                   DOWHILE_X   -> R_TEST  -> E_TEST
+;                   DOFOR_X     -> R_EXPR  -> E_EXPR -> LEVEL1_X..
+;                                  LEVEL14_X -> PRIMARY_X (all EXPR,
+;                                  same-overlay chain) ; -> R_TEST
+;                   DOSWITCH_X  -> R_EXPR  -> E_EXPR -> (level chain)
+;                   DOCASE_X    -> R_CEXPR -> E_CEXPR
+;                   DORETURN_X  -> R_EXPR  -> E_EXPR -> (level chain)
+;                   DECLLOC_X   -> R_DECL  -> D_DECL (OVL_DFUN)
+;                <- (R_STMT reloads the caller's page via
+;                    CUR_WINA_ID before returning)
+;      2. D_DODECL (OVL_DECL, page 2) -- dodeclare(class), one stack
+;         argument pushed by this driver.
+;           -> DECLGLB_X -> needsub (RESIDENT) -> R_CEXPR -> E_CEXPR
+;                        -> INITIALS_X -> INIT_X -> R_STR -> E_STR
+;                                                -> R_CEXPR -> E_CEXPR
+;         (kill/illname/multidef/needsub are RESIDENT now -- shared
+;          by OVL_DECL and OVL_DFUN, which share window A.)
+;      3. S_RECTST (OVL_STMT) -- recursion proof: COMPOUND_X and
+;         STMTIN_X call each other (mutual recursion, same overlay)
+;         to depth 3 and unwind, proving the CALL/RET mechanism
+;         handles a function calling itself, not just many different
+;         functions called in sequence.
+;      4. (retired at M33 -- was OVL_TESTB / window B; ID 4 now
+;         carries OVL_PREP, the preprocessor overlay)
+;         OVLMGR -- second independent swappable window, proven not
+;         to disturb window A (re-checks OVL_DFUN afterward via a
+;         second D_DOFN call -- no-argument entry, so it is the
+;         safe re-entry probe).
+;
+;  NOTE: compiled overlays print NOTHING. Silence between hops is
+;  success; proof of correct mapping is the D_DOFN opcode probe
+;  (three WHEX words must match the first three words of
+;  dofunction() in CC_DFUN.L99) and clean arrival at TX_DONE.
+;
+;  KEEP THIS DIAGRAM IN SYNC when the driven chain changes -- it
+;  fell out of date once already.
+;*******************************************************************
+
+	DXOP	PSEL,2
+	DXOP	WHEX,10
+	DXOP	WRITE,12
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+R4	EQU	4
+R9	EQU	9
+R11	EQU	11
+SP	EQU	10
+
+; XOP6 handler workspace register aliases
+XR0	EQU	0
+XR10	EQU	10
+XR11	EQU	11
+XR13	EQU	13
+XR14	EQU	14
+
+XOP6_PC	EQU	005AH
+TRACE_LOW	EQU	1000H		; inclusive CALL target
+TRACE_HIGH	EQU	3000H		; exclusive CALL target
+
+WORKSP:		EQU	0230H
+SHELL_PTR:	EQU	0080H
+OVL_PRVEC:	EQU	02A0H
+
+;--- Small-C object model constants used when this driver pushes
+;    arguments to compiled functions ---
+CLS_STATIC	EQU	2		; class = STATIC for dodeclare()
+
+;--- overlay class IDs, fixed dispatch addresses, and vector table
+;    addresses: via INCL now (third and final file in the rollout,
+;    after OVLMGR.A99 and OVLSTUBS.A99 both tested clean) ---
+	INCL	"OVLDEFS.INC"
+	INCL	"OVLADDR.INC"
+
+	EXT	OVLMGR
+	EXT	PORT_INIT
+	EXT	CC2RTEST
+
+	AORG	1000H			; EXE LOAD ADDRESS = TPA
+START:
+	LWPI	WORKSP
+	LI	SP,0FFEH
+
+	; Install diagnostic XOP6 PC while retaining the monitor's
+	; existing XOP6 workspace pointer at 0010H.  This must occur
+	; before the first CALL instruction.
+;	MOV	@XOP6_PC,R0
+;	MOV	R0,@OLD_XOP6_PC
+;	LI	R0,XOP6_TRACE
+;	MOV	R0,@XOP6_PC
+
+	CALL	@PORT_INIT		;initialise mapper and overlay vectors
+	LI	R0,PRINT		;INSTALL PRINT CALLBACK
+
+	MOV	R0,@OVL_PRVEC
+
+	LI	R1,TX_START
+	CALL	@PRINT
+	;BLWP	@SHELL_PTR
+
+	;--- DIAGNOSTIC REORDER: moved to run FIRST, immediately after
+	;    setup, instead of last -- testing whether CC2RTEST's
+	;    failure to produce any output (not even a raw WHEX) is
+	;    position-dependent (state after many nested calls) or
+	;    happens regardless of when it's called. Move back to its
+	;    original position once the cause is confirmed. ---
+	B	@CC2RTEST		; TEST 1: no XOP CALL frame
+
+CC2R_RETURN::
+	;LI	R1,0C202H
+	;WHEX	R1			; proves direct return reached SKELTEST
+
+	;--- drive the real cross-overlay chain, resident-initiated ---
+	;    dofunction() now lives in OVL_DFUN (page 6). Probe its
+	;    first three opcode words via the D_DOFN symbol (never a
+	;    hard-coded address again -- that went stale once): they
+	;    must match the head of dofunction() in CC_DFUN.L99,
+	;    proving the right physical page is mapped in window A.
+	LI	R1,OVL_DFUN
+	CALL	@OVLMGR
+	MOV	@D_DOFN,R0
+	WHEX	R0
+
+	MOV	@D_DOFN+2,R0
+	WHEX	R0
+
+	MOV	@D_DOFN+4,R0
+	WHEX	R0
+
+;	CALL	@D_DOFN		; disabled: dofunction calls gen() in window B (seg 9),
+;	CALL	@D_DOFN		;   unmapped here -> fault. Map already proven by WHEX.
+
+	;--- widen: mimics parse() calling dodeclare() directly.
+	;    dodeclare(class) reads ONE stack argument -- push
+	;    class=STATIC per the smallcp convention (push via *SP,
+	;    caller cleans up). D_DODECL -> declglb -> needsub
+	;    (resident) / initials -> init, widening through R_CEXPR
+	;    and R_STR from DECL context. ---
+	LI	R1,OVL_DECL
+	CALL	@OVLMGR
+	LI	R4,CLS_STATIC
+	DECT	SP
+	MOV	R4,*SP
+	CALL	@D_DODECL
+	INCT	SP
+
+	;--- widen: recursion proof -- compound()<->statement() mutual
+	;    recursion, same-overlay, to depth 3. Different shape from
+	;    everything tested so far (one function calling itself,
+	;    not many different functions called in sequence). ---
+	LI	R1,OVL_STMT
+	CALL	@OVLMGR
+;	CALL	@S_RECTST
+
+	;--- RETIRED at M33: the "window B" test.
+	;
+	;    It mapped OVL_TESTB (ID 4) to prove a second simultaneous
+	;    overlay window worked. That proof has been overtaken twice:
+	;    codegen became RESIDENT at Step 6, leaving ID 4 an empty
+	;    table row, and window A then grew to FOUR simultaneous
+	;    segments (>8000-BFFF) -- a stronger demonstration of the
+	;    same property, exercised by every milestone since 29.
+	;
+	;    At M33 the ID was recycled for OVL_PREP (the preprocessor
+	;    and its macro pools), so OVL_TESTB no longer exists and
+	;    mapping it here would drop CC_PREP over window A for no
+	;    reason. The window-A re-check below is kept: it still
+	;    proves D_DOFN survives an unrelated remap.
+	;
+	;    TX_WINB_IN is retained but unreferenced, to keep this
+	;    module's message block stable for diffing. ---
+
+	;--- re-verify window A is undisturbed by unrelated overlay
+	;    activity -- the surviving half of the retired window-B
+	;    test, and still worth running. Re-map OVL_DFUN and
+	;    re-enter via D_DOFN: the safe probe, since dofunction()
+	;    takes no arguments. (D_DECL is NOT used here: decl()
+	;    takes four arguments, two of which are pointers it
+	;    WRITES through -- calling it bare corrupts memory. A
+	;    proper four-argument D_DECL exercise can be added later
+	;    once the push order is confirmed from a CC_DFUN.L99
+	;    call site.) ---
+	LI	R1,TX_WINA_CHK
+	CALL	@PRINT
+	LI	R1,OVL_DFUN
+	CALL	@OVLMGR
+	MOV	@D_DOFN,R0
+	WHEX	R0
+;	CALL	@D_DOFN		; disabled: same gen() cross-window issue
+
+	;--- first REAL ported logic (not a print-stub): gch()/bump()
+	;    from CC2.C, hand-translated verbatim. Resident-only, no
+	;    overlay involvement -- moved to run first (see above);
+	;    call site removed from here. ---
+	WHEX	SP
+	WHEX	*SP
+
+	B       @_main##
+	LI	R1,TX_DONE
+	CALL	@PRINT
+
+	; Restore the monitor's original XOP6 PC before returning.
+	;MOV	@OLD_XOP6_PC,R0
+	;MOV	R0,@XOP6_PC
+
+	BLWP	@SHELL_PTR
+
+;*******************************************************************
+; XOP6_TRACE - diagnostic replacement for the monitor CALL handler
+;
+; The XOP6 workspace pointer at 0010H is left untouched.  On entry:
+;   XR11 = effective address of CALL target
+;   XR14 = saved caller PC
+;   XR13 = caller workspace pointer
+;
+; Calls whose target lies in TRACE_LOW <= target < TRACE_HIGH print:
+;   C target return-address stack-pointer
+;
+; No CALL instruction is used here, avoiding recursion through XOP6.
+;*******************************************************************
+;XOP6_TRACE:
+;	LI	R9, 0101H
+;	WHEX	R9
+;	MOV	@2*SP(XR13),XR10	; get software stack pointer
+
+;	CI	XR14,TRACE_LOW
+;	JL	X6_EXEC
+;	CI	XR14,TRACE_HIGH
+;	JHE	X6_EXEC
+
+;	LI	XR0,4300H		; 'C' identifies a traced CALL
+;	WRITE	XR0
+;	WHEX	XR11			; target
+;	LI	XR0,2000H		; separator
+;	WRITE	XR0
+;	WHEX	XR14			; return address
+;	LI	XR0,2000H
+;	WRITE	XR0
+;	WHEX	XR10			; stack pointer before push
+;	LI	XR0,0D00H
+;	WRITE	XR0
+;	LI	XR0,0A00H
+;	WRITE	XR0
+
+;X6_EXEC:
+;	DECT	XR10
+;	MOV	XR14,*XR10
+;	MOV	XR11,XR14
+;	MOV	XR10,@2*SP(XR13)
+;	RTWP
+
+PRINT:	MOVB	*R1+,R2
+	JEQ	PRINT1
+	WRITE	R2
+	JMP	PRINT
+
+PRINT1:	RET
+
+OLD_XOP6_PC:
+	WORD	0
+
+TX_START:
+	BYTE	0DH,0AH
+	TEXT	'Walking Skeleton Test Starting'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DONE:
+	BYTE	0DH,0AH
+	TEXT	'Walking Skeleton Test COMPLETE'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_WINB_IN:
+	BYTE	0DH,0AH
+	TEXT	'[TEST] loading window B (segment 5, independent of window A)'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_WINA_CHK:
+	BYTE	0DH,0AH
+	TEXT	'[TEST] re-checking window A (DFUN) after window B load'
+	BYTE	0DH,0AH,0
+	EVEN
+
+	ENT	START
+	ENT	CC2R_RETURN
+
+	END

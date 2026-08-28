@@ -1,0 +1,112 @@
+M38a TMS99000 semantic p-code map
+=================================
+
+This is the review authority for the future CC_CG99 backend. It is not yet
+wired into SMALLC99. Every entry states the required result, not merely a
+mnemonic substitution. Generated sequences use SP, never R10.
+
+Register contract
+-----------------
+R3  primary accumulator and C return value
+R4  secondary operand; binary operations may destroy it
+R5  argument count / helper input
+FP  frame pointer (FP EQU 9)
+SP  software stack pointer (SP EQU 10)
+R11 BL link register
+R0-R2 backend/runtime scratch
+
+Helper contract
+---------------
+Runtime helpers accept the p-code inputs in R3/R4, may destroy R0-R5 and R11,
+preserve R6-R10 and R12-R15, and return a word result in R3. A helper that
+calls another routine must preserve its incoming R11.
+
+ID  NAME      CLASS    TMS99000 SEMANTICS / INITIAL LOWERING
+--  --------  -------  -------------------------------------------------------
+01  ADD12     DIRECT   A R4,R3                         ;R3 = R3 + R4
+02  ADDSP     DIRECT   AI SP,<n>                       ;omit when n == 0
+03  AND12     DIRECT   INV R4 / SZC R4,R3             ;R3 &= old R4
+04  ANEG1     DIRECT   NEG R3                          ;arithmetic negate
+05  ARGCNTn   DIRECT   LI R5,<n>, or CLR R5 for zero
+06  ASL12     DIRECT   MOV R3,R0 / MOV R4,R3 / SLA R3,0 ;R4 << R3 -> R3
+07  ASR12     DIRECT   MOV R3,R0 / MOV R4,R3 / SRA R3,0 ;signed R4 >> R3
+08  CALL1     DIRECT   BL *R3                          ;indirect function call
+09  CALLm     DIRECT   BL @<m>                         ;direct function call
+10  BYTE_     EMITTER  BYTE                            ;start byte list
+11  BYTEn     EMITTER  BYTE <n>
+12  BYTEr0    EMITTER  zero-fill <n> bytes             ;syntax to prove in M38b
+13  COM1      DIRECT   INV R3                          ;ones complement
+14  DBL1      DIRECT   A R3,R3                         ;R3 *= 2
+15  DBL2      DIRECT   A R4,R4                         ;R4 *= 2
+16  DIV12     HELPER   BL @__sdiv                      ;signed R3 / R4
+17  DIV12u    HELPER   BL @__udiv                      ;unsigned R3 / R4
+18  ENTER     DIRECT   DECT SP / MOV R11,*SP / DECT SP / MOV FP,*SP /
+                     MOV SP,FP                        ;see frame contract
+19  EQ10f     CONTROL  jump <n> when R3 != 0           ;8086 template semantics
+20  EQ12      HELPER   BL @__eq                        ;R3 == R4 -> 0/1
+21  GE10f     CONTROL  jump <n> when signed R3 < 0
+22  GE12      HELPER   BL @__ge                        ;signed >=
+23  GE12u     HELPER   BL @__uge                       ;unsigned >=
+24  POINT1l   DIRECT   LI R3,_<l>+<n>                  ;literal address
+25  POINT1m   DIRECT   LI R3,<m>                       ;symbol address
+26  GETb1m    DIRECT   MOVB @<m>,R3 / SRA R3,8         ;signed global byte
+27  GETb1mu   DIRECT   MOVB @<m>,R3 / SRL R3,8          ;unsigned global byte
+28  GETb1p    DIRECT   MOVB @<n>(R4),R3 / SRA R3,8     ;signed pointer byte
+29  GETb1pu   DIRECT   MOVB @<n>(R4),R3 / SRL R3,8     ;unsigned pointer byte
+30  GETw1m    DIRECT   MOV @<m>,R3                     ;global word
+31  GETw1n    DIRECT   LI R3,<n>, or CLR R3 for zero
+32  GETw1p    DIRECT   MOV @<n>(R4),R3                 ;pointer word
+33  GETw2n    DIRECT   LI R4,<n>, or CLR R4 for zero
+34  GT10f     CONTROL  jump <n> when signed R3 <= 0
+35  GT12      HELPER   BL @__gt                        ;signed >
+36  GT12u     HELPER   BL @__ugt                       ;unsigned >
+37  WORD_     EMITTER  DATA                            ;start word list
+38  WORDn     EMITTER  DATA <n>
+39  WORDr0    EMITTER  zero-fill <n> words             ;syntax to prove in M38b
+40  JMPm      CONTROL  B @_<n>
+41  LABm      EMITTER  _<n>:
+42  LE10f     CONTROL  jump <n> when signed R3 > 0
+43  LE12      HELPER   BL @__le                        ;signed <=
+44  LE12u     HELPER   BL @__ule                       ;unsigned <=
+45  LNEG1     HELPER   BL @__lneg                      ;!R3 -> 0/1
+46  LT10f     CONTROL  jump <n> when signed R3 >= 0
+47  LT12      HELPER   BL @__lt                        ;signed <
+48  LT12u     HELPER   BL @__ult                       ;unsigned <
+49  MOD12     HELPER   BL @__smod                      ;signed remainder
+50  MOD12u    HELPER   BL @__umod                      ;unsigned remainder
+51  MOVE21    DIRECT   MOV R3,R4
+52  MUL12     HELPER   BL @__smul                      ;signed product
+53  MUL12u    HELPER   BL @__umul                      ;unsigned product
+54  NE10f     CONTROL  jump <n> when R3 == 0           ;ordinary false branch
+55  NE12      HELPER   BL @__ne                        ;R3 != R4 -> 0/1
+56  NEARm     EMITTER  DATA _<n>                       ;switch target address
+57  OR12      DIRECT   SOC R4,R3                       ;R3 |= R4
+58  POINT1s   DIRECT   MOV FP,R3 / AI R3,<n>           ;local address, no load
+59  POP2      DIRECT   MOV *SP+,R4
+60  PUSH1     DIRECT   DECT SP / MOV R3,*SP
+61  PUTbm1    DIRECT   MOVB @2*R3+1(WP),@<m>           ;preserve R3
+62  PUTbp1    DIRECT   MOVB @2*R3+1(WP),*R4            ;preserve R3
+63  PUTwm1    DIRECT   MOV R3,@<m>
+64  PUTwp1    DIRECT   MOV R3,*R4
+65  rDEC1     DIRECT   DEC R3
+66  REFm      EMITTER  _<n>                            ;symbol in data list
+67  RETURN    DIRECT   MOV FP,SP / MOV *SP+,FP / MOV *SP+,R11 / B *R11
+68  rINC1     DIRECT   INC R3
+69  SUB12     DIRECT   S R4,R3                         ;R3 = R3 - R4
+70  SWAP12    DIRECT   MOV R3,R0 / MOV R4,R3 / MOV R0,R4
+71  SWAP1s    DIRECT   MOV *SP,R0 / MOV R3,*SP / MOV R0,R3
+72  SWITCH    HELPER   BL @__switch
+73  XOR12     DIRECT   XOR R4,R3
+
+Notes requiring hardware/toolchain proof
+----------------------------------------
+1. BYTEr0/WORDr0 must explicitly produce zero storage. BSS is acceptable only
+   after the R99 linker/load path is proved to initialise it to zero.
+2. Conditional p-codes 19/21/34/42/46/54 need generated local skip labels;
+   their conditions above are copied from the blessed 8086 template semantics.
+3. M38c lowers variable shifts directly through R0. Counts outside the 0-15
+   range remain a later conformance item; the M38c TEST.C fixture uses count 2.
+4. PUTbm1/PUTbp1 preserve R3 by reading its low byte directly from
+   workspace memory at @2*R3+1(WP). ENTER executes STWP WP so WP is valid.
+5. POINT1s forms an address. MOV @<n>(FP),R3 would load the local value and is
+   therefore not equivalent.

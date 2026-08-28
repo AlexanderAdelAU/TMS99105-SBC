@@ -1,0 +1,24 @@
+;*******************************************************************
+;  CC_PORT.A99 -- common target-environment initialisation
+;
+;  This is the single public startup entry used by both SMALLC99 and
+;  SKELTEST. It hides the required ordering of mapper initialisation
+;  and resident overlay-vector initialisation from compiler drivers.
+;
+;  Compiler source calls PORT_INIT; only this port module knows the
+;  concrete OVLMGR_INIT / STUBINIT sequence.
+;*******************************************************************
+
+        DXOP    CALL,6
+        DXOP    RET,7
+
+        EXT     OVLMGR_INIT
+        EXT     STUBINIT
+
+PORT_INIT:
+        CALL    @OVLMGR_INIT
+        CALL    @STUBINIT
+        RET
+
+        ENT     PORT_INIT
+        END

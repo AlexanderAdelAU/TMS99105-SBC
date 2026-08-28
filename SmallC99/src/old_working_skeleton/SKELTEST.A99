@@ -1,0 +1,204 @@
+;*******************************************************************
+;  SKELTEST.A99 - Walking Skeleton Driver
+;
+;  Resident entry point. Plays the role OVLTEST.A99 played for the
+;  A/B proof of concept, but drives the real Small-C cross-overlay
+;  chain, widened to cover every proven edge so far:
+;
+;    SKELTEST (resident)
+;      1. D_DOFN (OVL_DECL, page 4) -- dofunction()
+;           -> R_STMT (trampoline) -> S_STMT (OVL_STMT, page 3)
+;                -- statement() dispatches once each to:
+;                   DOIF_X      -> R_TEST  -> E_TEST   (OVL_EXPR)
+;                   DOWHILE_X   -> R_TEST  -> E_TEST
+;                   DOFOR_X     -> R_EXPR  -> E_EXPR -> LEVEL1_X..
+;                                  LEVEL14_X -> PRIMARY_X (all EXPR,
+;                                  same-overlay chain) ; -> R_TEST
+;                   DOSWITCH_X  -> R_EXPR  -> E_EXPR -> (level chain)
+;                   DOCASE_X    -> R_CEXPR -> E_CEXPR
+;                   DORETURN_X  -> R_EXPR  -> E_EXPR -> (level chain)
+;                   DECLLOC_X   -> R_DECL  -> D_DECL (OVL_DECL)
+;                <- (R_STMT reloads DECL before returning)
+;      2. D_DODECL (OVL_DECL) -- dodeclare()
+;           -> DECLGLB_X -> NEEDSUB_X -> R_CEXPR -> E_CEXPR
+;                        -> INITIALS_X -> INIT_X -> R_STR -> E_STR
+;                                                -> R_CEXPR -> E_CEXPR
+;      3. R_EXPR direct from resident (doexpr path) -> E_EXPR
+;                                                   -> (level chain)
+;      4. S_RECTST (OVL_STMT) -- recursion proof: COMPOUND_X and
+;         STMTIN_X call each other (mutual recursion, same overlay)
+;         to depth 3 and unwind, proving the CALL/RET mechanism
+;         handles a function calling itself, not just many different
+;         functions called in sequence.
+;      5. TB_FUNC1 (window B, segment 3, page 5) via OVLMGR --
+;         second independent swappable window, proven not to
+;         disturb window A (re-checks D_DECL afterward).
+;
+;  Every hop prints on entry; D_DOFN and S_STMT also print again
+;  *after* their inner call returns. Those second prints are the
+;  actual proof: if they appear correctly, the caller's overlay was
+;  reloaded before control returned to it and nothing got evicted
+;  out from under a live return address.
+;
+;  KEEP THIS DIAGRAM IN SYNC when the driven chain changes -- it
+;  fell out of date once already.
+;*******************************************************************
+
+	DXOP	PSEL,2
+	DXOP	WHEX,10
+	DXOP	WRITE,12
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+R9	EQU	9
+R11	EQU	11
+SP	EQU	10
+
+WORKSP:		EQU	0230H
+SHELL_PTR:	EQU	0080H
+OVL_PRVEC:	EQU	02A0H
+
+;--- overlay class IDs, fixed dispatch addresses, and vector table
+;    addresses: via INCL now (third and final file in the rollout,
+;    after OVLMGR.A99 and OVLSTUBS.A99 both tested clean) ---
+	INCL	"OVLADDR.INC"
+
+	EXT	OVLMGR
+	EXT	OVLMGR_INIT
+	EXT	STUBINIT
+	EXT	CC2RTEST
+
+	AORG	1000H			; EXE LOAD ADDRESS = TPA
+START:
+	LWPI	WORKSP
+	LI	SP,1000H
+
+	CALL	@OVLMGR_INIT
+	CALL	@STUBINIT		;populate cross-overlay call vectors
+	LI	R0,PRINT		;INSTALL PRINT CALLBACK
+	MOV	R0,@OVL_PRVEC
+
+	LI	R1,TX_START
+	CALL	@PRINT
+
+	;--- DIAGNOSTIC REORDER: moved to run FIRST, immediately after
+	;    setup, instead of last -- testing whether CC2RTEST's
+	;    failure to produce any output (not even a raw WHEX) is
+	;    position-dependent (state after many nested calls) or
+	;    happens regardless of when it's called. Move back to its
+	;    original position once the cause is confirmed. ---
+	CALL	@CC2RTEST
+
+	;--- drive the real cross-overlay chain, resident-initiated ---
+	;    D_DOFN -> R_STMT -> S_STMT, which itself now widens
+	;    through every real STMT sibling (doif, dowhile, dofor,
+	;    doswitch, docase, doreturn, declloc), exercising R_TEST,
+	;    R_EXPR, R_CEXPR, and R_DECL along the way.
+	LI	R1,OVL_DECL
+	CALL	@OVLMGR
+	CALL	@D_DOFN
+
+	;--- widen: mimics parse() calling dodeclare() directly.
+	;    D_DODECL -> declglb -> needsub/initials -> init, widening
+	;    through R_CEXPR and R_STR from DECL context. ---
+	LI	R1,OVL_DECL
+	CALL	@OVLMGR
+	CALL	@D_DODECL
+
+	;--- widen: exercise R_EXPR directly from resident (doexpr) ---
+	;    (this also exercises the new level1..level14->primary
+	;    chain inside E_EXPR_X -- deep same-overlay recursion) ---
+	LI	R1,TX_REXP_IN
+	CALL	@PRINT
+	MOV	@VEC_R_EXPR,R0
+	CALL	*R0
+	LI	R1,TX_REXP_OUT
+	CALL	@PRINT
+
+	;--- widen: recursion proof -- compound()<->statement() mutual
+	;    recursion, same-overlay, to depth 3. Different shape from
+	;    everything tested so far (one function calling itself,
+	;    not many different functions called in sequence). ---
+	LI	R1,OVL_STMT
+	CALL	@OVLMGR
+	CALL	@S_RECTST
+
+	;--- widen: SECOND swappable window (segment 3, physical page
+	;    5), entirely independent of window A (segment 2). Proves
+	;    the architecture extends to more than one simultaneous
+	;    overlay window, not just more content in the one window
+	;    already proven. ---
+	LI	R1,TX_WINB_IN
+	CALL	@PRINT
+	LI	R1,OVL_TESTB
+	CALL	@OVLMGR
+	CALL	@TB_FUNC1
+
+	;--- re-verify window A is undisturbed by window B's page
+	;    swap -- this is the actual proof of independence, not
+	;    just that window B itself works. ---
+	LI	R1,TX_WINA_CHK
+	CALL	@PRINT
+	LI	R1,OVL_DECL
+	CALL	@OVLMGR
+	CALL	@D_DECL
+
+	;--- first REAL ported logic (not a print-stub): gch()/bump()
+	;    from CC2.C, hand-translated verbatim. Resident-only, no
+	;    overlay involvement -- moved to run first (see above);
+	;    call site removed from here. ---
+
+	LI	R1,TX_DONE
+	CALL	@PRINT
+
+	BLWP	@SHELL_PTR
+
+PRINT:	MOVB	*R1+,R2
+	JEQ	PRINT1
+	WRITE	R2
+	JMP	PRINT
+
+PRINT1:	RET
+
+TX_START:
+	BYTE	0DH,0AH
+	TEXT	'Walking Skeleton Test Starting'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DONE:
+	BYTE	0DH,0AH
+	TEXT	'Walking Skeleton Test COMPLETE'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_REXP_IN:
+	BYTE	0DH,0AH
+	TEXT	'[RESIDENT] testing R_EXPR directly (doexpr path)'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_REXP_OUT:
+	BYTE	0DH,0AH
+	TEXT	'[RESIDENT] R_EXPR returned'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_WINB_IN:
+	BYTE	0DH,0AH
+	TEXT	'[TEST] loading window B (segment 3, independent of window A)'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_WINA_CHK:
+	BYTE	0DH,0AH
+	TEXT	'[TEST] re-checking window A (DECL) after window B load'
+	BYTE	0DH,0AH,0
+	EVEN
+
+	ENT	START
+
+	END

@@ -1,0 +1,290 @@
+;*******************************************************************
+;  CC1_STMT.A99 - Overlay: Statement Parser (OVL_STMT)
+;  Assembled at AORG 4000H, linked: link99 -P3 cc1_stmt.COM cc1_stmt.R99
+;
+;  Skeleton stage: jump table + stub bodies wired to mirror the REAL
+;  call graph from CC1S.C, not arbitrary test hooks:
+;
+;    S_STMT (statement) -- stub dispatches once to each sibling in
+;    sequence (real statement() picks ONE per parsed keyword; no real
+;    parse state yet to branch on, so this proves every edge instead)
+;      -> DOIF_X      -> VEC_R_TEST  (test(), in OVL_EXPR)
+;      -> DOWHILE_X   -> VEC_R_TEST
+;      -> DOFOR_X     -> VEC_R_EXPR  (stands in for doexpr -> expression())
+;                     -> VEC_R_TEST
+;      -> DOSWITCH_X  -> VEC_R_EXPR
+;      -> DOCASE_X    -> VEC_R_CEXPR (constexpr(), in OVL_EXPR)
+;      -> DORETURN_X  -> VEC_R_EXPR
+;      -> DECLLOC_X   -> VEC_R_DECL  (decl(), in OVL_DECL)
+;
+;  NOTE on VEC_R_EXPR standing in for doexpr(): the real graph routes
+;  dofor/doswitch/doreturn through doexpr() (resident) which itself
+;  calls expression() via R_EXPR. doexpr() hasn't been assembled as
+;  its own resident stub yet, so these call R_EXPR directly for now
+;  -- same edge (STMT-context code reaching expression() in OVL_EXPR)
+;  proven either way. Gets corrected when doexpr is ported for real.
+;
+;  Only STATEMENT is called from outside this overlay, so it's the
+;  only entry that needs a fixed jump-table slot; every sibling below
+;  it is called directly (same overlay, no vector needed) except
+;  where it crosses into DECL or EXPR.
+;
+;  Reaching R_TEST/R_DECL/R_EXPR/R_CEXPR: no EXT here at all. Same as
+;  OVL_PRINT_VEC -- read a fixed memory vector (populated by
+;  STUBINIT at startup) and CALL indirectly through it.
+;*******************************************************************
+
+	DXOP	WRITE,12
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+
+OVL_PRVEC:	EQU	02A0H
+VEC_R_DECL:	EQU	02A4H
+VEC_R_TEST:	EQU	02A6H
+VEC_R_EXPR:	EQU	02A8H
+VEC_R_CEXPR:	EQU	02AAH
+
+	AORG	4000H
+
+;--- FIXED JUMP TABLE: must match OVLSTUBS.A99's S_STMT offset ---
+S_STMT:		B	@S_STMT_X	; 4000H
+S_RECTST:	B	@RECTST_X	; 2004H -- widening: recursion proof
+
+;--- statement(): widened to exercise every real sibling in
+;    sequence, proving every cross-overlay edge this overlay has. ---
+S_STMT_X:
+	LI	R1,TX_STM_IN
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CALL	@DOIF_X
+	CALL	@DOWHILE_X
+	CALL	@DOFOR_X
+	CALL	@DOSWITCH_X
+	CALL	@DOCASE_X
+	CALL	@DORETURN_X
+	CALL	@DECLLOC_X
+	LI	R1,TX_STM_OUT
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+;--- doif(): calls test() to evaluate the condition. ---
+DOIF_X:
+	LI	R1,TX_DOIF
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_TEST,R0
+	CALL	*R0
+	RET
+
+;--- dowhile(): calls test() to evaluate the loop condition. ---
+DOWHILE_X:
+	LI	R1,TX_DOWHILE
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_TEST,R0
+	CALL	*R0
+	RET
+
+;--- dofor(): calls doexpr() (stand-in: R_EXPR) for init/increment,
+;    test() for the loop condition. ---
+DOFOR_X:
+	LI	R1,TX_DOFOR
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_EXPR,R0
+	CALL	*R0
+	MOV	@VEC_R_TEST,R0
+	CALL	*R0
+	RET
+
+;--- doswitch(): calls doexpr() (stand-in: R_EXPR) to evaluate the
+;    switch expression. ---
+DOSWITCH_X:
+	LI	R1,TX_DOSWTCH
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_EXPR,R0
+	CALL	*R0
+	RET
+
+;--- docase(): calls constexpr() for the case label value. ---
+DOCASE_X:
+	LI	R1,TX_DOCASE
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_CEXPR,R0
+	CALL	*R0
+	RET
+
+;--- doreturn(): calls doexpr() (stand-in: R_EXPR) for the return
+;    value expression. ---
+DORETURN_X:
+	LI	R1,TX_DORETRN
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_EXPR,R0
+	CALL	*R0
+	RET
+
+;--- declloc(): calls decl() (in OVL_DECL) for the declaration
+;    itself, via R_DECL. ---
+DECLLOC_X:
+	LI	R1,TX_DECLLOC
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	MOV	@VEC_R_DECL,R0
+	CALL	*R0
+	RET
+
+;*******************************************************************
+;  WIDENING: recursion proof. Real compound() calls statement(),
+;  which (on seeing another "{") calls compound() again -- genuine
+;  mutual recursion through the SAME CALL/RET mechanism, never
+;  exercised by the sibling-dispatch proof above (that was many
+;  DIFFERENT functions called in sequence, not one function calling
+;  itself). Kept separate from S_STMT_X/DECLLOC_X etc. so this new
+;  thing being tested isn't tangled up with what's already proven.
+;
+;  Depth passed in R2, counts down from RECDEPTH to 0 (base case,
+;  matching real compound()'s "if match('}') return").
+;*******************************************************************
+RECDEPTH:	EQU	3
+
+RECTST_X:
+	LI	R1,TX_REC_IN
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	LI	R2,RECDEPTH
+	CALL	@COMPOUND_X
+	LI	R1,TX_REC_OUT
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+;--- compound(): base case if depth==0, else calls statement()
+;    (mimics real compound() calling statement() per line of block). ---
+COMPOUND_X:
+	LI	R1,TX_CMPD_IN
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	CI	R2,0
+	JEQ	COMPD_RET
+	CALL	@STMTIN_X
+COMPD_RET:
+	LI	R1,TX_CMPD_OUT
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+;--- statement() (inner): on seeing "{" (simulated: depth not yet 0)
+;    calls compound() again, one level deeper. ---
+STMTIN_X:
+	LI	R1,TX_STIN_IN
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	DEC	R2
+	CALL	@COMPOUND_X
+	LI	R1,TX_STIN_OUT
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+TX_STM_IN:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] statement() - entered'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_STM_OUT:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] statement() - resumed (STMT survived every sibling call)'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DOIF:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] doif() -> test()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DOWHILE:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] dowhile() -> test()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DOFOR:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] dofor() -> doexpr(), test()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DOSWTCH:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] doswitch() -> doexpr()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DOCASE:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] docase() -> constexpr()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DORETRN:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] doreturn() -> doexpr()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_DECLLOC:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] declloc() -> decl()'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_REC_IN:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] recursion proof starting (depth=3)'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_REC_OUT:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] recursion proof COMPLETE - all frames unwound cleanly'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_CMPD_IN:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] compound() entered'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_CMPD_OUT:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] compound() exiting'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_STIN_IN:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] statement() (inner) entered'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_STIN_OUT:
+	BYTE	0DH,0AH
+	TEXT	'[STMT] statement() (inner) exiting'
+	BYTE	0DH,0AH,0
+	EVEN
+
+	ENT	S_STMT
+	ENT	S_RECTST
+
+	END

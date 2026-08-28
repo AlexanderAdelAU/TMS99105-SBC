@@ -1,0 +1,156 @@
+;*******************************************************************
+;  OVLMGR.A99 - Overlay Manager (consolidated, single manager)
+;  TMS99105 SBC -- handles every overlay window, not just segment 2
+;
+;  Replaces the earlier OVLMGR/OVLMGR2 split. That split existed
+;  only because "don't touch OVLMGR" was (correctly) read as "don't
+;  touch the CRU-write mechanism" -- it was never meant to become
+;  two permanent, separate managers. Consolidating properly now:
+;  the CRU-write sequence itself (PSEL_DIS / LI R12,addr / LDCR
+;  R0,BYTEWIDE / PSEL_EN) is UNCHANGED, verbatim, from the proven
+;  version. Only how the target segment/page get selected before
+;  reaching that sequence is generalized.
+;
+;  Each overlay ID now maps to a (segment,page) pair instead of
+;  assuming segment 2 always. A per-SEGMENT "currently loaded page"
+;  tracker replaces the old single CURRENT_OVL word, so switching
+;  window B (segment 3) can never be mistaken for -- or interfere
+;  with -- window A (segment 2)'s own state.
+;
+;  USAGE (unchanged from the caller's point of view):
+;    LI   R1,OVL_DECL   ; overlay ID
+;    CALL @OVLMGR       ; swap if needed (preserves R1-R11,R13-R15)
+;    CALL @OVL_FUNCn     ; call into that overlay's fixed slot
+;*******************************************************************
+
+;--- CONSTANTS ---
+;*******************************************************************
+;  STANDARD EQUATES AND XOP DEFINITIONS
+;*******************************************************************
+	DXOP	PSEL,2
+	DXOP	PSEL_DIS,0
+	DXOP	PSEL_EN,1
+	DXOP	CALL,6
+	DXOP	RET,7
+	DXOP	WHEX,10
+	DXOP	MESG,14
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+R3	EQU	3
+R4	EQU	4
+R5	EQU	5
+R6	EQU	6
+R7	EQU	7
+R8	EQU	8
+R9	EQU	9
+R10	EQU	10
+R11	EQU	11
+R12	EQU	12
+WP	EQU	13
+R13	EQU	13
+R14	EQU	14
+R15	EQU	15
+SP	EQU	10
+
+MAP_WIN_BASE:	EQU	080C0H
+BYTEWIDE:	EQU	2		;CRU BITS PER MAP REGISTER (unchanged)
+
+;--- OVERLAY CLASS IDS (global, unique across every window) ---
+;--- overlay class IDs: via INCL now, testing the mechanism in
+;    this one file before rolling it out to OVLSTUBS/SKELTEST ---
+	INCL	"OVLADDR.INC"
+
+;--- OVERLAY TABLE: (segment,page) pair per ID ---
+OVL_TABLE:
+	WORD	0,0		;unused (index 0)
+	WORD	4,2		;OVL_EXPR  -> segment 4, physical page 2
+	WORD	4,3		;OVL_STMT  -> segment 4, physical page 3
+	WORD	4,4		;OVL_DECL  -> segment 4, physical page 4
+	WORD	5,5		;OVL_TESTB -> segment 5, physical page 5
+
+;--- PER-SEGMENT "currently loaded page" tracker ---
+;  indexed by segment*2 (word array); segments 0-7 covered, only
+;  2 and 3 in use today. 0 = nothing mapped yet for that segment.
+CURRENT_PAGE:
+	WORD	0,0,0,0,0,0,0,0
+
+;--- PER-SEGMENT "currently active overlay ID" tracker ---
+;  OVLSTUBS's trampolines need to save/restore by ID (to call
+;  OVLMGR again later), not by page -- this is what CURRENT_OVL
+;  used to provide as a single global word. Same table shape as
+;  CURRENT_PAGE, updated every call (not just on an actual switch),
+;  so it always reflects the last ID requested for that segment.
+CURRENT_ID:
+	WORD	0,0,0,0,0,0,0,0
+
+;--- fixed, real word: segment 4 is where every OVLSTUBS trampoline
+;    (EXPR/STMT/DECL, i.e. "window A") lives, so this is the one
+;    value OVLSTUBS actually needs -- a genuine data label
+;    (ENT-able), not an EQU alias (EQU constants can't be EXT'd
+;    across modules). Named for the window's role, not its segment
+;    number, since that number may move again. ---
+CUR_WINA_ID:
+	WORD	0
+
+;*******************************************************************
+;  OVLMGR - Overlay Manager
+;
+;  Entry: R1 = overlay ID
+;  Modifies: R0, R2, R3, R12
+;  Preserves: R1, R4-R11, R13-R15   (R1 unchanged on return)
+;*******************************************************************
+OVLMGR:
+	MOV	R1,R3
+	SLA	R3,2			;R3 = ID*4 (offset into 2-word entries)
+	MOV	@OVL_TABLE(R3),R2	;R2 = segment for this ID
+	MOV	@OVL_TABLE+2(R3),R0	;R0 = physical page for this ID
+	SLA	R2,1			;R2 = segment*2 (word-offset AND
+					;CRU scale factor -- same quantity
+					;needed for both below)
+
+	MOV	R1,@CURRENT_ID(R2)	;record requested ID for this segment
+					;unconditionally -- OVLSTUBS reads
+					;this to save/restore by ID later
+	CI	R2,8			;segment==4 ("window A")?  (R2=segment*2)
+	JNE	OVLMGR_NOTWA
+	MOV	R1,@CUR_WINA_ID		;also update the real, EXT-able word
+OVLMGR_NOTWA:
+
+	;--- ALREADY SHOWING THIS PAGE IN THIS SEGMENT? ---
+	C	R0,@CURRENT_PAGE(R2)
+	JEQ	OVLMGR_RET		;yes - nothing to do
+
+	MOV	R0,@CURRENT_PAGE(R2)	;record new current page for this segment
+
+	;--- SAME CRU-WRITE SEQUENCE AS BEFORE, UNCHANGED ---
+	SLA	R0,8			;page into high byte (LDCR byte transfer)
+	PSEL_DIS
+	LI	R12,MAP_WIN_BASE
+	A	R2,R12			;R12 = MAP_WIN_BASE + segment*2
+	LDCR	R0,BYTEWIDE
+	PSEL_EN
+
+OVLMGR_RET:
+	RET
+
+;*******************************************************************
+;  OVLMGR_INIT - Initialise overlay manager. Call once at startup.
+;*******************************************************************
+OVLMGR_INIT:
+	LI	R0,CURRENT_PAGE
+	LI	R1,16			;8 words CURRENT_PAGE + 8 words
+					;CURRENT_ID, contiguous
+OVLMGR_INITL:
+	CLR	*R0+
+	DEC	R1
+	JNE	OVLMGR_INITL
+	PSEL_EN
+	RET
+
+	ENT	OVLMGR
+	ENT	OVLMGR_INIT
+	ENT	CUR_WINA_ID
+
+	END

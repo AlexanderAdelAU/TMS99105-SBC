@@ -1,0 +1,185 @@
+;*******************************************************************
+;  CC2RTEST.A99 - TEST FILE ONLY. Never goes in cc2lib.LIB.
+;  (Naming convention: anything with TEST in the name is test-only.)
+;
+;  EXTs the real bump/gch/white/lptr/line from CC2.C (smallcp-
+;  compiled) and exercises them against a known string, printing
+;  each character gch() returns.
+;
+;  CALLING CONVENTION, confirmed from cc2.L99 byte-level trace:
+;    - argument passed in R4, then pushed: DECT SP / MOV R4,*SP
+;    - CALL @func
+;    - caller cleans up: INCT SP
+;    - return value comes back in R4, NOT R1.
+;  Previous version wrongly used R1 throughout (matched our own
+;  hand-written trampoline convention, not smallcp's) -- that's
+;  why the first run printed nothing for gch()/bump() and the same
+;  stale value three times for white().
+;*******************************************************************
+
+	DXOP	WRITE,12
+	DXOP	WHEX,10
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+R4	EQU	4
+SP	EQU	10
+
+OVL_PRVEC:	EQU	02A0H
+
+	EXT	bump
+	EXT	gch
+	EXT	line
+	EXT	white
+	EXT	lptr
+	EXT	parse
+	EXT	eof
+
+CC2RTEST:
+	;--- checkpoint: WHEX dumps a whole register as hex. Proves
+	;    we reached CC2RTEST at all. Uses R1 -- this is our OWN
+	;    print/WHEX convention, unrelated to smallcp's R4. ---
+	LI	R1,0BEEFH
+	WHEX	R1
+
+	LI	R1,TX_T_IN
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+
+	LI	R1,TESTLIN		;point the real module's line at
+	MOV	R1,@line		;our test string
+
+	;--- bump(0): argument in R4, pushed, caller cleans up ---
+	CLR	R4
+	DECT	SP
+	MOV	R4,*SP
+	CALL	@bump
+	INCT	SP
+
+TST_LOOP:	CALL	@gch			;no args -- result comes back in R4
+	CI	R4,0
+	JEQ	TST_DONE
+	MOV	R4,R2
+	SLA	R2,8			;byte into high position for MOVB
+	MOVB	R2,@TST_CHR		;store just the one byte
+	LI	R1,TST_CHR
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	JMP	TST_LOOP
+
+TST_DONE:
+	LI	R1,TX_T_OUT
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+
+	;--- white() verification: space (expect 1), 'A' (expect 0),
+	;    NUL (expect 0). white() takes no arguments -- result comes
+	;    back in R4, WHEX'd directly for an unambiguous readout. ---
+	LI	R1,TX_W_IN
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	LI	R1,WTESTSTR
+	MOV	R1,@lptr		;-> space
+	CALL	@white
+	WHEX	R4			;expect 0001
+
+	MOV	@lptr,R0
+	INC	R0
+	MOV	R0,@lptr		;-> 'A'
+	CALL	@white
+	WHEX	R4			;expect 0000
+
+	MOV	@lptr,R0
+	INC	R0
+	MOV	R0,@lptr		;-> NUL
+	CALL	@white
+	WHEX	R4			;expect 0000
+
+	LI	R1,TX_W_OUT
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+
+	;--- first real test of CC1.C's parse(): "main(){}" through the
+	;    actual dispatch chain (parse->dofunction->statement stub).
+	;    No print statements exist inside CC1.C itself, so success
+	;    here means: doesn't crash, and eof ends up set (parse()'s
+	;    own loop condition) once the string is fully consumed. ---
+	LI	R1,TX_PARSE_IN
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+
+	LI	R1,PARSETST
+	MOV	R1,@line
+	CLR	R4
+	DECT	SP
+	MOV	R4,*SP
+	CALL	@bump
+	INCT	SP
+
+	CALL	@parse
+
+	MOV	@eof,R4
+	WHEX	R4			;expect 0001 -- parse() ran to completion
+
+	LI	R1,TX_PARSE_OUT
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+PARSETST:
+	TEXT	'main(){}'
+	BYTE	0
+
+WTESTSTR:
+	BYTE	020H, 041H, 0		;' ', 'A', NUL
+
+TESTLIN:
+	TEXT	'AB12'
+	BYTE	0
+
+TST_CHR:
+	BYTE	0,0DH,0AH,0		;single char + CRLF + NUL, reused
+					;each loop iteration by TST_LOOP
+
+TX_T_IN:
+	BYTE	0DH,0AH
+	TEXT	'[CC2R] gch()/bump() (smallcp-compiled) test: walking "AB12" ->'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_T_OUT:
+	BYTE	0DH,0AH
+	TEXT	'[CC2R] gch()/bump() (smallcp-compiled) test COMPLETE'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_W_IN:
+	BYTE	0DH,0AH
+	TEXT	'[CC2R] white() test: space,A,NUL -> expect 1,0,0'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_W_OUT:
+	BYTE	0DH,0AH
+	TEXT	'[CC2R] white() test COMPLETE'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_PARSE_IN:
+	BYTE	0DH,0AH
+	TEXT	'[CC1R] first real parse() test: "main(){}" -> parse'
+	BYTE	0DH,0AH,0
+	EVEN
+
+TX_PARSE_OUT:
+	BYTE	0DH,0AH
+	TEXT	'[CC1R] parse() test COMPLETE'
+	BYTE	0DH,0AH,0
+	EVEN
+
+	ENT	CC2RTEST
+
+	END

@@ -1,0 +1,39 @@
+;*******************************************************************
+;  TESTB.A99 - Window B test overlay
+;  Assembled at AORG 5000H, linked: link99 -P5 testb.COM testb.R99
+;
+;  Purely a proof module: exists to confirm window B (segment 3)
+;  can be independently loaded, called, and unloaded while window A
+;  (segment 2, DECL/STMT/EXPR) sits at whatever state it was already
+;  in -- proving the two windows don't interfere with each other.
+;*******************************************************************
+
+	DXOP	WRITE,12
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R0	EQU	0
+R1	EQU	1
+
+OVL_PRVEC:	EQU	02A0H
+
+	AORG	5000H
+
+;--- fixed jump-table slot for window B, same trick as window A ---
+TB_FUNC1:	B	@TB_F1_X	; 5000H
+
+TB_F1_X:
+	LI	R1,TX_TESTB
+	MOV	@OVL_PRVEC,R0
+	CALL	*R0
+	RET
+
+TX_TESTB:
+	BYTE	0DH,0AH
+	TEXT	'[WINDOW B] TESTB function1 - independent of window A'
+	BYTE	0DH,0AH,0
+	EVEN
+
+	ENT	TB_FUNC1
+
+	END
