@@ -1,0 +1,2358 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM CC_EXPR_D
+;#asm
+	AORG 0B000H
+;/*
+;** CC_EXPR_D -- CCC3 expression engine, page 4 of a 4-page 16K window
+;**
+;** The engine measured 13656 bytes. A 4KB page cannot hold it and an
+;** 8KB pair could not either, so window A is now FOUR pages --
+;** >8000-BFFF, segments 8..11 -- mapped SIMULTANEOUSLY by OVLMGR.
+;** All four are addressable at once, so every call between them is an
+;** ordinary direct call. The split points are therefore chosen purely
+;** by size and by DREL anchoring, not by any call structure.
+;**
+;** ROOM CAME FROM THE RESIDENT SIDE, not from trimming the engine.
+;** Dropping the CLIB printf closure (4714 bytes, replaced by ~200
+;** bytes of SPYOUT.A99 on the monitor WRITE XOP) and the file I/O
+;** modules nothing yet calls (5142 bytes) freed 9856 bytes. That let
+;** codegen become resident, which released its whole segment to the
+;** window. The engine ships verbatim: nothing trimmed, no helpers
+;** relocated, sizeof and ?: intact.
+;**
+;** DREL ANCHOR: primary(). DREL tags a module by recognising an exported
+;** entry name; a module it cannot tag gets no OVL_TABLE row, its page
+;** is never mapped, and the first call into it lands in unmapped
+;** memory. Each page carries exactly one anchor and none may be moved
+;** without providing a replacement.
+;**
+;** DO NOT write "extern name();" for a function on another page.
+;** smallcp emits an ENT for that, this module exports its own stub,
+;** and the call binds to the stub instead of the real function --
+;** silent at link time, a wild call at run time. Undeclared calls
+;** emit a clean EXT, which is what is wanted.
+;*/
+;/* ---- lvalue array "is[7]" -- CCC3 field offsets ---- */
+;#define ST 0    /* is[ST] symbol table address, else 0                */
+;#define TI 1    /* is[TI] type of indirect object to fetch, else 0    */
+;#define TA 2    /* is[TA] type of address, else 0                     */
+;#define TC 3    /* is[TC] type of constant (INT or UINT), else 0      */
+;#define CV 4    /* is[CV] value of constant (+ auxiliary uses)        */
+;#define OP 5    /* is[OP] code of highest/last binary operator        */
+;#define SA 6    /* is[SA] stage address of "op 0" code, else 0        */
+;/* ---- machine ---- */
+;#define BPW      2
+;#define LBPW     1
+;/* ---- symbol table format ---- */
+;#define IDENT    0
+;#define TYPE     1
+;#define CLASS    2
+;#define SIZE     3
+;#define OFFSET   5
+;#define NAME     7
+;#define NAMESIZE 9
+;/* ---- values for IDENT ---- */
+;#define LABEL    0
+;#define VARIABLE 1
+;#define ARRAY    2
+;#define POINTER  3
+;#define FUNCTION 4
+;/* ---- values for TYPE ---- */
+;#define CHR      4
+;#define INT      8
+;#define UCHR     5
+;#define UINT     9
+;#define UNSIGNED 1
+;/* ---- values for CLASS ---- */
+;#define AUTOMATIC 1
+;#define STATIC    2
+;#define EXTERNAL  3
+;#define AUTOEXT   4
+;/* ---- p-codes, from CC.H ---- */
+;#define ADD12     1
+;#define ADDSP     2
+;#define AND12     3
+;#define ANEG1     4
+;#define ARGCNTn   5
+;#define ASL12     6
+;#define ASR12     7
+;#define CALL1     8
+;#define CALLm     9
+;#define COM1     13
+;#define DBL1     14
+;#define DBL2     15
+;#define DIV12    16
+;#define DIV12u   17
+;#define EQ10f    19
+;#define EQ12     20
+;#define GE10f    21
+;#define GE12     22
+;#define GE12u    23
+;#define POINT1l  24
+;#define POINT1m  25
+;#define GETb1m   26
+;#define GETb1mu  27
+;#define GETb1p   28
+;#define GETb1pu  29
+;#define GETw1m   30
+;#define GETw1n   31
+;#define GETw1p   32
+;#define GETw2n   33
+;#define GT10f    34
+;#define GT12     35
+;#define GT12u    36
+;#define JMPm     40
+;#define LABm     41
+;#define LE10f    42
+;#define LE12     43
+;#define LE12u    44
+;#define LNEG1    45
+;#define LT10f    46
+;#define LT12     47
+;#define LT12u    48
+;#define MOD12    49
+;#define MOD12u   50
+;#define MOVE21   51
+;#define MUL12    52
+;#define MUL12u   53
+;#define NE10f    54
+;#define NE12     55
+;#define OR12     57
+;#define POINT1s  58
+;#define POP2     59
+;#define PUSH1    60
+;#define PUTbm1   61
+;#define PUTbp1   62
+;#define PUTwm1   63
+;#define PUTwp1   64
+;#define rDEC1    65
+;#define REFm     66
+;#define RETURN   67
+;#define rINC1    68
+;#define SUB12    69
+;#define SWAP12   70
+;#define SWAP1s   71
+;#define XOR12    73
+;extern char *glbptr;
+;extern char *lptr;
+;extern char litq[];
+;extern char ssname[NAMESIZE];
+;extern char quote[2];
+;extern int ch;
+;extern int nch;
+;extern int csp;
+;extern int litlab;
+;extern int litptr;
+;extern int op[16];
+;extern int op2[16];
+;extern int opindex;
+;extern int opsize;
+;extern int *snext;
+;primary(is)  int *is; {
+	EVEN
+primary:
+;modstk(newsp,save)
+;  char *ptr, sname[NAMESIZE];
+;  int k;
+;  if(match("(")) {                  /* (subexpression) */
+;modstk(newsp,save)
+	AI SP,-14
+;constant(lval)
+	LI R4,cc1+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc2
+;    do k = level1(is); while(match(","));
+;modstk(newsp,save)
+cc5:
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @level1
+;modstk(newsp,save)
+	INCT SP
+;puttos()
+	MOV R4,*SP
+cc3:
+;constant(lval)
+	LI R4,cc1+2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc4
+;jump(label)
+	B @cc5
+cc4:
+;    need(")");
+;constant(lval)
+	LI R4,cc1+4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;    return k;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;modstk(newsp,save)
+	AI SP,14
+	RET
+;    }
+;  putint(0, is, 7 << LBPW);         /* clear "is" array */
+cc2:
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @18(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,14
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putint
+;modstk(newsp,save)
+	AI SP,6
+;  if(symname(sname)) {              /* is legal symbol */
+;getloc(sym, off)
+;Char offset
+	LI R4,3
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @symname
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc6
+;    if(ptr = findloc(sname)) {      /* is local */
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,5
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @findloc
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+	MOV R4,R4
+	JNE $+6
+	B @cc7
+;      if(ptr[IDENT] == LABEL) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc8
+;        experr();
+;modstk(newsp,save)
+;zcall()
+	CALL @experr
+;modstk(newsp,save)
+;        return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	AI SP,14
+	RET
+;        }
+;      k = getint(ptr+OFFSET, 2);
+cc8:
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;const2(val)
+	LI R3,5
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getint
+;modstk(newsp,save)
+	AI SP,4
+;puttos()
+	MOV R4,*SP
+;      if(ptr[IDENT] == VARIABLE && (ptr[TYPE] >> 2) == 1)
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc10
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+	BL @_ccasr##
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc10
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc11
+cc10:
+;const1(val)
+	CLR R4
+cc11:
+	MOV R4,R4
+	JNE $+6
+	B @cc9
+;        ++k;                /* TMS: a scalar char lives in the LSB */
+;getloc(sym, off)
+	MOV SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;                            /* of its word (cc6 getloc +1); aim     */
+;                            /* POINT1s at the odd byte. Arrays and   */
+;                            /* pointers get NO shift.                */
+;      gen(POINT1s, k);
+cc9:
+;const1(val)
+	LI R4,58
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      is[ST] = ptr;
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;      is[TI] = ptr[TYPE];
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;      if(ptr[IDENT] == ARRAY) {
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc12
+;        is[TA] = ptr[TYPE];
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;        return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	AI SP,14
+	RET
+;        }
+;      if(ptr[IDENT] == POINTER) {
+cc12:
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc13
+;        is[TI] = UINT;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,9
+;putstk - int
+	MOV R4,*R3
+;        is[TA] = ptr[TYPE];
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;        }
+;modstk(newsp,save)
+;      return 1;
+cc13:
+;const1(val)
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,14
+	RET
+;      }
+;    if(ptr = findglb(sname)) {      /* is global */
+cc7:
+;getloc(sym, off)
+	LI R4,12
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,5
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @findglb
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+	MOV R4,R4
+	JNE $+6
+	B @cc14
+;      is[ST] = ptr;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;      if(ptr[IDENT] != FUNCTION) {
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,4
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc15
+;        if(ptr[IDENT] == ARRAY) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc16
+;          gen(POINT1m, ptr);
+;modstk(newsp,save)
+;const1(val)
+	LI R4,25
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;          is[TI] =
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;          is[TA] = ptr[TYPE];
+;getloc(sym, off)
+	MOV @18(SP),R4 ;optimised load
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;          return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	AI SP,14
+	RET
+;          }
+;        if(ptr[IDENT] == POINTER)
+cc16:
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc17
+;          is[TA] = ptr[TYPE];
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;        return 1;
+cc17:
+;const1(val)
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,14
+	RET
+;        }
+;      }
+cc15:
+;modstk(newsp,save)
+;    else is[ST] = addsym(sname, FUNCTION, INT, 0, 0, &glbptr, AUTOEXT);
+;jump(label)
+	B @cc18
+cc14:
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,5
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,glbptr
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addsym
+;modstk(newsp,save)
+	AI SP,14
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+cc18:
+;    return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	AI SP,14
+	RET
+;    }
+;  if(constant(is) == 0) experr();
+cc6:
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @constant
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc19
+;zcall()
+	CALL @experr
+;modstk(newsp,save)
+;  return 0;
+cc19:
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	AI SP,14
+	RET
+;  }
+cc1:	BYTE 40,0,44,0,41,0
+;/*
+;** skim over terms adjoining || and && operators
+;*/
+;skim(opstr, tcode, dropval, endval, level, is)
+	EVEN
+skim:
+;  char *opstr;
+;  int tcode, dropval, endval, (*level)(), is[]; {
+;  int k, droplab, endlab;
+;  droplab = 0;
+;modstk(newsp,save)
+	AI SP,-6
+;const1(val)
+	CLR R4
+;put2tos()
+	MOV R4,@2(SP)
+;  while(1) {
+cc21:
+;    k = down1(level, is);
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @down1
+;modstk(newsp,save)
+	AI SP,4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    if(nextop(opstr)) {
+;getloc(sym, off)
+	MOV @18(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @nextop
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc23
+;      bump(opsize);
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @opsize,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @bump
+;modstk(newsp,save)
+	INCT SP
+;      if(droplab == 0) droplab = getlabel();
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc24
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;      dropout(k, tcode, droplab, is);
+cc24:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @18(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @dropout
+;modstk(newsp,save)
+	AI SP,8
+;      }
+;modstk(newsp,save)
+;    else if(droplab) {
+;jump(label)
+	B @cc25
+cc23:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc26
+;      dropout(k, tcode, droplab, is);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @18(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @dropout
+;modstk(newsp,save)
+	AI SP,8
+;      gen(GETw1n, endval);
+;const1(val)
+	LI R4,31
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      gen(JMPm, endlab = getlabel());
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      gen(LABm, droplab);
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      gen(GETw1n, dropval);
+;const1(val)
+	LI R4,31
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      gen(LABm, endlab);
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      is[TI] = is[TA] = is[TC] = is[CV] = is[SA] = 0;
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @10(SP),R4 ;optimised load
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;const2(val)
+	LI R3,6
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;const2(val)
+	LI R3,8
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;const2(val)
+	LI R3,12
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;      return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	AI SP,6
+	RET
+;      }
+;    else return k;
+cc26:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;modstk(newsp,save)
+	AI SP,6
+	RET
+cc27:
+cc25:
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc21
+cc22:
+;  }
+;modstk(newsp,save)
+	AI SP,6
+;modstk(newsp,save)
+	RET
+;callfunc(ptr)  char *ptr; {      /* symbol table entry or 0 */
+	EVEN
+callfunc:
+;  int nargs, const, val;
+;  nargs = 0;
+;modstk(newsp,save)
+	AI SP,-6
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;  blanks();                      /* already saw open paren */
+;zcall()
+	CALL @blanks
+;modstk(newsp,save)
+;  while(streq(lptr, ")") == 0) {
+cc29:
+;getmem(sym)
+	MOV @lptr,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc28+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @streq
+;modstk(newsp,save)
+	AI SP,4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc30
+;    if(endst()) break;
+;modstk(newsp,save)
+;zcall()
+	CALL @endst
+;modstk(newsp,save)
+	MOV R4,R4
+	JNE $+6
+	B @cc31
+;modstk(newsp,save)
+;jump(label)
+	B @cc30
+;    if(ptr) {
+cc31:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc32
+;      expression(&const, &val);
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @expression
+;modstk(newsp,save)
+	AI SP,4
+;      gen(PUSH1, 0);
+;const1(val)
+	LI R4,60
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      }
+;modstk(newsp,save)
+;    else {
+;jump(label)
+	B @cc33
+cc32:
+;      gen(PUSH1, 0);
+;modstk(newsp,save)
+;const1(val)
+	LI R4,60
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      expression(&const, &val);
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @expression
+;modstk(newsp,save)
+	AI SP,4
+;      gen(SWAP1s, 0);            /* don't push addr */
+;const1(val)
+	LI R4,71
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      }
+;modstk(newsp,save)
+cc33:
+;    nargs = nargs + BPW;         /* count args*BPW */
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    if(match(",") == 0) break;
+;constant(lval)
+	LI R4,cc28+2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc34
+;modstk(newsp,save)
+;jump(label)
+	B @cc30
+;    }
+cc34:
+;modstk(newsp,save)
+;jump(label)
+	B @cc29
+cc30:
+;  need(")");
+;constant(lval)
+	LI R4,cc28+4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;  if(streq(ptr + NAME, "CCARGC") == 0) gen(ARGCNTn, nargs >> LBPW);
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;const2(val)
+	LI R3,7
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc28+6
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @streq
+;modstk(newsp,save)
+	AI SP,4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc35
+;const1(val)
+	LI R4,5
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+	BL @_ccasr##
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;  if(ptr) gen(CALLm, ptr);
+cc35:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc36
+;const1(val)
+	LI R4,9
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @10(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;  else    gen(CALL1, 0);
+;jump(label)
+	B @cc37
+cc36:
+;const1(val)
+	LI R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+cc37:
+;  gen(ADDSP, csp + nargs);
+;const1(val)
+	LI R4,2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @csp,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;  }
+;modstk(newsp,save)
+	AI SP,6
+;modstk(newsp,save)
+	RET
+cc28:	BYTE 41,0,44,0,41,0,67,67,65,82,71,67
+	BYTE 0
+	EVEN
+;/*
+;** calcualte signed constant result
+;*/
+;calc(left, oper, right) int left, oper, right; {
+	EVEN
+calc:
+;  switch(oper) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;jump(label)
+	B @cc41
+;    case ADD12: return (left  +  right);
+;modstk(newsp,save)
+cc42:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;modstk(newsp,save)
+	RET
+;    case SUB12: return (left  -  right);
+cc43:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;zsub()
+	S R4,R3
+	MOV R3,R4
+;modstk(newsp,save)
+	RET
+;    case MUL12: return (left  *  right);
+cc44:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+	BL @_ccmult##
+;modstk(newsp,save)
+	RET
+;    case DIV12: return (left  /  right);
+cc45:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+	BL @_ccdiv##
+;modstk(newsp,save)
+	RET
+;    case MOD12: return (left  %  right);
+cc46:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+	BL @_ccdiv##
+;swap()
+	MOV R3,R0;;
+	MOV R4,R3
+	MOV R0,R4
+;modstk(newsp,save)
+	RET
+;    case EQ12:  return (left  == right);
+cc47:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;_cceq
+	BL @_cceq##
+;modstk(newsp,save)
+	RET
+;    case NE12:  return (left  != right);
+cc48:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;_ccne
+	BL @_ccne##
+;modstk(newsp,save)
+	RET
+;    case LE12:  return (left  <= right);
+cc49:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;_ccle
+	BL @_ccle##
+;modstk(newsp,save)
+	RET
+;    case GE12:  return (left  >= right);
+cc50:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;_ccge
+	BL @_ccge##
+;modstk(newsp,save)
+	RET
+;    case LT12:  return (left  <  right);
+cc51:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;_cclt
+	BL @_cclt##
+;modstk(newsp,save)
+	RET
+;    case GT12:  return (left  >  right);
+cc52:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;_ccgt
+	BL @_ccgt##
+;modstk(newsp,save)
+	RET
+;    case AND12: return (left  &  right);
+cc53:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;zand()
+	INV R3
+	SZC R3,R4
+;modstk(newsp,save)
+	RET
+;    case OR12:  return (left  |  right);
+cc54:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;zor()
+	SOC R3,R4
+;modstk(newsp,save)
+	RET
+;    case XOR12: return (left  ^  right);
+cc55:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;zxor()
+	XOR R3,R4
+;modstk(newsp,save)
+	RET
+;    case ASR12: return (left  >> right);
+cc56:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+	BL @_ccasr##
+;modstk(newsp,save)
+	RET
+;    case ASL12: return (left  << right);
+cc57:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+	BL @_ccasl##
+;modstk(newsp,save)
+	RET
+;    }
+;jump(label)
+	B @cc40
+cc41:
+	CALL @_ccswitc##
+	WORD cc42,1
+	WORD cc43,69
+	WORD cc44,52
+	WORD cc45,16
+	WORD cc46,49
+	WORD cc47,20
+	WORD cc48,55
+	WORD cc49,43
+	WORD cc50,22
+	WORD cc51,47
+	WORD cc52,35
+	WORD cc53,3
+	WORD cc54,57
+	WORD cc55,73
+	WORD cc56,7
+	WORD cc57,6
+	WORD 0
+cc40:
+;  return (calc2(left, oper, right));
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @calc2
+;modstk(newsp,save)
+	AI SP,6
+;modstk(newsp,save)
+	RET
+;  }
+;fetch(is) int is[]; {
+	EVEN
+fetch:
+;  char *ptr;
+;  ptr = is[ST];
+;modstk(newsp,save)
+	DECT SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;indirect ccgint
+	MOV *R4,R4
+;puttos()
+	MOV R4,*SP
+;  if(is[TI]) {                                   /* indirect */
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;indirect ccgint
+	MOV *R4,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc59
+;    if(is[TI] >> 2 == BPW)     gen(GETw1p,  0);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+	BL @_ccasr##
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc60
+;const1(val)
+	LI R4,32
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    else {
+;jump(label)
+	B @cc61
+cc60:
+;      if(ptr[TYPE] & UNSIGNED) gen(GETb1pu, 0);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc62
+;const1(val)
+	LI R4,29
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      else                     gen(GETb1p,  0);
+;jump(label)
+	B @cc63
+cc62:
+;const1(val)
+	LI R4,28
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+cc63:
+;      }
+;modstk(newsp,save)
+cc61:
+;    }
+;modstk(newsp,save)
+;  else {                                         /* direct */
+;jump(label)
+	B @cc64
+cc59:
+;    if(ptr[IDENT] == POINTER
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc66
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+	BL @_ccasr##
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc66
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc67
+cc66:
+;const1(val)
+	LI R4,1
+cc67:
+	MOV R4,R4
+	JNE $+6
+	B @cc65
+;const1(val)
+	LI R4,30
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    else {
+;jump(label)
+	B @cc68
+cc65:
+;      if(ptr[TYPE] & UNSIGNED) gen(GETb1mu, ptr);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc69
+;const1(val)
+	LI R4,27
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;      else                     gen(GETb1m,  ptr);
+;jump(label)
+	B @cc70
+cc69:
+;const1(val)
+	LI R4,26
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+cc70:
+;      }
+;modstk(newsp,save)
+cc68:
+;    }
+;modstk(newsp,save)
+cc64:
+;  }
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+;level3 (is) int is[]; {return skim("||", EQ10f, 1, 0, level4,  is);}
+	EVEN
+level3:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc71+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,19
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @skim
+;modstk(newsp,save)
+	AI SP,12
+;modstk(newsp,save)
+	RET
+cc71:	BYTE 124,124,0
+	EVEN
+;level4 (is) int is[]; {return skim("&&", NE10f, 0, 1, level5,  is);}
+	EVEN
+level4:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc72+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,54
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level5
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @skim
+;modstk(newsp,save)
+	AI SP,12
+;modstk(newsp,save)
+	RET
+cc72:	BYTE 38,38,0
+	EVEN
+;level5 (is) int is[]; {return down("|",            0, level6,  is);}
+	EVEN
+level5:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc73+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level6
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @down
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+cc73:	BYTE 124,0
+;level6 (is) int is[]; {return down("^",            1, level7,  is);}
+	EVEN
+level6:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc74+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level7
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @down
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+cc74:	BYTE 94,0
+;level7 (is) int is[]; {return down("&",            2, level8,  is);}
+	EVEN
+level7:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc75+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @down
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+cc75:	BYTE 38,0
+;level8 (is) int is[]; {return down("== !=",        3, level9,  is);}
+	EVEN
+level8:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc76+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,3
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level9
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @down
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+cc76:	BYTE 61,61,32,33,61,0
+;level9 (is) int is[]; {return down("<= >= < >",    5, level10, is);}
+	EVEN
+level9:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc77+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,5
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level10
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @down
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+cc77:	BYTE 60,61,32,62,61,32,60,32,62,0
+;level10(is) int is[]; {return down(">> <<",        9, level11, is);}
+	EVEN
+level10:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc78+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,9
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @down
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+cc78:	BYTE 62,62,32,60,60,0
+;level11(is) int is[]; {return down("+ -",         11, level12, is);}
+	EVEN
+level11:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc79+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,11
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level12
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @down
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+cc79:	BYTE 43,32,45,0
+;level12(is) int is[]; {return down("* / %",       13, level13, is);}
+	EVEN
+level12:
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc80+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,13
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,level13
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @down
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+cc80:	BYTE 42,32,47,32,37,0
+	EXT level1
+	ENT level3
+	ENT level4
+	ENT level5
+	ENT level6
+	ENT level7
+	ENT level8
+	ENT level9
+	EXT bump
+	EXT need
+	EXT down
+	ENT callfunc
+	EXT litq
+	ENT level10
+	ENT level11
+	ENT level12
+	EXT level13
+	EXT lptr
+	EXT litlab
+	ENT skim
+	ENT fetch
+	EXT experr
+	EXT opindex
+	EXT down1
+	EXT constant
+	EXT endst
+	EXT addsym
+	EXT litptr
+	EXT dropout
+	EXT op2
+	EXT gen
+	EXT match
+	EXT expression
+	EXT csp
+	EXT symname
+	EXT nch
+	EXT nextop
+	EXT blanks
+	ENT primary
+	EXT ch
+	EXT op
+	EXT opsize
+	EXT findglb
+	EXT findloc
+	EXT snext
+	EXT quote
+	EXT ssname
+	EXT getint
+	EXT getlabel
+	EXT glbptr
+	EXT streq
+	ENT calc
+	EXT calc2
+	EXT putint
+	EVEN
+	END
+
+; --- End of Compilation ---

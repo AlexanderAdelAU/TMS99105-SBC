@@ -1,0 +1,221 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM CC_DATA
+;/*
+;** CC_DATA.C -- sole owner of resident compiler storage
+;**
+;** ==== STEP 4a: expression-engine operator tables ====
+;**
+;** op[] and op2[] are the p-codes of the binary operators, indexed by
+;** the position of the matched operator within the level's operator
+;** string. The CCC3 level chain depends on this EXACT ordering:
+;**
+;**     [ 0] OR12                     level5   down("|",          0)
+;**     [ 1] XOR12                    level6   down("^",          1)
+;**     [ 2] AND12                    level7   down("&",          2)
+;**     [ 3] EQ12   [ 4] NE12         level8   down("== !=",      3)
+;**     [ 5] LE12   [ 6] GE12
+;**     [ 7] LT12   [ 8] GT12         level9   down("<= >= < >",  5)
+;**     [ 9] ASR12  [10] ASL12        level10  down(">> <<",      9)
+;**     [11] ADD12  [12] SUB12        level11  down("+ -",       11)
+;**     [13] MUL12  [14] DIV12
+;**     [15] MOD12                    level12  down("* / %",     13)
+;**
+;** op2[] differs from op[] only where signedness changes the p-code:
+;** the four comparisons and the three multiplicative operators.
+;** down2() selects between them on the operand types.
+;**
+;** DO NOT REORDER EITHER TABLE. The indices are the level dispatch's
+;** only connection to the p-codes; a reorder produces a compiler that
+;** silently emits the wrong arithmetic.
+;**
+;** These live in resident data because nextop() (CC_SCAN_SYM, also
+;** resident) writes opindex/opsize, and the expression overlay reads
+;** all four. Resident is the only storage both can see at all times.
+;**
+;** Known-good Milestone 28.1 layout, plus the above.
+;*/
+;/* p-codes, from CC.H -- values must match the codegen's table */
+;#define ADD12     1
+;#define AND12     3
+;#define ASL12     6
+;#define ASR12     7
+;#define DIV12    16
+;#define DIV12u   17
+;#define EQ12     20
+;#define GE12     22
+;#define GE12u    23
+;#define GT12     35
+;#define GT12u    36
+;#define LE12     43
+;#define LE12u    44
+;#define LT12     47
+;#define LT12u    48
+;#define MOD12    49
+;#define MOD12u   50
+;#define MUL12    52
+;#define MUL12u   53
+;#define NE12     55
+;#define OR12     57
+;#define SUB12    69
+;#define XOR12    73
+;int op[16] = {          /* p-codes of signed binary operators */
+op:;  OR12,                         /* level5  */
+;  XOR12,                        /* level6  */
+;  AND12,                        /* level7  */
+;  EQ12,   NE12,                 /* level8  */
+;  LE12,   GE12,  LT12,  GT12,   /* level9  */
+;  ASR12,  ASL12,                /* level10 */
+;  ADD12,  SUB12,                /* level11 */
+;  MUL12,  DIV12, MOD12          /* level12 */
+	WORD 57,73,3,20,55,43,22,47,35,7,6,1
+	WORD 69,52,16,49
+;int op2[16] = {         /* p-codes of unsigned binary operators */
+op2:;  OR12,                         /* level5  */
+;  XOR12,                        /* level6  */
+;  AND12,                        /* level7  */
+;  EQ12,   NE12,                 /* level8  */
+;  LE12u,  GE12u, LT12u, GT12u,  /* level9  */
+;  ASR12,  ASL12,                /* level10 */
+;  ADD12,  SUB12,                /* level11 */
+;  MUL12u, DIV12u, MOD12u        /* level12 */
+	WORD 57,73,3,20,55,44,23,48,36,7,6,1
+	WORD 69,53,17,50
+;int opindex;            /* index of the operator nextop() matched */
+opindex:	BSS 2
+;int opsize;             /* its length in characters               */
+opsize:	BSS 2
+;int usexpr = 1;         /* Hendrix YES: expression value is used */
+usexpr:	WORD 1
+;char quote[2];          /* one-character string, set up by ccinit */
+quote:	BSS 2
+;char symtab[3500];
+symtab:	BSS 3500
+;char *glbptr;
+glbptr:	BSS 2
+;char *locptr;
+locptr:	BSS 2
+;/*
+;** M30: char*, not int. compound() (CC_STMT) walks the local symbol
+;** table with these -- cptr[IDENT], *savloc++ = *cptr++ -- so the
+;** byte indexing is load-bearing, not cosmetic. Every consumer
+;** already declared them "extern char *".
+;*/
+;char *cptr;
+cptr:	BSS 2
+;char *cptr2;
+cptr2:	BSS 2
+;char *cptr3;
+cptr3:	BSS 2
+;/*
+;** ==== M30: block-local declaration state ====
+;**
+;** declared  # of local bytes accumulated by declloc(), -1 once the
+;**           block has flushed them (may no longer declare). MUST
+;**           start at -1: at 0, the first statement at file scope
+;**           would emit a spurious ADDSP.
+;** ncmp      # of open compound statements. compound() suppresses
+;**           the closing ADDSP when --ncmp reaches 0, i.e. for a
+;**           function's outermost block, whose frame RETURN drops.
+;** swactive  inside a switch? switch itself is still a stub, but
+;**           declloc() tests this, so it must exist and be 0.
+;**
+;** Resident: declloc()/compound() live in OVL_STMT, which is
+;** remapped whenever an expression is compiled.
+;*/
+;int declared = -1;
+declared:	WORD -1
+;int ncmp;
+ncmp:	BSS 2
+;int swactive;
+swactive:	BSS 2
+;/*
+;** ==== M33: preprocessor state ====
+;**
+;** Small and resident because ccinit() initialises them and both the
+;** overlay (preprocess/ifline/dodefine) and resident code observe them.
+;** The BUFFERS are in CC_SCAN_SYM; the POOLS are in the overlay.
+;**
+;** ccode   YES while parsing C, NO inside #asm (passthrough mode)
+;** pptr    index of the last character deposited in pline
+;** macptr  next free byte in the overlay's macq
+;** iflevel / skiplevel   #ifdef nesting depth and the level being skipped
+;** srcunit open primary source-file unit (M34): fopen result, read by
+;**         inline() via getc; replaced the srcptr memory cursor
+;** incunit open one-level #include unit (M36c1), zero while the primary
+;**         source is active. Hendrix 2.2 has one input2 slot, not a
+;**         recursive include stack; this port preserves that contract.
+;*/
+;int ccode = 1;
+ccode:	WORD 1
+;int pptr;
+pptr:	BSS 2
+;int macptr;
+macptr:	BSS 2
+;int iflevel;
+iflevel:	BSS 2
+;int skiplevel;
+skiplevel:	BSS 2
+;int srcunit;            /* primary source-file unit */
+srcunit:	BSS 2
+;int incunit;            /* one-level include-file unit; zero when inactive */
+incunit:	BSS 2
+;int outunit;            /* M35c generated-output file unit; used by SPYOUT.A99 */
+outunit:	BSS 2
+;int oldseg;            /* M37a current 8086 output segment */
+oldseg:	BSS 2
+;char srcbuf[128];
+srcbuf:	BSS 128
+;char litq[256];
+litq:	BSS 256
+	ENT swactive
+	ENT usexpr
+	ENT ccode
+	ENT cptr
+	ENT ncmp
+	ENT outunit
+	ENT symtab
+	ENT litq
+	ENT declared
+	ENT opindex
+	ENT cptr2
+	ENT cptr3
+	ENT pptr
+	ENT locptr
+	ENT oldseg
+	ENT op2
+	ENT incunit
+	ENT op
+	ENT srcbuf
+	ENT opsize
+	ENT skiplevel
+	ENT quote
+	ENT glbptr
+	ENT srcunit
+	ENT macptr
+	ENT iflevel
+	EVEN
+	END
+
+; --- End of Compilation ---

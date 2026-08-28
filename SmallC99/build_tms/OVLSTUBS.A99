@@ -1,0 +1,553 @@
+;*******************************************************************
+;  OVLSTUBS.A99 - Resident cross-overlay trampolines
+;
+;  Lives resident, linked alongside OVLMGR. These are the ONLY
+;  functions allowed to call OVLMGR from inside a chain that started
+;  in an overlay -- per the safety invariant proven by OVLTEST.A99:
+;  only resident code may drive an overlay-to-overlay transition.
+;
+;  REACHING THESE FROM OVERLAY CODE: unchanged -- a fixed memory
+;  vector per trampoline (populated once by STUBINIT at startup),
+;  read and called indirectly by overlay code. No EXT/ENT between
+;  overlay modules and this file. Same as PRINT.
+;
+;  ==== THIS REVISION: save-STACK replaces save-WORDS ====
+;
+;  The old design kept one dedicated save word per trampoline. That
+;  was proven safe ONLY under the invariant "no trampoline is ever
+;  re-entered while still in flight". The real CCC3 expression
+;  engine BREAKS that invariant by design:
+;
+;      callfunc() -> expression() -> R_EXPRVAL   (nested arguments:
+;                                                 f(g(x)) re-enters
+;                                                 R_EXPRVAL)
+;      primary()  -> "(" -> level1 -> ... -> constexpr/R_CEXPR
+;
+;  A single word per trampoline loses the OUTER invocation's return
+;  word and overlay ID the moment the SAME trampoline nests. So:
+;  each framed trampoline now pushes a 2-word frame onto a dedicated
+;  resident LIFO (TRSTACK):
+;
+;      +0  caller's return word (removed from the XOP6 CALL frame
+;          so the mapped Small-C callee sees argument 1 at the
+;          normal SP+2 position -- unchanged requirement)
+;      +2  caller's window-A overlay ID (CUR_WINA_ID at entry)
+;
+;  Capacity 16 frames (64 bytes). Depth audit: one frame per LIVE
+;  cross-window call -- statement nesting x expression nesting.
+;  Overflow is checked BEFORE the frame is written; on overflow we
+;  WHEX >DEAD and spin (TRPANIC) -- a compiler that has blown its
+;  dispatch stack must not keep parsing.
+;
+;  Pattern for every framed stub, always the same steps:
+;    1. bounds-check TRSTACK, push frame (return word, caller ID)
+;    2. load the callee's overlay
+;    3. call its fixed jump-table slot
+;    4. pop frame, reload the caller's overlay
+;    5. re-push the caller's return word, RET
+;
+;  REGISTERS: R1 remains the overlay-ID parameter register, per
+;  OVLMGR's contract. This file uses R1, R2 and (via OVLMGR)
+;  R0/R2/R3/R12. R2 is reloaded from TRSP after every CALL, since
+;  both OVLMGR and smallcp-compiled callees may clobber it.
+;  Preserved: R4-R9, R11, R13-R15. Return values (R4) untouched.
+;
+;  NAMING: all symbols kept <=12 chars (confirmed limit).
+;*******************************************************************
+
+	DXOP	CALL,6
+	DXOP	RET,7
+	DXOP	WHEX,10
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+SP	EQU	10
+
+;--- overlay class IDs, fixed dispatch addresses, and vector table
+;    addresses: via INCL (OVLDEFS is hand-kept; OVLADDR is DREL-
+;    generated from overlay EPOINT records) ---
+	INCL	"OVLDEFS.INC"
+	INCL	"OVLADDR.INC"
+
+	EXT	OVLMGR
+
+;*******************************************************************
+;  Trampoline save stack: 16 frames x 2 words.
+;  TRSP points at the next FREE slot; empty when TRSP == TRSTACK,
+;  full when TRSP == TRSTKEND.
+;*******************************************************************
+TRSTACK:
+	WORD	0,0,0,0,0,0,0,0
+	WORD	0,0,0,0,0,0,0,0
+	WORD	0,0,0,0,0,0,0,0
+	WORD	0,0,0,0,0,0,0,0
+TRSTKEND:
+TRSP:
+	WORD	TRSTACK
+
+;*******************************************************************
+;  TRPANIC - trampoline stack overflow. Print >DEAD and stop dead:
+;  past this point every cross-window return address is suspect.
+;*******************************************************************
+TRPANIC:
+	LI	R1,0DEADH
+	WHEX	R1
+	JMP	TRPANIC
+
+;*******************************************************************
+;  STUBINIT - populate the vector table with each trampoline's real
+;  (resident, link-resolved) address, and reset the save stack.
+;  Call once at startup, after OVLMGR_INIT, before any overlay code
+;  runs.
+;*******************************************************************
+STUBINIT:
+	LI	R0,TRSTACK
+	MOV	R0,@TRSP
+	LI	R0,R_STMT
+	MOV	R0,@VEC_R_STMT
+;  M30: R_DECL retired -- decl() is RESIDENT (CC_RESIDENT.C), so
+;  declloc() reaches it with an ordinary call and DREL no longer
+;  emits D_DECL. The vector stays populated, aimed at TRPANIC:
+;  stale overlay code calling through it dies loudly (>DEAD),
+;  not silently into whatever the word held.
+	LI	R0,TRPANIC
+	MOV	R0,@VEC_R_DECL
+	LI	R0,R_PREP
+	MOV	R0,@VEC_R_PREP
+	LI	R0,R_DEFINE
+	MOV	R0,@VEC_R_DEF
+	LI	R0,R_CCOUT
+	MOV	R0,@VEC_R_CCOUT
+	LI	R0,R_SETCODES
+	MOV	R0,@VEC_R_SETCODES
+	LI	R0,R_TEST
+	MOV	R0,@VEC_R_TEST
+	LI	R0,R_EXPR
+	MOV	R0,@VEC_R_EXPR
+	LI	R0,R_CEXPR
+	MOV	R0,@VEC_R_CEXPR
+	LI	R0,R_STR
+	MOV	R0,@VEC_R_STR
+	RET
+
+;*******************************************************************
+;  Resident top-level compiler dispatch.
+;
+;  XOP6 CALL places this wrapper's return word at *SP. A second CALL
+;  would shift every C argument by one word. These resident-entry
+;  wrappers therefore tail-branch to the mapped implementation: its
+;  RET consumes the original wrapper frame and returns directly to
+;  the C caller. No frame needed -- nothing to restore afterward.
+;*******************************************************************
+R_DODECL:
+	LI	R1,OVL_DECL
+	CALL	@OVLMGR
+	B	@D_DODECL
+
+R_DOFN:
+	LI	R1,OVL_DFUN
+	CALL	@OVLMGR
+	B	@D_DOFN
+
+;  R_CODEON - RETIRED at M33.
+;
+;  It mapped OVL_TESTB (ID 4) for a window-B codegen page. Codegen has
+;  been RESIDENT since Step 6, leaving ID 4 an empty table row, and at
+;  M33 that ID was recycled for the preprocessor overlay. Mapping it
+;  here would map CC_PREP over window A for no reason.
+;
+;  The entry stays (the harness still references it) but does nothing.
+R_CODEON:
+	RET
+
+;*******************************************************************
+;  R_STMT - reached via VEC_R_STMT to reach statement() (OVL_STMT)
+;  and resume the caller's page safely afterward.
+;*******************************************************************
+R_STMT:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RSTM1
+	B	@TRPANIC
+RSTM1:
+	MOV	*SP+,*R2+		;frame: caller return word
+	MOV	@CUR_WINA_ID,*R2+	;frame: caller overlay ID
+	MOV	R2,@TRSP
+	LI	R1,OVL_STMT
+	CALL	@OVLMGR
+	CALL	@S_STMT
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1			;caller's overlay ID
+	DECT	R2
+	MOV	R2,@TRSP		;frame popped
+	CALL	@OVLMGR			;remap caller's page
+	MOV	@TRSP,R2		;R2 clobbered by OVLMGR: reload
+	DECT	SP
+	MOV	*R2,*SP			;re-push caller return word
+	RET
+
+;*******************************************************************
+;  R_PREP - reached from RESIDENT blanks() to run preprocess()
+;  (OVL_PREP) and resume the caller's window-A page afterward.
+;
+;  blanks() is called from every overlay including the four-page
+;  expression engine, so the caller's page MUST be saved and restored:
+;  mapping OVL_PREP replaces segment 8, which may be the very page the
+;  caller is executing in. Same TRSTACK discipline as R_STMT.
+;
+;  Fires once per SOURCE LINE, not per token, so the remap cost is
+;  noise beside the per-expression trampolining already in use.
+;*******************************************************************
+R_PREP:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RPRP1
+	B	@TRPANIC
+RPRP1:
+	MOV	*SP+,*R2+		;frame: caller return word
+	MOV	@CUR_WINA_ID,*R2+	;frame: caller overlay ID
+	MOV	R2,@TRSP
+	LI	R1,OVL_PREP
+	CALL	@OVLMGR
+	CALL	@P_PREP
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1			;caller's overlay ID
+	DECT	R2
+	MOV	R2,@TRSP		;frame popped
+	CALL	@OVLMGR			;remap caller's page
+	MOV	@TRSP,R2		;R2 clobbered by OVLMGR: reload
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_DEFINE - reached from RESIDENT parse() to run dodefine()
+;  (OVL_PREP). Replaces the milestone-28 "#define -> skip()" stub.
+;
+;  Same frame discipline as R_PREP: parse() itself is resident, but
+;  whatever window-A page was last mapped must come back, because
+;  parse() will call straight into it again.
+;*******************************************************************
+R_DEFINE:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RDEF1
+	B	@TRPANIC
+RDEF1:
+	MOV	*SP+,*R2+		;frame: caller return word
+	MOV	@CUR_WINA_ID,*R2+	;frame: caller overlay ID
+	MOV	R2,@TRSP
+	LI	R1,OVL_PREP
+	CALL	@OVLMGR
+	CALL	@P_DEFINE
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_INCLUDE - reached from RESIDENT parse() to run doinclude()
+;  (OVL_PREP). No C arguments. The frame restores the page that was
+;  mapped before this one-shot top-level directive was processed.
+;*******************************************************************
+R_INCLUDE:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RINC1
+	B	@TRPANIC
+RINC1:
+	MOV	*SP+,*R2+		;frame: caller return word
+	MOV	@CUR_WINA_ID,*R2+	;frame: caller overlay ID
+	MOV	R2,@TRSP
+	LI	R1,OVL_PREP
+	CALL	@OVLMGR
+	CALL	@P_INCLUDE
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_DOASM - reached from resident parse() or OVL_STMT statement() to
+;  run doasm() in OVL_PREP. No C arguments. The standard frame is
+;  required because statement-scope use must restore the caller's
+;  mapped statement page after the raw assembler block is copied.
+;*******************************************************************
+R_DOASM:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RASM1
+	B	@TRPANIC
+RASM1:
+	MOV	*SP+,*R2+		;frame: caller return word
+	MOV	@CUR_WINA_ID,*R2+	;frame: caller overlay ID
+	MOV	R2,@TRSP
+	LI	R1,OVL_PREP
+	CALL	@OVLMGR
+	CALL	@P_DOASM
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_CCOUT - reached from RESIDENT gen()/dumpstage() to run ccout()
+;  (OVL_CGEN, the codegen back end). Two stack args (pcode,value)
+;  ride through untouched; only the return word and the caller's
+;  window-A page are saved/restored, same discipline as R_EXPR.
+;  gen() is called from inside the expression engine, so the caller
+;  page MUST come back.
+;*******************************************************************
+R_CCOUT:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RCCO1
+	B	@TRPANIC
+RCCO1:
+	MOV	*SP+,*R2+		;frame: caller return word
+	MOV	@CUR_WINA_ID,*R2+	;frame: caller overlay ID
+	MOV	R2,@TRSP
+	LI	R1,OVL_CGEN
+	CALL	@OVLMGR
+	CALL	@P_CCOUT
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1			;caller's overlay ID
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR			;remap caller's page
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_SETCODES - reached ONCE from RESIDENT setcodes() shim at
+;  startup to fill code[] in OVL_CGEN. No args. Called from CC_MAIN
+;  before any codegen, so the caller page restore still applies.
+;*******************************************************************
+R_SETCODES:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RSET1
+	B	@TRPANIC
+RSET1:
+	MOV	*SP+,*R2+
+	MOV	@CUR_WINA_ID,*R2+
+	MOV	R2,@TRSP
+	LI	R1,OVL_CGEN
+	CALL	@OVLMGR
+	CALL	@P_SETCODES
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_TEST - reached via VEC_R_TEST by doif()/dowhile()/dofor()
+;  (OVL_STMT) to reach test() (OVL_EXPR) and resume safely.
+;*******************************************************************
+R_TEST:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RTST1
+	B	@TRPANIC
+RTST1:
+	MOV	*SP+,*R2+
+	MOV	@CUR_WINA_ID,*R2+
+	MOV	R2,@TRSP
+	LI	R1,OVL_EXPR
+	CALL	@OVLMGR
+	CALL	@E_TEST
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_EXPR - reached via VEC_R_EXPR by doexpr() (resident) to reach
+;  expression() (OVL_EXPR) and resume safely afterward.
+;*******************************************************************
+R_EXPR:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	REXP1
+	B	@TRPANIC
+REXP1:
+	MOV	*SP+,*R2+
+	MOV	@CUR_WINA_ID,*R2+
+	MOV	R2,@TRSP
+	LI	R1,OVL_EXPR
+	CALL	@OVLMGR
+	CALL	@E_EXPR
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_CEXPR - reached via VEC_R_CEXPR by init()/needsub() (OVL_DECL
+;  or resident) OR docase() (OVL_STMT) to reach constexpr()
+;  (OVL_EXPR). Caller-agnostic: restores whichever overlay was
+;  active. NESTS legitimately once the real engine lands (array
+;  size inside an initializer, parenthesized constant subexprs).
+;*******************************************************************
+R_CEXPR:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RCXP1
+	B	@TRPANIC
+RCXP1:
+	MOV	*SP+,*R2+
+	MOV	@CUR_WINA_ID,*R2+
+	MOV	R2,@TRSP
+	LI	R1,OVL_EXPR
+	CALL	@OVLMGR
+	CALL	@E_CEXPR
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_EXPRVAL - argument-preserving real expression entry.
+;
+;  ==== STEP 4c ====
+;
+;  Was: CALL @exprvalue -- the hand-written vertical slice's two-arg
+;  entry, reached by EXT rather than by a DREL-generated fixed slot.
+;
+;  The CCC3 engine has no exprvalue(). Its real two-arg entry IS
+;  expression(con,val), which DREL publishes as E_EXPR. So R_EXPRVAL
+;  now calls the same fixed slot as R_EXPR, and the stale EXT is gone
+;  -- which also retires the one trampoline that reached its target by
+;  linker symbol instead of by generated address.
+;
+;  CONSEQUENCE FOR R_EXPR: it targets the same entry, but the engine's
+;  expression() takes TWO arguments. Any caller that invokes R_EXPR
+;  with no arguments (the walking-skeleton probe in SKELTEST.A99) will
+;  now read two words of stack garbage as &con and &val and store
+;  through them. That probe must be removed or given two real
+;  pointers before this build is run.
+;
+;  THIS is the trampoline that re-enters when function arguments
+;  contain function calls -- the frame stack exists first and
+;  foremost for this entry.
+;*******************************************************************
+R_EXPRVAL:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RXVL1
+	B	@TRPANIC
+RXVL1:
+	MOV	*SP+,*R2+
+	MOV	@CUR_WINA_ID,*R2+
+	MOV	R2,@TRSP
+	LI	R1,OVL_EXPR
+	CALL	@OVLMGR
+	CALL	@E_EXPR
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+;*******************************************************************
+;  R_STR - reached via VEC_R_STR by init() (OVL_DECL) to reach
+;  string() (OVL_EXPR) and resume safely afterward.
+;  E_STR call remains disabled until the string-initializer
+;  milestone defines the fixed slot; frame discipline is already
+;  correct so enabling it is a one-line change.
+;*******************************************************************
+R_STR:
+	MOV	@TRSP,R2
+	CI	R2,TRSTKEND
+	JL	RSTR1
+	B	@TRPANIC
+RSTR1:
+	MOV	*SP+,*R2+
+	MOV	@CUR_WINA_ID,*R2+
+	MOV	R2,@TRSP
+	LI	R1,OVL_EXPR
+	CALL	@OVLMGR
+;	CALL	@E_STR
+	MOV	@TRSP,R2
+	DECT	R2
+	MOV	*R2,R1
+	DECT	R2
+	MOV	R2,@TRSP
+	CALL	@OVLMGR
+	MOV	@TRSP,R2
+	DECT	SP
+	MOV	*R2,*SP
+	RET
+
+	ENT	STUBINIT
+	ENT	R_DODECL
+	ENT	R_DOFN
+	ENT	R_CODEON
+	ENT	R_STMT
+	ENT	R_TEST
+	ENT	R_EXPR
+	ENT	R_CEXPR
+	ENT	R_EXPRVAL
+	ENT	R_PREP
+	ENT	R_CCOUT
+	ENT	R_SETCODES
+	ENT	R_DEFINE
+	ENT	R_INCLUDE
+	ENT	R_DOASM
+
+	EXT	CUR_WINA_ID
+
+	END

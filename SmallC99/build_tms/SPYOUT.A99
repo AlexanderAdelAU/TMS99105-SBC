@@ -1,0 +1,232 @@
+;*******************************************************************
+;  SPYOUT.A99 - generated-output helpers (legacy filename)
+;
+;  WHY THIS EXISTS
+;
+;  M35c routes the compiler's generated stream to the file unit in
+;  resident global OUTUNIT. Before CC_MAIN opens that file, the walking-
+;  skeleton tests still call these helpers; OUTC sends those early bytes
+;  to stdout (unit 1). The formatting helpers remain here because they
+;  are compact and are also used by the explicit G: fallback.
+;
+;  Every character now passes through the existing I/O library's
+;  putc(c,outunit). That gives the output the same buffered CP/M file
+;  path already proven for input at M34. putc also expands this target's
+;  CR-valued C newline into CR+LF. The monitor WRITE XOP is no longer
+;  used by these helpers.
+;
+;  C CALLING CONVENTION (smallcp)
+;    caller pushes arguments, then XOP6 CALL pushes the return word,
+;    so on entry:  *SP = return address,  @2(SP) = argument 1.
+;    Return value, where there is one, goes in R4.
+;
+;  REGISTERS: the local OUTC bridge preserves R0-R3 and R11 around
+;  the compiled putc() call. R4 is the C return register and is dead
+;  to these helpers. R5-R10 and R13-R15 are untouched.
+;*******************************************************************
+
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+R3	EQU	3
+R4	EQU	4
+R5	EQU	5
+SP	EQU	10
+R11	EQU	11
+
+;*******************************************************************
+;  OUTC - write the character in R2's high byte
+;
+;  OUTUNIT == 0 before CC_MAIN starts: use stdout (unit 1), preserving
+;  the walking-skeleton diagnostics. Once TEST.ASM is open, OUTUNIT is
+;  its file unit and all compiler output is redirected there.
+;
+;  putc(c,unit) uses the normal smallcp stack convention: first push c,
+;  then unit, then XOP6 CALL. Preserve the live formatting registers and
+;  BL return register across the compiled library call.
+;*******************************************************************
+OUTC:
+	DECT	SP
+	MOV	R11,*SP
+	DECT	SP
+	MOV	R0,*SP
+	DECT	SP
+	MOV	R1,*SP
+	DECT	SP
+	MOV	R2,*SP
+	DECT	SP
+	MOV	R3,*SP
+
+	MOV	R2,R4
+	SWPB	R4
+	ANDI	R4,00FFH
+	DECT	SP
+	MOV	R4,*SP			;argument 1: character
+	MOV	@outunit,R4
+	JNE	OUTC1
+	LI	R4,1			;startup tests: stdout until file opens
+OUTC1:
+	DECT	SP
+	MOV	R4,*SP			;argument 2: file unit
+	CALL	@putc
+	AI	SP,4
+
+	MOV	*SP+,R3
+	MOV	*SP+,R2
+	MOV	*SP+,R1
+	MOV	*SP+,R0
+	MOV	*SP+,R11
+	B	*R11
+
+;*******************************************************************
+;  pstr(s) - write a NUL-terminated string to OUTUNIT
+;
+;  Same loop as SKELTEST's PRINT, but taking its argument from the C
+;  stack instead of R1 so it can be called from compiled code.
+;*******************************************************************
+pstr:
+	MOV	@2(SP),R1		;R1 = char *s
+	JEQ	PSTR9			;defensive: ignore a null pointer
+PSTR1:
+	MOVB	*R1+,R2			;byte lands in R2's HIGH byte,
+					;which is what OUTC expects
+	JEQ	PSTR9
+	BL	@OUTC
+	JMP	PSTR1
+PSTR9:
+	RET
+
+;*******************************************************************
+;  pchar(c) - write one character to OUTUNIT
+;
+;  The compiled C caller passes c as a 16-bit word at @2(SP), with
+;  the character in the low byte. OUTC converts it back for putc(),
+;  which handles CR+LF text translation and buffered disk output. No
+;  local storage is used and the XOP6 return word is never touched.
+;*******************************************************************
+pchar:
+	MOV	@2(SP),R2
+	SWPB	R2			;low-byte C char -> high byte for OUTC
+	BL	@OUTC
+	RET
+
+;*******************************************************************
+;  pnl() - end of line
+;
+;  One C newline (CR on this target). putc() writes CR+LF to the file.
+;*******************************************************************
+pnl:
+	LI	R2,00D00H		;putc expands CR to CR+LF
+	BL	@OUTC
+	RET
+
+;*******************************************************************
+;  phex(n) - minimum-width lowercase hex, matching printf "%x"
+;
+;  Digits are built backwards into HEXBUF from its NUL terminator, so
+;  no leading-zero suppression logic is needed: the loop simply stops
+;  when the value reaches zero, and a value of 0 makes exactly one
+;  pass and prints "0".
+;
+;  n is treated as UNSIGNED 16-bit, as "%x" does: -4 prints "fffc".
+;  SRL (not SRA) shifts zeros in, which is what makes that true.
+;*******************************************************************
+phex:
+	MOV	@2(SP),R0		;R0 = value
+	LI	R1,HEXEND		;R1 -> the NUL byte
+	CLR	R2
+	MOVB	R2,*R1			;terminate
+PHEX1:
+	MOV	R0,R2
+	ANDI	R2,0000FH		;R2 = low nibble
+	AI	R2,HEXDIG		;-> digit character
+	MOVB	*R2,R3
+	DEC	R1
+	MOVB	R3,*R1			;store digit before the previous
+	SRL	R0,4			;next nibble; SRL feeds in zeros
+	JNE	PHEX1			;stop once the value is exhausted
+	;R1 already points at the first digit
+PHEX2:
+	MOVB	*R1+,R2
+	JEQ	PHEX9
+	BL	@OUTC
+	JMP	PHEX2
+PHEX9:
+	RET
+
+;*******************************************************************
+;  pdec(n) - signed decimal, matching printf "%d"
+;
+;  Same backwards-into-a-buffer approach as PHEX. DIV divides the
+;  register PAIR R2:R3 by the source, leaving the quotient in R2 and
+;  the remainder in R3; clearing R2 first keeps the dividend inside
+;  16 bits so the divide can never overflow.
+;*******************************************************************
+pdec:
+	MOV	@2(SP),R0		;R0 = value
+	JGT	PDEC0
+	JEQ	PDEC0
+	LI	R2,02D00H		;'-'
+	BL	@OUTC
+	NEG	R0
+PDEC0:
+	LI	R1,DECEND
+	CLR	R2
+	MOVB	R2,*R1			;terminate
+PDEC1:
+	CLR	R2
+	MOV	R0,R3			;R2:R3 = value
+	DIV	@TEN,R2			;R2 = value/10, R3 = value%10
+	AI	R3,00030H		;remainder -> '0'..'9'
+	SWPB	R3			;into the high byte for MOVB
+	DEC	R1
+	MOVB	R3,*R1
+	MOV	R2,R0			;continue with the quotient
+	JNE	PDEC1
+	;R1 already points at the first digit
+PDEC2:
+	MOVB	*R1+,R2
+	JEQ	PDEC9
+	BL	@OUTC
+	JMP	PDEC2
+PDEC9:
+	RET
+
+;--- data ---------------------------------------------------------
+
+TEN:
+	WORD	10
+
+HEXDIG:
+	TEXT	'0123456789abcdef'
+	EVEN
+
+;  Four hex digits plus a terminator. HEXEND addresses the last byte,
+;  which always holds the NUL; digits are written downwards from it.
+HEXBUF:
+	BYTE	0,0,0,0
+HEXEND:
+	BYTE	0
+	EVEN
+
+;  Five decimal digits (0..65535 unsigned, or -32768 with the sign
+;  written separately) plus a terminator.
+DECBUF:
+	BYTE	0,0,0,0,0
+DECEND:
+	BYTE	0
+	EVEN
+
+	ENT	pstr
+	ENT	pchar
+	ENT	pnl
+	ENT	phex
+	ENT	pdec
+
+	EXT	putc
+	EXT	outunit
+
+	END

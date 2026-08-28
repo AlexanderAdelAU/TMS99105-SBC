@@ -1,0 +1,21 @@
+; M38DPROBE.A99 -- syntax proof for emitted byte/stack idioms
+        AORG    1000H
+R0      EQU     0
+R3      EQU     3
+R4      EQU     4
+SP      EQU     10
+R11     EQU     11
+WP      EQU     13
+BPROBE:
+        STWP    WP
+        MOVB    @2*R3+1(WP),*R4
+        MOVB    @2*R3+1(WP),@BDEST
+        MOVB    *R4,R3
+        SRL     R3,8
+        MOVB    *R4,R3
+        SRA     R3,8
+        MOV     *SP+,R3
+        B       *R11
+BDEST   BYTE    0
+        EVEN
+        END

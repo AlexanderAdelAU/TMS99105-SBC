@@ -1,0 +1,2756 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM CC_STMT
+;#asm
+	AORG 8000H
+;/*
+;** CC_STMT.C -- statement overlay, milestone 30
+;**
+;** M30 brings the module back to CCC1.C letter-for-letter wherever a
+;** reference function exists. New this milestone:
+;**
+;**     block-local declarations   statement()/declloc()/compound()
+;**     lazy local allocation      one ADDSP per block, emitted by
+;**                                statement() on the first
+;**                                non-declaration statement
+;**     label retention            compound() compacts the local
+;**                                table, keeping LABEL entries
+;**
+;** Also reverted to reference in this pass (they had drifted):
+;**
+;**     doif    else-arm JMPm is now guarded by
+;**             lastst != STRETURN && lastst != STGOTO
+;**     dofor   addwhile() before "(", labels allocated after it --
+;**             label NUMBERING differs from M29-era code (for was
+;**             never in a blessed log, so no re-bless)
+;**     dodo    WQLOOP back at the TOP of the body and ns() last:
+;**             reference "continue" in do/while re-enters the body
+;**             WITHOUT re-testing. The M29 bodylab variant was
+;**             arguably better C; it was not CCC1.
+;**     statement  goto/label dispatch precedes return/break/
+;**             continue, per reference; stgoto() wrapper retired
+;**
+;** statement() and compound() take NO arguments in the reference:
+;** the function-body vs nested-block distinction is ncmp, not a
+;** parameter. R_STMT, OVLSTUBS and the resident statement() shim
+;** are unchanged.
+;**
+;** declloc() calls decl(), which as of M30 is RESIDENT
+;** (CC_RESIDENT.C) -- it was in CC_DFUN.C, a different page of this
+;** same window, and a direct call there would have been silently
+;** resolved by the linker into this module's own bytes. Do NOT
+;** write "extern decl();" -- see the CC_EXPR header for why that
+;** binds a local stub; the undeclared call emits a clean EXT.
+;**
+;** M32: doswitch/docase/dodefault are now real (CCC1).
+;** M36c2 routes statement-scope #asm through the resident doasm()
+;** shim, which safely maps OVL_PREP, copies raw lines, and restores
+;** this page.
+;*/
+;#define STIF      1
+;#define STWHILE   2
+;#define STRETURN  3
+;#define STBREAK   4
+;#define STCONT    5
+;#define STASM     6
+;#define STEXPR    7
+;#define STDO      8
+;#define STFOR     9
+;#define STSWITCH 10
+;#define STCASE   11
+;#define STDEF    12
+;#define STGOTO   13
+;#define STLABEL  14
+;#define NO        0
+;#define YES       1
+;#define IDENT     0
+;#define TYPE      1
+;#define CLASS     2
+;#define OFFSET    5
+;#define NAME      7
+;#define LABEL     0
+;#define ARRAY     2
+;#define CHR       4
+;#define INT       8
+;#define UCHR      5
+;#define UINT      9
+;#define AUTOMATIC 1
+;#define NAMESIZE  9
+;#define ADDSP     2
+;#define WORDn    38
+;#define JMPm     40
+;#define LABm     41
+;#define NEARm    56
+;#define RETURN   67
+;#define SWITCH   72
+;#define WQSIZ   3
+;#define WQSP    0
+;#define WQLOOP  1
+;#define WQEXIT  2
+;extern int ch;
+;extern int eof;
+;extern int errflag;
+;extern int lastst;
+;extern int csp;
+;extern int usexpr;
+;extern int wq[];
+;extern int *wqptr;
+;extern int nogo;
+;extern int noloc;
+;extern int declared;    /* # local bytes pending, -1 when flushed */
+;extern int ncmp;        /* # open compound statements             */
+;extern int swactive;    /* inside a switch?                       */
+;extern int swdefault;   /* default label #, else 0                */
+;extern int *swnext;     /* next free (label,value) slot in swstab */
+;extern int *swend;      /* last valid slot start (see CC_DATA)    */
+;extern char *locptr;
+;extern char *lptr;
+;extern char *cptr;      /* char* -- compound() walks bytes */
+;extern char *cptr2;
+;extern char ssname[];
+;/*
+;** ==== M32b: SEVEN FUNCTIONS RELOCATED TO CC_RESIDENT.C ====
+;**
+;** doexpr, dobreak, docont, dogoto, dolabel, addlabel and dodefault
+;** now live resident. The M32 switch trio pushed this module to
+;** 0x12A0 = 4768 bytes, 672 past its 4KB page (DREL spec 2.5,
+;** SEGMENT OVERRUN). These seven are the page-independent leaves --
+;** each calls only resident services, never a same-page sibling --
+;** so they join kill/illname/multidef/needsub/decl below the
+;** window. Calls from this page resolve as clean EXTs; do NOT add
+;** "extern" declarations for them (see the CC_EXPR header).
+;**
+;** Pure relocation: zero p-code changes, all blessed logs valid.
+;*/
+;/*
+;** Parse one statement. CCC1 statement().
+;**
+;** The "declared >= 0" block is the whole local-variable stack
+;** mechanism: declloc() only accumulates a byte count, and the
+;** stack does not move until the first NON-declaration statement in
+;** the block arrives here. All of a block's declarations therefore
+;** collapse into a single ADDSP. Past that point declared is -1 and
+;** further declarations in the block are errors.
+;*/
+;statement()
+	EVEN
+statement:
+;{
+;modstk(newsp,save)
+;    if(ch == 0 && eof)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc3
+;getmem(sym)
+	MOV @eof,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc3
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc4
+cc3:
+;const1(val)
+	CLR R4
+cc4:
+	MOV R4,R4
+	JNE $+6
+	B @cc2
+;        return lastst;
+;getmem(sym)
+	MOV @lastst,R4
+;modstk(newsp,save)
+	RET
+;    if(amatch("char", 4)) {
+cc2:
+;constant(lval)
+	LI R4,cc1+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc5
+;        declloc(CHR);
+;modstk(newsp,save)
+;const1(val)
+	LI R4,4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @declloc
+;modstk(newsp,save)
+	INCT SP
+;        ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;    }
+;modstk(newsp,save)
+;    else if(amatch("int", 3)) {
+;jump(label)
+	B @cc6
+cc5:
+;constant(lval)
+	LI R4,cc1+5
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,3
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc7
+;        declloc(INT);
+;modstk(newsp,save)
+;const1(val)
+	LI R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @declloc
+;modstk(newsp,save)
+	INCT SP
+;        ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;    }
+;modstk(newsp,save)
+;    else if(amatch("unsigned", 8)) {
+;jump(label)
+	B @cc8
+cc7:
+;constant(lval)
+	LI R4,cc1+9
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc9
+;        if(amatch("char", 4)) {
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc1+18
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc10
+;            declloc(UCHR);
+;modstk(newsp,save)
+;const1(val)
+	LI R4,5
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @declloc
+;modstk(newsp,save)
+	INCT SP
+;            ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;        }
+;modstk(newsp,save)
+;        else {
+;jump(label)
+	B @cc11
+cc10:
+;            amatch("int", 3);
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc1+23
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,3
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+;            declloc(UINT);
+;const1(val)
+	LI R4,9
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @declloc
+;modstk(newsp,save)
+	INCT SP
+;            ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;        }
+;modstk(newsp,save)
+cc11:
+;    }
+;modstk(newsp,save)
+;    else {
+;jump(label)
+	B @cc12
+cc9:
+;        if(declared >= 0) {
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @declared,R4
+;ge0(label)
+	MOV  R4,R4
+	JEQ  $+8
+	JGT  $+6
+	B @cc13
+;            if(ncmp > 1)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ncmp,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc14
+;                nogo = declared;        /* disable goto */
+;getmem(sym)
+	MOV @declared,R4
+;putmem(sym)
+	MOV R4,@nogo
+;            gen(ADDSP, csp - declared);
+cc14:
+;const1(val)
+	LI R4,2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @csp,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @declared,R4
+;zsub()
+	S R4,R3
+	MOV R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;            declared = -1;
+;const1(val)
+	SETO R4
+;putmem(sym)
+	MOV R4,@declared
+;        }
+;modstk(newsp,save)
+;        if(match("{"))
+cc13:
+;constant(lval)
+	LI R4,cc1+27
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc15
+;            compound();
+;zcall()
+	CALL @compound
+;modstk(newsp,save)
+;        else if(amatch("if", 2)) {
+;jump(label)
+	B @cc16
+cc15:
+;constant(lval)
+	LI R4,cc1+29
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc17
+;            doif();
+;modstk(newsp,save)
+;zcall()
+	CALL @doif
+;modstk(newsp,save)
+;            lastst = STIF;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(amatch("while", 5)) {
+;jump(label)
+	B @cc18
+cc17:
+;constant(lval)
+	LI R4,cc1+32
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,5
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc19
+;            dowhile();
+;modstk(newsp,save)
+;zcall()
+	CALL @dowhile
+;modstk(newsp,save)
+;            lastst = STWHILE;
+;const1(val)
+	LI R4,2
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(amatch("do", 2)) {
+;jump(label)
+	B @cc20
+cc19:
+;constant(lval)
+	LI R4,cc1+38
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc21
+;            dodo();
+;modstk(newsp,save)
+;zcall()
+	CALL @dodo
+;modstk(newsp,save)
+;            lastst = STDO;
+;const1(val)
+	LI R4,8
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(amatch("for", 3)) {
+;jump(label)
+	B @cc22
+cc21:
+;constant(lval)
+	LI R4,cc1+41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,3
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc23
+;            dofor();
+;modstk(newsp,save)
+;zcall()
+	CALL @dofor
+;modstk(newsp,save)
+;            lastst = STFOR;
+;const1(val)
+	LI R4,9
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(amatch("switch", 6)) {
+;jump(label)
+	B @cc24
+cc23:
+;constant(lval)
+	LI R4,cc1+45
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,6
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc25
+;            doswitch();
+;modstk(newsp,save)
+;zcall()
+	CALL @doswitch
+;modstk(newsp,save)
+;            lastst = STSWITCH;
+;const1(val)
+	LI R4,10
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(amatch("case", 4)) {
+;jump(label)
+	B @cc26
+cc25:
+;constant(lval)
+	LI R4,cc1+52
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc27
+;            docase();
+;modstk(newsp,save)
+;zcall()
+	CALL @docase
+;modstk(newsp,save)
+;            lastst = STCASE;
+;const1(val)
+	LI R4,11
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(amatch("default", 7)) {
+;jump(label)
+	B @cc28
+cc27:
+;constant(lval)
+	LI R4,cc1+57
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,7
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc29
+;            dodefault();
+;modstk(newsp,save)
+;zcall()
+	CALL @dodefault
+;modstk(newsp,save)
+;            lastst = STDEF;
+;const1(val)
+	LI R4,12
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(amatch("goto", 4)) {
+;jump(label)
+	B @cc30
+cc29:
+;constant(lval)
+	LI R4,cc1+65
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc31
+;            dogoto();
+;modstk(newsp,save)
+;zcall()
+	CALL @dogoto
+;modstk(newsp,save)
+;            lastst = STGOTO;
+;const1(val)
+	LI R4,13
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(dolabel())
+;jump(label)
+	B @cc32
+cc31:
+;zcall()
+	CALL @dolabel
+;modstk(newsp,save)
+	MOV R4,R4
+	JNE $+6
+	B @cc33
+;            lastst = STLABEL;
+;const1(val)
+	LI R4,14
+;putmem(sym)
+	MOV R4,@lastst
+;        else if(amatch("return", 6)) {
+;jump(label)
+	B @cc34
+cc33:
+;constant(lval)
+	LI R4,cc1+70
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,6
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc35
+;            doreturn();
+;modstk(newsp,save)
+;zcall()
+	CALL @doreturn
+;modstk(newsp,save)
+;            ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;            lastst = STRETURN;
+;const1(val)
+	LI R4,3
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(amatch("break", 5)) {
+;jump(label)
+	B @cc36
+cc35:
+;constant(lval)
+	LI R4,cc1+77
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,5
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc37
+;            dobreak();
+;modstk(newsp,save)
+;zcall()
+	CALL @dobreak
+;modstk(newsp,save)
+;            ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;            lastst = STBREAK;
+;const1(val)
+	LI R4,4
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(amatch("continue", 8)) {
+;jump(label)
+	B @cc38
+cc37:
+;constant(lval)
+	LI R4,cc1+83
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc39
+;            docont();
+;modstk(newsp,save)
+;zcall()
+	CALL @docont
+;modstk(newsp,save)
+;            ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;            lastst = STCONT;
+;const1(val)
+	LI R4,5
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else if(match(";"))
+;jump(label)
+	B @cc40
+cc39:
+;constant(lval)
+	LI R4,cc1+92
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc41
+;            errflag = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@errflag
+;        else if(match("#asm")) {
+;jump(label)
+	B @cc42
+cc41:
+;constant(lval)
+	LI R4,cc1+94
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc43
+;            doasm();
+;modstk(newsp,save)
+;zcall()
+	CALL @doasm
+;modstk(newsp,save)
+;            lastst = STASM;
+;const1(val)
+	LI R4,6
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+;        else {
+;jump(label)
+	B @cc44
+cc43:
+;            doexpr(NO);
+;modstk(newsp,save)
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @doexpr
+;modstk(newsp,save)
+	INCT SP
+;            ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;            lastst = STEXPR;
+;const1(val)
+	LI R4,7
+;putmem(sym)
+	MOV R4,@lastst
+;        }
+;modstk(newsp,save)
+cc44:
+cc42:
+cc40:
+cc38:
+cc36:
+cc34:
+cc32:
+cc30:
+cc28:
+cc26:
+cc24:
+cc22:
+cc20:
+cc18:
+cc16:
+;    }
+;modstk(newsp,save)
+cc12:
+cc8:
+cc6:
+;    return lastst;
+;getmem(sym)
+	MOV @lastst,R4
+;modstk(newsp,save)
+	RET
+;}
+cc1:	BYTE 99,104,97,114,0,105,110,116,0,117,110,115
+	BYTE 105,103,110,101,100,0,99,104,97,114,0,105
+	BYTE 110,116,0,123,0,105,102,0,119,104,105,108
+	BYTE 101,0,100,111,0,102,111,114,0,115,119,105
+	BYTE 116,99,104,0,99,97,115,101,0,100,101,102
+	BYTE 97,117,108,116,0,103,111,116,111,0,114,101
+	BYTE 116,117,114,110,0,98,114,101,97,107,0,99
+	BYTE 111,110,116,105,110,117,101,0,59,0,35,97
+	BYTE 115,109,0
+	EVEN
+;/*
+;** Declare local variables. CCC1 declloc().
+;**
+;** Never moves the stack: accumulates declared and records each
+;** symbol's offset as csp - declared, computed BEFORE csp moves.
+;** statement() emits the one ADDSP later.
+;**
+;** aid is ARRAY: an unsized "[]" is an error for a local, where
+;** doargs() passes POINTER because an array argument decays.
+;*/
+;declloc(type) int type;
+	EVEN
+declloc:
+;{
+;    int id, sz, alloc;
+;    if(swactive)     error("not allowed in switch");
+;modstk(newsp,save)
+	AI SP,-6
+;getmem(sym)
+	MOV @swactive,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc46
+;constant(lval)
+	LI R4,cc45+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;    if(noloc)        error("not allowed with goto");
+cc46:
+;getmem(sym)
+	MOV @noloc,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc47
+;constant(lval)
+	LI R4,cc45+22
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;    if(declared < 0) error("must declare first in block");
+cc47:
+;getmem(sym)
+	MOV @declared,R4
+;lt0(label)
+	MOV R4,R4
+	JLT $+6
+	B @cc48
+;constant(lval)
+	LI R4,cc45+44
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;    while(1) {
+cc48:
+cc49:
+;        if(endst()) return;
+;modstk(newsp,save)
+;zcall()
+	CALL @endst
+;modstk(newsp,save)
+	MOV R4,R4
+	JNE $+6
+	B @cc51
+;modstk(newsp,save)
+	AI SP,6
+	RET
+;        decl(type, ARRAY, &id, &sz);
+cc51:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @decl
+;modstk(newsp,save)
+	AI SP,8
+;        /* TMS ABI: sz is the C object size and must remain exact so
+;        ** sizeof(local) sees the logical size.  alloc is the physical
+;        ** stack slot, rounded to a whole word so SP and every
+;        ** FP-relative object address remain even.  A scalar char thus
+;        ** has sizeof 1 but occupies a 2-byte local stack slot; char[3]
+;        ** has sizeof 3 but occupies 4 bytes of stack.
+;        */
+;        alloc = sz;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;puttos()
+	MOV R4,*SP
+;        if(alloc & 1) ++alloc;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;zand()
+	INV R3
+	SZC R3,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc52
+;getloc(sym, off)
+	MOV SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;        declared += alloc;
+cc52:
+;getmem(sym)
+	MOV @declared,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;putmem(sym)
+	MOV R4,@declared
+;        addsym(ssname, id, type, sz, csp - declared,
+;address(ptr)
+	LI R4,ssname
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @csp,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @declared,R4
+;zsub()
+	S R4,R3
+	MOV R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;               &locptr, AUTOMATIC);
+;address(ptr)
+	LI R4,locptr
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addsym
+;modstk(newsp,save)
+	AI SP,14
+;        if(match(",") == 0) return;
+;constant(lval)
+	LI R4,cc45+72
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc53
+;modstk(newsp,save)
+	AI SP,6
+	RET
+;    }
+cc53:
+;modstk(newsp,save)
+;jump(label)
+	B @cc49
+cc50:
+;}
+;modstk(newsp,save)
+	AI SP,6
+;modstk(newsp,save)
+	RET
+cc45:	BYTE 110,111,116,32,97,108,108,111,119,101,100,32
+	BYTE 105,110,32,115,119,105,116,99,104,0,110,111
+	BYTE 116,32,97,108,108,111,119,101,100,32,119,105
+	BYTE 116,104,32,103,111,116,111,0,109,117,115,116
+	BYTE 32,100,101,99,108,97,114,101,32,102,105,114
+	BYTE 115,116,32,105,110,32,98,108,111,99,107,0
+	BYTE 44,0
+;/*
+;** CCC1 compound(). Three jobs on close:
+;**
+;**   1. gen(ADDSP, savcsp) drops this block's locals -- but only
+;**      when --ncmp is non-zero, i.e. NOT for the function's own
+;**      outermost block, whose frame RETURN takes down; and not
+;**      after return/goto, when the stack is already gone.
+;**
+;**   2. compact the local table, COPYING LABEL entries down over
+;**      dead variable entries: labels are function-scoped and must
+;**      survive the block that declared them. This is what needs
+;**      nextsym() (CC_SCAN_SYM).
+;**
+;**   3. declared = -1: the enclosing block may not declare.
+;*/
+;compound()
+	EVEN
+compound:
+;{
+;    int savcsp;
+;    char *savloc;
+;    savcsp = csp;
+;modstk(newsp,save)
+	AI SP,-4
+;getmem(sym)
+	MOV @csp,R4
+;put2tos()
+	MOV R4,@2(SP)
+;    savloc = locptr;
+;getmem(sym)
+	MOV @locptr,R4
+;puttos()
+	MOV R4,*SP
+;    declared = 0;               /* may now declare local variables */
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@declared
+;    ++ncmp;                     /* new level open */
+;getmem(sym)
+	MOV @ncmp,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@ncmp
+;    while(match("}") == 0) {
+cc55:
+;constant(lval)
+	LI R4,cc54+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc56
+;        if(eof) {
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @eof,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc57
+;            error("no final }");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc54+2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;            break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc56
+;        }
+;modstk(newsp,save)
+;        statement();
+cc57:
+;zcall()
+	CALL @statement
+;modstk(newsp,save)
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc55
+cc56:
+;    if(--ncmp                   /* close current level */
+;    && lastst != STRETURN
+;getmem(sym)
+	MOV @ncmp,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@ncmp
+	MOV R4,R4
+	JNE $+6
+	B @cc59
+;getmem(sym)
+	MOV @lastst,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc59
+;getmem(sym)
+	MOV @lastst,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc59
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc60
+cc59:
+;const1(val)
+	CLR R4
+cc60:
+	MOV R4,R4
+	JNE $+6
+	B @cc58
+;        gen(ADDSP, savcsp);     /* delete local variable space */
+;const1(val)
+	LI R4,2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    cptr = savloc;              /* retain labels */
+cc58:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;putmem(sym)
+	MOV R4,@cptr
+;    while(cptr < locptr) {
+cc61:
+;getmem(sym)
+	MOV @cptr,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @locptr,R4
+;_ccult
+	C R3,R4 ;optimised
+	JL $+6
+	B @cc62
+;        cptr2 = nextsym(cptr);
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @cptr,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @nextsym
+;modstk(newsp,save)
+	INCT SP
+;putmem(sym)
+	MOV R4,@cptr2
+;        if(cptr[IDENT] == LABEL) {
+;getmem(sym)
+	MOV @cptr,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc63
+;            while(cptr < cptr2)
+;modstk(newsp,save)
+cc64:
+;getmem(sym)
+	MOV @cptr,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @cptr2,R4
+;_ccult
+	C R3,R4 ;optimised
+	JL $+6
+	B @cc65
+;                *savloc++ = *cptr++;
+;getloc(sym, off)
+	MOV SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @cptr,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@cptr
+;	dec()
+	DEC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;jump(label)
+	B @cc64
+cc65:
+;        }
+;modstk(newsp,save)
+;        else
+;jump(label)
+	B @cc66
+cc63:
+;            cptr = cptr2;
+;getmem(sym)
+	MOV @cptr2,R4
+;putmem(sym)
+	MOV R4,@cptr
+cc66:
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc61
+cc62:
+;    locptr = savloc;            /* delete local symbols */
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;putmem(sym)
+	MOV R4,@locptr
+;    declared = -1;              /* may not declare variables */
+;const1(val)
+	SETO R4
+;putmem(sym)
+	MOV R4,@declared
+;}
+;modstk(newsp,save)
+	AI SP,4
+;modstk(newsp,save)
+	RET
+cc54:	BYTE 125,0,110,111,32,102,105,110,97,108,32,125
+	BYTE 0
+	EVEN
+;/*
+;** Compile return with an optional expression. CCC1 doreturn().
+;*/
+;doreturn()
+	EVEN
+doreturn:
+;{
+;    int savcsp;
+;    if(endst() == 0)
+;modstk(newsp,save)
+	DECT SP
+;zcall()
+	CALL @endst
+;modstk(newsp,save)
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc68
+;        doexpr(YES);
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @doexpr
+;modstk(newsp,save)
+	INCT SP
+;    savcsp = csp;
+cc68:
+;getmem(sym)
+	MOV @csp,R4
+;puttos()
+	MOV R4,*SP
+;    gen(RETURN, 0);
+;const1(val)
+	LI R4,67
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    csp = savcsp;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;putmem(sym)
+	MOV R4,@csp
+;}
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+;/*
+;** Compile if with an optional else arm. CCC1 doif().
+;**
+;** M30: the else-arm JMPm is guarded -- after a true arm ending in
+;** return or goto there is nothing to jump over from.
+;*/
+;doif()
+	EVEN
+doif:
+;{
+;    int flab1, flab2;
+;    test(flab1 = getlabel(), YES);  /* get expr, branch false */
+;modstk(newsp,save)
+	AI SP,-4
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @test
+;modstk(newsp,save)
+	AI SP,4
+;    statement();                    /* if true, do a statement */
+;zcall()
+	CALL @statement
+;modstk(newsp,save)
+;    if(amatch("else", 4) == 0) {    /* if...else ? */
+;constant(lval)
+	LI R4,cc69+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc70
+;        gen(LABm, flab1);           /* simple if: false label */
+;modstk(newsp,save)
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;        return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    flab2 = getlabel();
+cc70:
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;    if(lastst != STRETURN && lastst != STGOTO)
+;getmem(sym)
+	MOV @lastst,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc72
+;getmem(sym)
+	MOV @lastst,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc72
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc73
+cc72:
+;const1(val)
+	CLR R4
+cc73:
+	MOV R4,R4
+	JNE $+6
+	B @cc71
+;        gen(JMPm, flab2);
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    gen(LABm, flab1);               /* false label */
+cc71:
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    statement();                    /* else clause */
+;zcall()
+	CALL @statement
+;modstk(newsp,save)
+;    gen(LABm, flab2);               /* true label */
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;}
+;modstk(newsp,save)
+	AI SP,4
+;modstk(newsp,save)
+	RET
+cc69:	BYTE 101,108,115,101,0
+	EVEN
+;/*
+;** Compile a while loop. CCC1 dowhile(), using the resident context
+;** queue: addwhile() records csp and both labels before any
+;** expression overlay is mapped over this page.
+;**
+;** The port's addwhile() returns 0 on queue overflow where baseline
+;** aborts; the guard is the established M29 adaptation.
+;*/
+;dowhile()
+	EVEN
+dowhile:
+;{
+;    int entry[WQSIZ];
+;    if(addwhile(entry) == 0)
+;modstk(newsp,save)
+	AI SP,-8
+;getloc(sym, off)
+	MOV SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addwhile
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc75
+;        return;
+;modstk(newsp,save)
+	AI SP,8
+	RET
+;    gen(LABm, entry[WQLOOP]);   /* loop label */
+cc75:
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    test(entry[WQEXIT], YES);   /* see if true */
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @test
+;modstk(newsp,save)
+	AI SP,4
+;    statement();                /* if so, do a statement */
+;zcall()
+	CALL @statement
+;modstk(newsp,save)
+;    gen(JMPm, entry[WQLOOP]);   /* loop to label */
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    gen(LABm, entry[WQEXIT]);   /* exit label */
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    delwhile();                 /* delete queue entry */
+;zcall()
+	CALL @delwhile
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+;/*
+;** Compile a post-tested do/while loop. CCC1 dodo(), restored:
+;**
+;**     LABm WQLOOP
+;**     statement()
+;**     "while" test(WQEXIT, YES)
+;**     JMPm WQLOOP
+;**     LABm WQEXIT
+;**     ns()
+;**
+;** WQLOOP is the TOP of the body: reference "continue" in do/while
+;** re-enters the body without re-testing the condition. The M29
+;** bodylab variant (test at continue) was better-behaved C but was
+;** not CCC1, and M30 policy is reference letter-for-letter.
+;*/
+;dodo()
+	EVEN
+dodo:
+;{
+;    int entry[WQSIZ];
+;    if(addwhile(entry) == 0)
+;modstk(newsp,save)
+	AI SP,-8
+;getloc(sym, off)
+	MOV SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addwhile
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc77
+;        return;
+;modstk(newsp,save)
+	AI SP,8
+	RET
+;    gen(LABm, entry[WQLOOP]);
+cc77:
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    statement();
+;zcall()
+	CALL @statement
+;modstk(newsp,save)
+;    need("while");
+;constant(lval)
+	LI R4,cc76+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;    test(entry[WQEXIT], YES);
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @test
+;modstk(newsp,save)
+	AI SP,4
+;    gen(JMPm, entry[WQLOOP]);
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    gen(LABm, entry[WQEXIT]);
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    delwhile();
+;zcall()
+	CALL @delwhile
+;modstk(newsp,save)
+;    ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+	AI SP,8
+;modstk(newsp,save)
+	RET
+cc76:	BYTE 119,104,105,108,101,0
+;/*
+;** Compile a for loop. CCC1 dofor(), restored: addwhile() FIRST,
+;** then lab1/lab2, then "(". Label numbering therefore differs from
+;** the M29-era code -- harmless, "for" has never been in a blessed
+;** log. Shape:
+;**
+;**     expr1
+;**     LABm lab1
+;**     test(WQEXIT, NO)        (omitted condition -> fall through)
+;**     JMPm lab2
+;**     LABm WQLOOP
+;**     expr3
+;**     JMPm lab1
+;**     LABm lab2
+;**     statement()
+;**     JMPm WQLOOP
+;**     LABm WQEXIT
+;**
+;** WQLOOP remains the increment position even when expr3 is empty,
+;** so continue keeps the correct C meaning.
+;*/
+;dofor()
+	EVEN
+dofor:
+;{
+;    int entry[WQSIZ];
+;    int lab1, lab2;
+;    if(addwhile(entry) == 0)
+;modstk(newsp,save)
+	AI SP,-12
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addwhile
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc79
+;        return;
+;modstk(newsp,save)
+	AI SP,12
+	RET
+;    lab1 = getlabel();
+cc79:
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;    lab2 = getlabel();
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;    need("(");
+;constant(lval)
+	LI R4,cc78+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;    if(match(";") == 0) {
+;constant(lval)
+	LI R4,cc78+2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc80
+;        doexpr(NO);             /* expr 1 */
+;modstk(newsp,save)
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @doexpr
+;modstk(newsp,save)
+	INCT SP
+;        ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;    }
+;modstk(newsp,save)
+;    gen(LABm, lab1);
+cc80:
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    if(match(";") == 0) {
+;constant(lval)
+	LI R4,cc78+4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc81
+;        test(entry[WQEXIT], NO); /* expr 2 */
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @test
+;modstk(newsp,save)
+	AI SP,4
+;        ns();
+;zcall()
+	CALL @ns
+;modstk(newsp,save)
+;    }
+;modstk(newsp,save)
+;    gen(JMPm, lab2);
+cc81:
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    gen(LABm, entry[WQLOOP]);
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    if(match(")") == 0) {
+;constant(lval)
+	LI R4,cc78+6
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc82
+;        doexpr(NO);             /* expr 3 */
+;modstk(newsp,save)
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @doexpr
+;modstk(newsp,save)
+	INCT SP
+;        need(")");
+;constant(lval)
+	LI R4,cc78+8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;    }
+;modstk(newsp,save)
+;    gen(JMPm, lab1);
+cc82:
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    gen(LABm, lab2);
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    statement();
+;zcall()
+	CALL @statement
+;modstk(newsp,save)
+;    gen(JMPm, entry[WQLOOP]);
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    gen(LABm, entry[WQEXIT]);
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @10(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    delwhile();
+;zcall()
+	CALL @delwhile
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+	AI SP,12
+;modstk(newsp,save)
+	RET
+cc78:	BYTE 40,0,59,0,59,0,41,0,41,0
+;/*
+;** Compile a switch. CCC1 doswitch(), with the port's addwhile()
+;** guard (established in M30 for dowhile/dodo/dofor) and the port's
+;** entry[] naming for the local queue record.
+;**
+;** The entry pushed by addwhile() gets its WQLOOP zeroed: a switch
+;** is a break target but never a continue target, and docont()
+;** already skips zero-WQLOOP entries by design.
+;**
+;** Cases accumulate (label,value) pairs in resident swstab through
+;** swnext -- resident because constexpr() maps CC_EXPR over this
+;** page while parsing each case value. On close, the collected
+;** pairs are emitted after the body:
+;**
+;**     JMPm endlab            jump over the body
+;**     <body, LABm per case>
+;**     JMPm WQEXIT            body fall-off exits
+;**     LABm endlab
+;**     SWITCH                 runtime case matcher
+;**     NEARm label WORDn value    ... one pair per case
+;**     WORDn 0                terminator
+;**     JMPm swdefault         only if a default was seen
+;**     LABm WQEXIT
+;**
+;** Save/restore of swactive/swdefault/swnext makes nesting work.
+;*/
+;doswitch()
+	EVEN
+doswitch:
+;{
+;    int entry[WQSIZ];
+;    int endlab, swact, swdef;
+;    int *swnex, *swptr;
+;    swact = swactive;
+;modstk(newsp,save)
+	AI SP,-18
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @swactive,R4
+;putstk - int
+	MOV R4,*R3
+;    swdef = swdefault;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @swdefault,R4
+;putstk - int
+	MOV R4,*R3
+;    swnex = swptr = swnext;
+;getmem(sym)
+	MOV @swnext,R4
+;puttos()
+	MOV R4,*SP
+;put2tos()
+	MOV R4,@2(SP)
+;    if(addwhile(entry) == 0)
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @addwhile
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc84
+;        return;
+;modstk(newsp,save)
+	AI SP,18
+	RET
+;    *(wqptr + WQLOOP - WQSIZ) = 0;  /* not a continue target */
+cc84:
+;getmem(sym)
+	MOV @wqptr,R4
+;inct()
+	INCT R4
+;const2(val)
+	LI R3,-6
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;    need("(");
+;constant(lval)
+	LI R4,cc83+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;    doexpr(YES);
+;const1(val)
+	LI R4,1
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @doexpr
+;modstk(newsp,save)
+	INCT SP
+;    need(")");
+;constant(lval)
+	LI R4,cc83+2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;    swdefault = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@swdefault
+;    swactive = 1;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOV R4,@swactive
+;    gen(JMPm, endlab = getlabel());
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,10
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    statement();                    /* cases, etc. */
+;zcall()
+	CALL @statement
+;modstk(newsp,save)
+;    gen(JMPm, entry[WQEXIT]);
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    gen(LABm, endlab);
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @10(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    gen(SWITCH, 0);                 /* match cases */
+;const1(val)
+	LI R4,72
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    while(swptr < swnext) {
+cc85:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @swnext,R4
+;_ccult
+	C R3,R4 ;optimised
+	JL $+6
+	B @cc86
+;        gen(NEARm, *swptr++);
+;modstk(newsp,save)
+;const1(val)
+	LI R4,56
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inct()
+	INCT R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dect()
+	DECT R4
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;        gen(WORDn, *swptr++);       /* case value */
+;const1(val)
+	LI R4,38
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inct()
+	INCT R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dect()
+	DECT R4
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc85
+cc86:
+;    gen(WORDn, 0);
+;const1(val)
+	LI R4,38
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    if(swdefault)
+;getmem(sym)
+	MOV @swdefault,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc87
+;        gen(JMPm, swdefault);
+;const1(val)
+	LI R4,40
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @swdefault,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    gen(LABm, entry[WQEXIT]);
+cc87:
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @16(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    delwhile();
+;zcall()
+	CALL @delwhile
+;modstk(newsp,save)
+;    swnext    = swnex;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@swnext
+;    swdefault = swdef;
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@swdefault
+;    swactive  = swact;
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@swactive
+;}
+;modstk(newsp,save)
+	AI SP,18
+;modstk(newsp,save)
+	RET
+cc83:	BYTE 40,0,41,0
+;/*
+;** Compile one case label. CCC1 docase(). constexpr() crosses to the
+;** expression engine through R_CEXPR, so swnext MUST be resident.
+;** The swnext > swend bound is real here -- see the CC_DATA note on
+;** the baseline calloc/scaled-pointer bound bug.
+;*/
+;docase()
+	EVEN
+docase:
+;{
+;    if(swactive == 0)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @swactive,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc89
+;        error("not in switch");
+;constant(lval)
+	LI R4,cc88+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;    if(swnext > swend) {
+cc89:
+;getmem(sym)
+	MOV @swnext,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @swend,R4
+;_ccugt
+	C R3,R4 ;optimised
+	JH $+6
+	B @cc90
+;        error("too many cases");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc88+14
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;        return;
+;modstk(newsp,save)
+	RET
+;    }
+;    gen(LABm, *swnext++ = getlabel());
+cc90:
+;const1(val)
+	LI R4,41
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @swnext,R4
+;inct()
+	INCT R4
+;putmem(sym)
+	MOV R4,@swnext
+;	dect()
+	DECT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;    constexpr(swnext++);
+;getmem(sym)
+	MOV @swnext,R4
+;inct()
+	INCT R4
+;putmem(sym)
+	MOV R4,@swnext
+;	dect()
+	DECT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @constexpr
+;modstk(newsp,save)
+	INCT SP
+;    need(":");
+;constant(lval)
+	LI R4,cc88+29
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc88:	BYTE 110,111,116,32,105,110,32,115,119,105,116,99
+	BYTE 104,0,116,111,111,32,109,97,110,121,32,99
+	BYTE 97,115,101,115,0,58,0
+	EVEN
+	EXT wqptr
+	ENT dodo
+	ENT doif
+	ENT declloc
+	EXT swactive
+	EXT usexpr
+	EXT cptr
+	EXT need
+	EXT swnext
+	EXT ncmp
+	EXT delwhile
+	EXT lastst
+	ENT statement
+	EXT declared
+	EXT nogo
+	EXT nextsym
+	ENT compound
+	ENT dowhile
+	EXT lptr
+	EXT test
+	EXT doasm
+	EXT cptr2
+	ENT dofor
+	EXT locptr
+	EXT swdefault
+	EXT errflag
+	EXT endst
+	EXT addsym
+	EXT gen
+	EXT match
+	EXT eof
+	EXT csp
+	EXT amatch
+	EXT error
+	ENT doreturn
+	EXT ch
+	EXT noloc
+	EXT ns
+	EXT dobreak
+	ENT docase
+	EXT wq
+	EXT dolabel
+	EXT addwhile
+	EXT docont
+	EXT dodefault
+	EXT dogoto
+	EXT swend
+	EXT ssname
+	EXT getlabel
+	EXT doexpr
+	ENT doswitch
+	EXT decl
+	EXT constexpr
+	EVEN
+	END
+
+; --- End of Compilation ---

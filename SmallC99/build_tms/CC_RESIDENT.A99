@@ -1,0 +1,2826 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM CC_RESIDENT
+;/*
+;** CC_RESIDENT.C
+;**
+;** Resident compiler core and overlay-facing dispatch.
+;**
+;** parse() never calls a window-A implementation directly. R_DODECL
+;** and R_DOFN are resident assembly wrappers in OVLSTUBS.A99 which
+;** map the required page and call the generated fixed entry address.
+;**
+;** statement(), constexpr() and expression() remain resident symbols
+;** because existing overlay C sources call those names. They are now
+;** real bridge shims rather than empty placeholders.
+;*/
+;/* ---- Step 4c: fields of the engine's is[7] lvalue array ---- */
+;#define TC       3      /* type of constant (INT or UINT), else 0 */
+;#define CV       4      /* value of constant                      */
+;/* ---- p-codes used by constant() ---- */
+;#define POINT1l 24
+;#define GETw1n  31
+;#define EXTERNAL 3
+;#define STATIC   2
+;#define INT      8
+;#define UINT     9
+;/* ---- M30: needed by decl(), moved here from CC_DFUN ---- */
+;#define BPW      2
+;#define VARIABLE 1
+;#define ARRAY    2
+;#define POINTER  3
+;#define SYMAVG  12
+;#define NUMLOCS 25
+;#define SYMTBSZ 3500
+;#define LITMAX  255
+;#define WQTABSZ 30
+;#define WQSIZ    3
+;#define WQSP     0
+;#define WQLOOP   1
+;#define WQEXIT   2
+;#define WQMAX   (wq + WQTABSZ - WQSIZ)
+;int argstk;
+argstk:	BSS 2
+;int argtop;
+argtop:	BSS 2
+;int csp;
+csp:	BSS 2
+;int lastst;
+lastst:	BSS 2
+;int litlab;
+litlab:	BSS 2
+;int litptr;
+litptr:	BSS 2
+;int nogo;
+nogo:	BSS 2
+;int noloc;
+noloc:	BSS 2
+;/* Resident because CC_STMT is remapped during expression calls. */
+;int wq[WQTABSZ];
+wq:	BSS 60
+;int *wqptr;
+wqptr:	BSS 2
+;extern char symtab[];
+;extern char litq[];
+;extern char *glbptr;
+;extern char *locptr;
+;extern char *cptr;
+;extern char *cptr2;
+;extern char *cptr3;
+;char ssname[9];
+ssname:	BSS 9
+	EVEN
+;int monitor;
+monitor:	BSS 2
+;extern char *line;
+;extern int eof;
+;extern int errflag;
+;extern int nxtlab;
+;extern int usexpr;
+;extern int declared;
+;extern int ncmp;
+;extern int swactive;
+;extern int swdefault;
+;extern int ccode;
+;extern int pptr;
+;extern int macptr;
+;extern int iflevel;
+;extern int skiplevel;
+;extern int incunit;
+;extern int oldseg;
+;extern int *swnext;
+;extern int *swend;
+;extern int swstab[];
+;extern int ch;
+;extern int nch;
+;/* Resident assembly entry points exported by OVLSTUBS.A99. */
+;extern R_DODECL();
+;extern R_DOFN();
+;extern R_STMT();
+;extern R_TEST();
+;extern R_CEXPR();
+;extern R_EXPR();
+;extern R_EXPRVAL();
+;extern R_PREP();
+;extern R_DEFINE();
+;extern R_INCLUDE();
+;extern R_DOASM();
+;ccinit()
+	EVEN
+ccinit:
+;{
+;modstk(newsp,save)
+;    int i;
+;    i = 0;
+;modstk(newsp,save)
+	DECT SP
+;const1(val)
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    while(i < SYMTBSZ)
+cc2:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3500
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc3
+;        symtab[i++] = 0;
+;address(ptr)
+	LI R4,symtab
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;scale(type,tag)
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;jump(label)
+	B @cc2
+cc3:
+;    locptr = symtab;
+;address(ptr)
+	LI R4,symtab
+;putmem(sym)
+	MOV R4,@locptr
+;    glbptr = symtab + NUMLOCS * SYMAVG;
+;address(ptr)
+	LI R4,symtab
+;const2(val)
+	LI R3,300
+;	zadd()
+	A R3,R4
+;putmem(sym)
+	MOV R4,@glbptr
+;    cptr  = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@cptr
+;    cptr2 = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@cptr2
+;    cptr3 = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@cptr3
+;    argstk = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@argstk
+;    argtop = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@argtop
+;    csp = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@csp
+;    lastst = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@lastst
+;    litlab = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@litlab
+;    litptr = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@litptr
+;    nogo = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@nogo
+;    noloc = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@noloc
+;    wqptr = wq;
+;address(ptr)
+	LI R4,wq
+;putmem(sym)
+	MOV R4,@wqptr
+;    errflag = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@errflag
+;    nxtlab = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@nxtlab
+;    /* M30: block-local machinery. declared MUST be -1 here. */
+;    declared = -1;
+;const1(val)
+	SETO R4
+;putmem(sym)
+	MOV R4,@declared
+;    ncmp = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@ncmp
+;    swactive = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@swactive
+;    /* M32: switch table. swend is the CORRECTED bound -- the last
+;    ** valid (label,value) pair start = swstab + 178. See CC_DATA
+;    ** for why baseline's SWTABSZ-SWSIZ expression is a bound bug. */
+;    swdefault = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@swdefault
+;    swnext = swstab;
+;address(ptr)
+	LI R4,swstab
+;putmem(sym)
+	MOV R4,@swnext
+;    swend = swstab + 178;
+;address(ptr)
+	LI R4,swstab
+;const2(val)
+	LI R3,356
+;	zadd()
+	A R3,R4
+;putmem(sym)
+	MOV R4,@swend
+;    /* M33: preprocessor state. ccode YES = parsing C, not #asm. */
+;    ccode = 1;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOV R4,@ccode
+;    pptr = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@pptr
+;    macptr = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@macptr
+;    iflevel = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@iflevel
+;    skiplevel = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@skiplevel
+;    incunit = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@incunit
+;    oldseg = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@oldseg
+;    usexpr = 1;
+;const1(val)
+	LI R4,1
+;putmem(sym)
+	MOV R4,@usexpr
+;    monitor = 0;
+;const1(val)
+	CLR R4
+;putmem(sym)
+	MOV R4,@monitor
+;}
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+;lout()
+	EVEN
+lout:
+;{
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/*
+;** Get required array size. The expression evaluator lives in OVL_EXPR,
+;** so this resident helper crosses through the resident trampoline.
+;*/
+;needsub()
+	EVEN
+needsub:
+;{
+;    int val;
+;    if(match("]")) return 0;
+;modstk(newsp,save)
+	DECT SP
+;constant(lval)
+	LI R4,cc5+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc6
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    if(R_CEXPR(&val) == 0)
+cc6:
+;getloc(sym, off)
+	MOV SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @R_CEXPR
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc7
+;        val = 1;
+;const1(val)
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;    if(val < 0) {
+cc7:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;lt0(label)
+	MOV R4,R4
+	JLT $+6
+	B @cc8
+;        error("negative size illegal");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc5+2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;        val = -val;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;neg()
+	NEG R4
+;puttos()
+	MOV R4,*SP
+;    }
+;modstk(newsp,save)
+;    need("]");
+cc8:
+;constant(lval)
+	LI R4,cc5+24
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;    return val;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;modstk(newsp,save)
+	INCT SP
+	RET
+;}
+cc5:	BYTE 93,0,110,101,103,97,116,105,118,101,32,115
+	BYTE 105,122,101,32,105,108,108,101,103,97,108,0
+	BYTE 93,0
+;/*
+;** ==== M30: parse one declarator. MOVED here from CC_DFUN.C ====
+;**
+;** Called by doargs() (OVL_DFUN) and declloc() (OVL_STMT) -- two
+;** pages of the same window, so this must be resident, exactly like
+;** kill/illname/multidef/needsub before it. CCC1.C verbatim.
+;**
+;** aid is what an unsized "[]" decays to: doargs() passes POINTER
+;** (array arguments decay), declloc() passes ARRAY (locals must be
+;** sized). needsub() below crosses to the expression engine through
+;** R_CEXPR, so "int v[N];" as a local nests a trampoline frame
+;** inside the statement overlay's -- the deepest TRSTACK path M30
+;** exercises.
+;*/
+;decl(type, aid, id, sz) int type, aid, *id, *sz;
+	EVEN
+decl:
+;{
+;    int n, p;
+;    if(match("("))
+;modstk(newsp,save)
+	AI SP,-4
+;constant(lval)
+	LI R4,cc9+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc10
+;        p = 1;
+;const1(val)
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;    else
+;jump(label)
+	B @cc11
+cc10:
+;        p = 0;
+;const1(val)
+	CLR R4
+;puttos()
+	MOV R4,*SP
+cc11:
+;    if(match("*")) {
+;constant(lval)
+	LI R4,cc9+2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc12
+;        *id = POINTER;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;putstk - int
+	MOV R4,*R3
+;        *sz = BPW;
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;putstk - int
+	MOV R4,*R3
+;    }
+;modstk(newsp,save)
+;    else {
+;jump(label)
+	B @cc13
+cc12:
+;        *id = VARIABLE;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+;        *sz = type >> 2;
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+	BL @_ccasr##
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    }
+;modstk(newsp,save)
+cc13:
+;    if((n = symname(ssname)) == 0)
+;address(ptr)
+	LI R4,ssname
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @symname
+;modstk(newsp,save)
+	INCT SP
+;put2tos()
+	MOV R4,@2(SP)
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc14
+;        illname();
+;zcall()
+	CALL @illname
+;modstk(newsp,save)
+;    if(p && match(")"))
+cc14:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc16
+;constant(lval)
+	LI R4,cc9+4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc16
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc17
+cc16:
+;const1(val)
+	CLR R4
+cc17:
+	MOV R4,R4
+	JNE $+6
+	B @cc15
+;        ;
+;    if(match("(")) {
+cc15:
+;constant(lval)
+	LI R4,cc9+6
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc18
+;        if(!p || *id != POINTER)
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	BL @_cclneg##
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc20
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_ccne
+	BL @_ccne##
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc20
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc21
+cc20:
+;const1(val)
+	LI R4,1
+cc21:
+	MOV R4,R4
+	JNE $+6
+	B @cc19
+;            error("try (*...)()");
+;constant(lval)
+	LI R4,cc9+8
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;        need(")");
+cc19:
+;constant(lval)
+	LI R4,cc9+21
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @need
+;modstk(newsp,save)
+	INCT SP
+;    }
+;modstk(newsp,save)
+;    else if(*id == VARIABLE && match("[")) {
+;jump(label)
+	B @cc22
+cc18:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc24
+;constant(lval)
+	LI R4,cc9+23
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc24
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc25
+cc24:
+;const1(val)
+	CLR R4
+cc25:
+	MOV R4,R4
+	JNE $+6
+	B @cc23
+;        *id = aid;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;        if((*sz *= needsub()) == 0) {
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @needsub
+;modstk(newsp,save)
+;zpop()
+	MOV *SP+,R3
+	BL @_ccmult##
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc26
+;            if(aid == ARRAY)
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @10(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc27
+;                error("need array size");
+;constant(lval)
+	LI R4,cc9+25
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;            *sz = BPW;          /* size of pointer argument */
+cc27:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;putstk - int
+	MOV R4,*R3
+;        }
+;modstk(newsp,save)
+;    }
+cc26:
+;modstk(newsp,save)
+;    return n;
+cc23:
+cc22:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;}
+cc9:	BYTE 40,0,42,0,41,0,40,0,116,114,121,32
+	BYTE 40,42,46,46,46,41,40,41,0,41,0,91
+	BYTE 0,110,101,101,100,32,97,114,114,97,121,32
+	BYTE 115,105,122,101,0
+	EVEN
+;kill()
+	EVEN
+kill:
+;{
+;    *line = 0;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @line,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;    bump(0);
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @bump
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;illname()
+	EVEN
+illname:
+;{
+;    error("illegal symbol");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc29+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;    skip();
+;zcall()
+	CALL @skip
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc29:	BYTE 105,108,108,101,103,97,108,32,115,121,109,98
+	BYTE 111,108,0
+	EVEN
+;multidef(sname) char *sname;
+	EVEN
+multidef:
+;{
+;    error("already defined");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc30+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc30:	BYTE 97,108,114,101,97,100,121,32,100,101,102,105
+	BYTE 110,101,100,0
+;/*
+;** Step 6: needlval() is a CCC2 error helper, not a CCC3 one, so it
+;** did not come across with the expression engine -- but level1() and
+;** level13() call it whenever an assignment or ++/-- lands on
+;** something that is not an lvalue. Resident, alongside illname() and
+;** multidef(), because both halves of the engine reference it.
+;*/
+;needlval()
+	EVEN
+needlval:
+;{
+;    error("must be lvalue");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc31+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc31:	BYTE 109,117,115,116,32,98,101,32,108,118,97,108
+	BYTE 117,101,0
+	EVEN
+;/*
+;** Top-level parser.
+;** M36c1 replaces the historical #include skip with the real Hendrix
+;** one-level include path in OVL_PREP. M36c2 routes #asm through the
+;** same overlay so raw assembler blocks are copied to the output.
+;*/
+;parse()
+	EVEN
+parse:
+;{
+;    while(eof == 0) {
+;modstk(newsp,save)
+cc33:
+;getmem(sym)
+	MOV @eof,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc34
+;        if(amatch("extern", 6))
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc32+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;const1(val)
+	LI R4,6
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @amatch
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc35
+;            R_DODECL(EXTERNAL);
+;const1(val)
+	LI R4,3
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @R_DODECL
+;modstk(newsp,save)
+	INCT SP
+;        else if(R_DODECL(STATIC))
+;jump(label)
+	B @cc36
+cc35:
+;const1(val)
+	LI R4,2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @R_DODECL
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc37
+;            ;
+;        else if(match("#asm"))
+;jump(label)
+	B @cc38
+cc37:
+;constant(lval)
+	LI R4,cc32+7
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc39
+;            doasm();
+;zcall()
+	CALL @doasm
+;modstk(newsp,save)
+;        else if(match("#include"))
+;jump(label)
+	B @cc40
+cc39:
+;constant(lval)
+	LI R4,cc32+12
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc41
+;            R_INCLUDE();
+;zcall()
+	CALL @R_INCLUDE
+;modstk(newsp,save)
+;        else if(match("#define"))
+;jump(label)
+	B @cc42
+cc41:
+;constant(lval)
+	LI R4,cc32+21
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc43
+;            R_DEFINE();
+;zcall()
+	CALL @R_DEFINE
+;modstk(newsp,save)
+;        else
+;jump(label)
+	B @cc44
+cc43:
+;            R_DOFN();
+;zcall()
+	CALL @R_DOFN
+;modstk(newsp,save)
+cc44:
+cc42:
+cc40:
+cc38:
+cc36:
+;        blanks();
+;zcall()
+	CALL @blanks
+;modstk(newsp,save)
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc33
+cc34:
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc32:	BYTE 101,120,116,101,114,110,0,35,97,115,109,0
+	BYTE 35,105,110,99,108,117,100,101,0,35,100,101
+	BYTE 102,105,110,101,0
+	EVEN
+;/*
+;** Existing overlay modules currently call these public names. Keep the
+;** names resident and forward through OVLSTUBS so no overlay calls another
+;** page in the same window directly.
+;*/
+;statement()
+	EVEN
+statement:
+;{
+;    return R_STMT();
+;modstk(newsp,save)
+;zcall()
+	CALL @R_STMT
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;}
+;doasm()
+	EVEN
+doasm:
+;{
+;    R_DOASM();
+;modstk(newsp,save)
+;zcall()
+	CALL @R_DOASM
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/*
+;** Conditional-expression bridge used by CC_STMT.
+;**
+;** R_TEST preserves both arguments while mapping CC_EXPR, then restores
+;** whichever window-A statement page was active.
+;*/
+;test(label, parens) int label, parens;
+	EVEN
+test:
+;{
+;    return R_TEST(label, parens);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @R_TEST
+;modstk(newsp,save)
+	AI SP,4
+;modstk(newsp,save)
+	RET
+;}
+;constexpr(val) int *val;
+	EVEN
+constexpr:
+;{
+;    return R_CEXPR(val);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @R_CEXPR
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+;}
+;/*
+;** Real expression bridge used by CC_STMT.
+;**
+;** R_EXPR remains the no-argument walking-skeleton entry. R_EXPRVAL is the
+;** argument-preserving compiler entry.
+;*/
+;expression(con, val) int *con, *val;
+	EVEN
+expression:
+;{
+;    return R_EXPRVAL(con, val);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @R_EXPRVAL
+;modstk(newsp,save)
+	AI SP,4
+;modstk(newsp,save)
+	RET
+;}
+;/*
+;** Resident literal service.
+;**
+;** CC_EXPR owns the grammar decision that a quoted argument is present,
+;** but byte storage belongs with resident data so it does not consume the
+;** scarce >8000 expression window.
+;*/
+;litput(value) int value;
+	EVEN
+litput:
+;{
+;    if(litptr >= LITMAX) {
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @litptr,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,255
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc51
+;        error("literal queue overflow");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc50+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;        return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    }
+;    litq[litptr++] = value;
+cc51:
+;address(ptr)
+	LI R4,litq
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @litptr,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@litptr
+;	dec()
+	DEC R4
+;scale(type,tag)
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;    return 1;
+;const1(val)
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;}
+cc50:	BYTE 108,105,116,101,114,97,108,32,113,117,101,117
+	BYTE 101,32,111,118,101,114,102,108,111,119,0
+	EVEN
+;/*
+;** Decode one source character, including the baseline common escapes.
+;** This depends only on resident scanner state and is therefore resident.
+;*/
+;litchar()
+	EVEN
+litchar:
+;{
+;    int i;
+;    int oct;
+;    if(ch != '\\' || nch == 0)
+;modstk(newsp,save)
+	AI SP,-4
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,92
+;_ccne
+	BL @_ccne##
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc54
+;getmem(sym)
+	MOV @nch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc54
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc55
+cc54:
+;const1(val)
+	LI R4,1
+cc55:
+	MOV R4,R4
+	JNE $+6
+	B @cc53
+;        return gch();
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    gch();
+cc53:
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;    if(ch == 'n') {
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,110
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc56
+;        gch();
+;modstk(newsp,save)
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;        return 10;
+;const1(val)
+	LI R4,10
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    if(ch == 't') {
+cc56:
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,116
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc57
+;        gch();
+;modstk(newsp,save)
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;        return 9;
+;const1(val)
+	LI R4,9
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    if(ch == 'b') {
+cc57:
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,98
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc58
+;        gch();
+;modstk(newsp,save)
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;        return 8;
+;const1(val)
+	LI R4,8
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    if(ch == 'f') {
+cc58:
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,102
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc59
+;        gch();
+;modstk(newsp,save)
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;        return 12;
+;const1(val)
+	LI R4,12
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    i = 3;
+cc59:
+;const1(val)
+	LI R4,3
+;put2tos()
+	MOV R4,@2(SP)
+;    oct = 0;
+;const1(val)
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    while((i--) > 0 && ch >= '0' && ch <= '7')
+cc60:
+;getloc(sym, off)
+	LI R4,2
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;	dec()
+	DEC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;inc()
+	INC R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc62
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,48
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc62
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,55
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc62
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc63
+cc62:
+;const1(val)
+	CLR R4
+cc63:
+	MOV R4,R4
+	JNE $+6
+	B @cc61
+;        oct = (oct << 3) + gch() - '0';
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+	BL @_ccasl##
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;const2(val)
+	LI R3,-48
+;	zadd()
+	A R3,R4
+;puttos()
+	MOV R4,*SP
+;jump(label)
+	B @cc60
+cc61:
+;    if(i == 2)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc64
+;        return gch();
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    return oct;
+cc64:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;}
+;/*
+;** Resident integer-token service.
+;**
+;** Numeric token decoding depends only on scanner state. Keeping it resident
+;** leaves the expression page available for the growing run-time engine.
+;*/
+;hexval(c) int c;
+	EVEN
+hexval:
+;{
+;    if(c >= '0' && c <= '9')
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,48
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc67
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,57
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc67
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc68
+cc67:
+;const1(val)
+	CLR R4
+cc68:
+	MOV R4,R4
+	JNE $+6
+	B @cc66
+;        return c - '0';
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;const2(val)
+	LI R3,-48
+;	zadd()
+	A R3,R4
+;modstk(newsp,save)
+	RET
+;    if(c >= 'A' && c <= 'F')
+cc66:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,65
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc70
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,70
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc70
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc71
+cc70:
+;const1(val)
+	CLR R4
+cc71:
+	MOV R4,R4
+	JNE $+6
+	B @cc69
+;        return c - 'A' + 10;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;const2(val)
+	LI R3,-65
+;	zadd()
+	A R3,R4
+;const2(val)
+	LI R3,10
+;	zadd()
+	A R3,R4
+;modstk(newsp,save)
+	RET
+;    if(c >= 'a' && c <= 'f')
+cc69:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,97
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc73
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,102
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc73
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc74
+cc73:
+;const1(val)
+	CLR R4
+cc74:
+	MOV R4,R4
+	JNE $+6
+	B @cc72
+;        return c - 'a' + 10;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;const2(val)
+	LI R3,-97
+;	zadd()
+	A R3,R4
+;const2(val)
+	LI R3,10
+;	zadd()
+	A R3,R4
+;modstk(newsp,save)
+	RET
+;    return -1;
+cc72:
+;const1(val)
+	SETO R4
+;modstk(newsp,save)
+	RET
+;}
+;number(value) int *value;
+	EVEN
+number:
+;{
+;    int k;
+;    int minus;
+;    int digit;
+;    k = 0;
+;modstk(newsp,save)
+	AI SP,-6
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;    minus = 0;
+;const1(val)
+	CLR R4
+;put2tos()
+	MOV R4,@2(SP)
+;    while(1) {
+cc76:
+;        if(match("+"))
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc75+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc78
+;            ;
+;        else if(match("-"))
+;jump(label)
+	B @cc79
+cc78:
+;constant(lval)
+	LI R4,cc75+2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc80
+;            minus = 1;
+;const1(val)
+	LI R4,1
+;put2tos()
+	MOV R4,@2(SP)
+;        else
+;jump(label)
+	B @cc81
+cc80:
+;            break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc77
+cc81:
+cc79:
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc76
+cc77:
+;    if(isdigit(ch) == 0)
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @isdigit
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc82
+;        return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	AI SP,6
+	RET
+;    if(ch == '0') {
+cc82:
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,48
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc83
+;        gch();
+;modstk(newsp,save)
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;        if(ch == 'x' || ch == 'X') {
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,120
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc85
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,88
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc85
+;const1(val)
+	CLR R4
+;jump(label)
+	B @cc86
+cc85:
+;const1(val)
+	LI R4,1
+cc86:
+	MOV R4,R4
+	JNE $+6
+	B @cc84
+;            gch();
+;modstk(newsp,save)
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;            while((digit = hexval(ch)) >= 0) {
+cc87:
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @hexval
+;modstk(newsp,save)
+	INCT SP
+;puttos()
+	MOV R4,*SP
+;ge0(label)
+	MOV  R4,R4
+	JEQ  $+8
+	JGT  $+6
+	B @cc88
+;                k = k * 16 + digit;
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,16
+	BL @_ccmult##
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;                gch();
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;            }
+;modstk(newsp,save)
+;jump(label)
+	B @cc87
+cc88:
+;        }
+;modstk(newsp,save)
+;        else {
+;jump(label)
+	B @cc89
+cc84:
+;            while(ch >= '0' && ch <= '7')
+;modstk(newsp,save)
+cc90:
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,48
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc92
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,55
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc92
+;const1(val)
+	LI R4,1
+;jump(label)
+	B @cc93
+cc92:
+;const1(val)
+	CLR R4
+cc93:
+	MOV R4,R4
+	JNE $+6
+	B @cc91
+;                k = k * 8 + gch() - '0';
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccmult##
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;const2(val)
+	LI R3,-48
+;	zadd()
+	A R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;jump(label)
+	B @cc90
+cc91:
+;        }
+;modstk(newsp,save)
+cc89:
+;    }
+;modstk(newsp,save)
+;    else {
+;jump(label)
+	B @cc94
+cc83:
+;        while(isdigit(ch))
+;modstk(newsp,save)
+cc95:
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @isdigit
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc96
+;            k = k * 10 + gch() - '0';
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+	BL @_ccmult##
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;const2(val)
+	LI R3,-48
+;	zadd()
+	A R3,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;jump(label)
+	B @cc95
+cc96:
+;    }
+;modstk(newsp,save)
+cc94:
+;    if(minus) {
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc97
+;        *value = -k;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;neg()
+	NEG R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;        return INT;
+;const1(val)
+	LI R4,8
+;modstk(newsp,save)
+	AI SP,6
+	RET
+;    }
+;    *value = k;
+cc97:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    if(k < 0)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;lt0(label)
+	MOV R4,R4
+	JLT $+6
+	B @cc98
+;        return UINT;
+;const1(val)
+	LI R4,9
+;modstk(newsp,save)
+	AI SP,6
+	RET
+;    return INT;
+cc98:
+;const1(val)
+	LI R4,8
+;modstk(newsp,save)
+	AI SP,6
+	RET
+;}
+cc75:	BYTE 43,0,45,0
+;/*
+;** Parse a string literal into the resident literal queue.
+;**
+;** This is scanner/literal work rather than expression precedence, so it is
+;** resident and leaves CC_EXPR space for the growing run-time engine.
+;**
+;** ==== STEP 6: this IS baseline string(), under its baseline name ====
+;**
+;** It was written as quoted() alongside a stub string() that returned 0,
+;** and nothing ever called it -- so every string literal fell through to
+;** experr() and the parser then walked the literal's own bytes as source.
+;** In milestone 28 that turned printf("%d",x) into three syntax errors, a
+;** phantom AUTOEXT symbol 'd', and a one-argument call.
+;**
+;** The two live call sites are constant() below (gen POINT1l) and
+;** CC_DECL's init(), which needs litptr to ADVANCE:
+;**
+;**     *dim -= litptr - value;
+;**
+;** so this continues to use litput(), which really stores into litq.
+;** M36b4 puts global numeric initializer storage in CC_DECL and retires
+;** the old resident stowlit spy; this remains the shared scanner path.
+;**
+;** VERIFY against src/reference/CCC3.C string() before blessing the log.
+;** Known divergence: on an unterminated literal this errors and returns 0,
+;** where baseline breaks out and returns 1. Malformed input only.
+;*/
+;string(offset) int *offset;
+	EVEN
+string:
+;{
+;    if(match("\"") == 0)
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc99+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc100
+;        return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    *offset = litptr;
+cc100:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @litptr,R4
+;putstk - int
+	MOV R4,*R3
+;    while(ch != '"') {
+cc101:
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,34
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc102
+;        if(ch == 0) {
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ch,R4
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc103
+;            error("missing quote");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc99+2
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;            return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	RET
+;        }
+;        litput(litchar());
+cc103:
+;zcall()
+	CALL @litchar
+;modstk(newsp,save)
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @litput
+;modstk(newsp,save)
+	INCT SP
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc101
+cc102:
+;    gch();
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;    litput(0);
+;const1(val)
+	CLR R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @litput
+;modstk(newsp,save)
+	INCT SP
+;    return 1;
+;const1(val)
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;}
+cc99:	BYTE 34,0,109,105,115,115,105,110,103,32,113,117
+	BYTE 111,116,101,0
+;/*
+;** Resident literal/constant services for the expression engine.
+;**
+;** constant() and chrcon() are CCC3 functions, but they belong with
+;** number(), string(), litchar() and litput() -- all scanner and
+;** literal work, all already resident -- rather than in the expression
+;** overlay. Keeping them here also buys ~200 bytes of headroom in both
+;** halves of the 8K pair, which the engine needs more than resident
+;** does (resident is at 76%, the pair is the tight resource).
+;**
+;** constant() calls gen(), which lives in CC_CODEGEN. That page is
+;** window B and is permanently mapped, so a direct call from resident
+;** code is legal.
+;**
+;** Both are Hendrix CCC3 verbatim.
+;*/
+;constant(is)  int is[]; {
+	EVEN
+constant:
+;  int offset;
+;  if     (is[TC] = number(is + CV)) gen(GETw1n,  is[CV]);
+;modstk(newsp,save)
+	DECT SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;const2(val)
+	LI R3,6
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;const2(val)
+	LI R3,8
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @number
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+	MOV R4,R4
+	JNE $+6
+	B @cc105
+;const1(val)
+	LI R4,31
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;const2(val)
+	LI R3,8
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;  else if(is[TC] = chrcon(is + CV)) gen(GETw1n,  is[CV]);
+;jump(label)
+	B @cc106
+cc105:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;const2(val)
+	LI R3,6
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;const2(val)
+	LI R3,8
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @chrcon
+;modstk(newsp,save)
+	INCT SP
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+	MOV R4,R4
+	JNE $+6
+	B @cc107
+;const1(val)
+	LI R4,31
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;const2(val)
+	LI R3,8
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;  else if(string(&offset))          gen(POINT1l, offset);
+;jump(label)
+	B @cc108
+cc107:
+;getloc(sym, off)
+	MOV SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @string
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc109
+;const1(val)
+	LI R4,24
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @gen
+;modstk(newsp,save)
+	AI SP,4
+;  else return 0;
+;jump(label)
+	B @cc110
+cc109:
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	INCT SP
+	RET
+cc110:
+cc108:
+cc106:
+;  return 1;
+;const1(val)
+	LI R4,1
+;modstk(newsp,save)
+	INCT SP
+	RET
+;  }
+;chrcon(value)  int *value; {
+	EVEN
+chrcon:
+;  int k;
+;  k = 0;
+;modstk(newsp,save)
+	DECT SP
+;const1(val)
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;  if(match("'") == 0) return 0;
+;constant(lval)
+	LI R4,cc111+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @match
+;modstk(newsp,save)
+	INCT SP
+;eq0(label)
+	MOV R4,R4
+	JEQ $+6
+	B @cc112
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	INCT SP
+	RET
+;  while(ch != '\'') k = (k << 8) + (litchar() & 255);
+cc112:
+cc113:
+;getmem(sym)
+	MOV @ch,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,39
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc114
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+	BL @_ccasl##
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @litchar
+;modstk(newsp,save)
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,255
+;zand()
+	INV R3
+	SZC R3,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;puttos()
+	MOV R4,*SP
+;jump(label)
+	B @cc113
+cc114:
+;  gch();
+;zcall()
+	CALL @gch
+;modstk(newsp,save)
+;  *value = k;
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;  return (INT);
+;const1(val)
+	LI R4,8
+;modstk(newsp,save)
+	INCT SP
+	RET
+;  }
+cc111:	BYTE 39,0
+;/*
+;** Resident while-context management.
+;**
+;** Each entry contains:
+;**
+;**     WQSP    compiler stack depth at loop entry
+;**     WQLOOP  continue/iteration label
+;**     WQEXIT  break/exit label
+;**
+;** The queue is resident because compiling a condition or expression maps
+;** CC_EXPR over the CC_STMT window. Overlay-local control state would not
+;** survive that replacement reliably.
+;*/
+;addwhile(ptr) int ptr[];
+	EVEN
+addwhile:
+;{
+;    int k;
+;    if(wqptr == WQMAX) {
+;modstk(newsp,save)
+	DECT SP
+;getmem(sym)
+	MOV @wqptr,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;address(ptr)
+	LI R4,wq
+;const2(val)
+	LI R3,60
+;	zadd()
+	A R3,R4
+;const2(val)
+	LI R3,-6
+;	zadd()
+	A R3,R4
+;zpop()
+	MOV *SP+,R3
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc116
+;        error("control statement nesting limit");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc115+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;        return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    }
+;    ptr[WQSP] = csp;
+cc116:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	MOV @csp,R4
+;putstk - int
+	MOV R4,*R3
+;    ptr[WQLOOP] = getlabel();
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    ptr[WQEXIT] = getlabel();
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @getlabel
+;modstk(newsp,save)
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    k = 0;
+;const1(val)
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    while(k < WQSIZ)
+cc117:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc118
+;        *wqptr++ = ptr[k++];
+;getmem(sym)
+	MOV @wqptr,R4
+;inct()
+	INCT R4
+;putmem(sym)
+	MOV R4,@wqptr
+;	dect()
+	DECT R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;indirect ccgint
+	MOV *R4,R4
+;inc()
+	INC R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;	dec()
+	DEC R4
+;scale(type,tag)
+;	doublereg()
+	A R4,R4
+;zpop()
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+;zpop()
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;jump(label)
+	B @cc117
+cc118:
+;    return 1;
+;const1(val)
+	LI R4,1
+;modstk(newsp,save)
+	INCT SP
+	RET
+;}
+cc115:	BYTE 99,111,110,116,114,111,108,32,115,116,97,116
+	BYTE 101,109,101,110,116,32,110,101,115,116,105,110
+	BYTE 103,32,108,105,109,105,116,0
+;readwhile(ptr) int *ptr;
+	EVEN
+readwhile:
+;{
+;    if(ptr <= wq) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,wq
+;_ccule
+	C R3,R4 ;optimised
+	JLE $+6
+	B @cc120
+;        error("out of context");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc119+0
+;zpush()
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @error
+;modstk(newsp,save)
+	INCT SP
+;        return 0;
+;const1(val)
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    }
+;    return ptr - WQSIZ;
+cc120:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;const2(val)
+	LI R3,-6
+;	zadd()
+	A R3,R4
+;modstk(newsp,save)
+	RET
+;}
+cc119:	BYTE 111,117,116,32,111,102,32,99,111,110,116,101
+	BYTE 120,116,0
+	EVEN
+;delwhile()
+	EVEN
+delwhile:
+;{
+;    if(wqptr > wq)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @wqptr,R4
+;zpush()
+	MOV R4,R3 ;optimised push/pop
+	LI R4,wq
+;_ccugt
+	C R3,R4 ;optimised
+	JH $+6
+	B @cc122
+;        wqptr = wqptr - WQSIZ;
+;getmem(sym)
+	MOV @wqptr,R4
+;const2(val)
+	LI R3,-6
+;	zadd()
+	A R3,R4
+;putmem(sym)
+	MOV R4,@wqptr
+;}
+cc122:
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+	ENT wqptr
+	ENT hexval
+	ENT string
+	EXT swactive
+	EXT usexpr
+	EXT bump
+	EXT ccode
+	EXT cptr
+	EXT R_INCLUDE
+	EXT need
+	EXT R_DODECL
+	EXT swnext
+	ENT kill
+	EXT line
+	EXT ncmp
+	EXT symtab
+	ENT delwhile
+	ENT lastst
+	EXT swstab
+	EXT litq
+	EXT declared
+	ENT statement
+	EXT R_DOFN
+	ENT monitor
+	ENT nogo
+	ENT lout
+	ENT litlab
+	EXT skip
+	ENT multidef
+	ENT test
+	ENT doasm
+	EXT cptr2
+	EXT cptr3
+	EXT pptr
+	EXT locptr
+	ENT constant
+	EXT swdefault
+	EXT errflag
+	EXT R_EXPR
+	ENT needsub
+	ENT illname
+	EXT oldseg
+	ENT litptr
+	EXT gch
+	ENT litput
+	ENT readwhile
+	EXT R_PREP
+	EXT gen
+	EXT incunit
+	ENT ccinit
+	EXT eof
+	EXT match
+	ENT expression
+	EXT R_TEST
+	ENT csp
+	EXT symname
+	EXT nch
+	EXT amatch
+	EXT error
+	EXT R_STMT
+	EXT blanks
+	EXT R_CEXPR
+	EXT isdigit
+	EXT R_DOASM
+	ENT parse
+	EXT ch
+	ENT number
+	ENT chrcon
+	ENT noloc
+	ENT litchar
+	ENT wq
+	EXT R_EXPRVAL
+	ENT needlval
+	ENT addwhile
+	ENT argtop
+	ENT argstk
+	EXT nxtlab
+	EXT skiplevel
+	EXT swend
+	ENT ssname
+	EXT R_DEFINE
+	EXT getlabel
+	EXT glbptr
+	EXT macptr
+	ENT decl
+	EXT iflevel
+	ENT constexpr
+	EVEN
+	END
+
+; --- End of Compilation ---
