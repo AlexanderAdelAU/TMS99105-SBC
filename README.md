@@ -25,6 +25,12 @@ The SBC design has now been updated to include a Transparent Paged Memory implem
 
 <img src="Memory Mapping Schematic.png" alt="Memory Structure" width="750" >
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="dark-mode-image.png">
+  <source media="(prefers-color-scheme: light)" srcset="light-mode-image.png">
+  <img alt="Project Banner" src="Memory Mapping Schematic.png" width="600">
+</picture>
+
 #### System Memory Layout
 The resulting SBC Memory Map is represented in the diagram below.
 <img src="Memory Structure/TMS9900 Memory Map.drawio.png" alt="Memory Structure" width="750" >
