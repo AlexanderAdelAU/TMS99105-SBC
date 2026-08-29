@@ -26,7 +26,7 @@ The SBC design has now been updated to include a Transparent Paged Memory implem
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="Memory Mapping Schematic.png">
-  <img alt="Project Banner" src="Memory Mapping Schematic.png" width="600">
+  <img alt="Project Banner" src="Memory Mapping Schematic.png" width="800">
 </picture>
 
 #### System Memory Layout
