@@ -64,6 +64,11 @@ Without `/L` the file is analysed without first being listed:
 
 `/L` and `-L` are both accepted.
 
+# Screen Shot
+<p align="center">
+  <img src="Screenshot.jpg" alt="Screenshot" width="600">
+</p>
+
 ## Program architecture
 
 ```text
