@@ -1,0 +1,2588 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R5	EQU 5
+R6	EQU 6
+R7	EQU 7
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM EDITMENU
+;/*
+;** EDITMENU.C -- resident FileEdit shell (Step 7).
+;**
+;** The editor now owns a persistent current document across menu commands.
+;** Open, New, Save and Save As are normal application operations; the mapper,
+;** buffer address and capacity are deliberately absent from the user interface.
+;*/
+;extern puts();
+;extern fsreset();
+;extern fsopen();
+;extern fsclose();
+;extern fsrewind();
+;extern fsprobe();
+;extern fssave();
+;extern fssavas();
+;extern fsequal();
+;extern runword();
+;extern runchar();
+;extern runrpt();
+;extern viewctl();
+;extern editctl();
+;extern ebload();
+;extern ebloadn();
+;extern ebnewn();
+;extern ebnone();
+;extern nmprompt();
+;extern trmclear();
+;extern trmrev();
+;extern trmnorm();
+;extern trmesc();
+;extern trmkey();
+;extern char *fsname;
+;extern int ebvalid;
+;extern int ebdirty;
+;extern int fsexist;
+;/* Pause after a message/report so it remains visible. */
+;pausekey()
+	EVEN
+pausekey:
+;{
+;modstk(newsp,save)
+;    puts("\nPress any key to return to the menu...");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc1+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    trmkey();
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc1:	BYTE 13,80,114,101,115,115,32,97,110,121,32,107
+	BYTE 101,121,32,116,111,32,114,101,116,117,114,110
+	BYTE 32,116,111,32,116,104,101,32,109,101,110,117
+	BYTE 46,46,46,0
+;nodoc()
+	EVEN
+nodoc:
+;{
+;    trmclear();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    puts("No document is open.  Use Open or New first.\n");
+;constant(lval)
+	LI R4,cc2+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc2:	BYTE 78,111,32,100,111,99,117,109,101,110,116,32
+	BYTE 105,115,32,111,112,101,110,46,32,32,85,115
+	BYTE 101,32,79,112,101,110,32,111,114,32,78,101
+	BYTE 119,32,102,105,114,115,116,46,13,0
+;/*
+;** Protect a document before Open/New/Quit.  Returning to the menu from the
+;** editor itself never discards RAM changes; only a document transition asks.
+;*/
+;docguard()
+	EVEN
+docguard:
+;{
+;    int c;
+;    if(ebvalid == 0)
+;modstk(newsp,save)
+	DECT SP
+;getmem(sym)
+	MOV @ebvalid,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc4
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    if(ebdirty == 0 && fsexist)
+cc4:
+;getmem(sym)
+	MOV @ebdirty,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc6
+;getmem(sym)
+	MOV @fsexist,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc6
+	LI R4,1
+;jump(label)
+	B @cc7
+cc6:
+	CLR R4
+cc7:
+	MOV R4,R4
+	JNE $+6
+	B @cc5
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    trmclear();
+cc5:
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    if(fsexist)
+;getmem(sym)
+	MOV @fsexist,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc8
+;        puts("Unsaved changes in ");
+;constant(lval)
+	LI R4,cc3+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    else
+;jump(label)
+	B @cc9
+cc8:
+;        puts("New document has not been saved: ");
+;constant(lval)
+	LI R4,cc3+20
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+cc9:
+;    puts(fsname);
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("\n\n");
+;constant(lval)
+	LI R4,cc3+54
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  S  Save and continue\n");
+;constant(lval)
+	LI R4,cc3+57
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  D  Don't save\n");
+;constant(lval)
+	LI R4,cc3+81
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  C  Cancel\n\n");
+;constant(lval)
+	LI R4,cc3+98
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(" Choice: ");
+;constant(lval)
+	LI R4,cc3+112
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    while(1) {
+cc10:
+;        c = trmkey();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;        if(c == 'S' || c == 's') {
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,83
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc13
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,115
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc13
+	CLR R4
+;jump(label)
+	B @cc14
+cc13:
+	LI R4,1
+cc14:
+	MOV R4,R4
+	JNE $+6
+	B @cc12
+;            trmclear();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;            puts("Saving ");
+;constant(lval)
+	LI R4,cc3+122
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;            puts(fsname);
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;            puts(" ...\n");
+;constant(lval)
+	LI R4,cc3+130
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;            if(fssave())
+;zcall()
+	CALL @fssave
+;modstk(newsp,save)
+	MOV R4,R4
+	JNE $+6
+	B @cc15
+;                return 1;
+	LI R4,1
+;modstk(newsp,save)
+	INCT SP
+	RET
+;            puts("\nSave did not complete.  Document remains in memory.\n");
+cc15:
+;constant(lval)
+	LI R4,cc3+136
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;            pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;            return 0;
+	CLR R4
+;modstk(newsp,save)
+	INCT SP
+	RET
+;        }
+;        if(c == 'D' || c == 'd')
+cc12:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,68
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc17
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,100
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc17
+	CLR R4
+;jump(label)
+	B @cc18
+cc17:
+	LI R4,1
+cc18:
+	MOV R4,R4
+	JNE $+6
+	B @cc16
+;            return 1;
+	LI R4,1
+;modstk(newsp,save)
+	INCT SP
+	RET
+;        if(c == 'C' || c == 'c' || c == 27)
+cc16:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,67
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc20
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,99
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc20
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,27
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc20
+	CLR R4
+;jump(label)
+	B @cc21
+cc20:
+	LI R4,1
+cc21:
+	MOV R4,R4
+	JNE $+6
+	B @cc19
+;            return 0;
+	CLR R4
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    }
+cc19:
+;modstk(newsp,save)
+;jump(label)
+	B @cc10
+cc11:
+;}
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+cc3:	BYTE 85,110,115,97,118,101,100,32,99,104,97,110
+	BYTE 103,101,115,32,105,110,32,0,78,101,119,32
+	BYTE 100,111,99,117,109,101,110,116,32,104,97,115
+	BYTE 32,110,111,116,32,98,101,101,110,32,115,97
+	BYTE 118,101,100,58,32,0,13,13,0,32,32,83
+	BYTE 32,32,83,97,118,101,32,97,110,100,32,99
+	BYTE 111,110,116,105,110,117,101,13,0,32,32,68
+	BYTE 32,32,68,111,110,39,116,32,115,97,118,101
+	BYTE 13,0,32,32,67,32,32,67,97,110,99,101
+	BYTE 108,13,13,0,32,67,104,111,105,99,101,58
+	BYTE 32,0,83,97,118,105,110,103,32,0,32,46
+	BYTE 46,46,13,0,13,83,97,118,101,32,100,105
+	BYTE 100,32,110,111,116,32,99,111,109,112,108,101
+	BYTE 116,101,46,32,32,68,111,99,117,109,101,110
+	BYTE 116,32,114,101,109,97,105,110,115,32,105,110
+	BYTE 32,109,101,109,111,114,121,46,13,0
+;/* Confirm Save As replacement when the requested target already exists. */
+;overask(name)
+	EVEN
+overask:
+;char *name;
+;{
+;    int c;
+;    trmclear();
+;modstk(newsp,save)
+	DECT SP
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    puts(name);
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(" already exists.\n\n");
+;constant(lval)
+	LI R4,cc22+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("A backup will be made before replacement.\n\n");
+;constant(lval)
+	LI R4,cc22+19
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  R  Replace file\n");
+;constant(lval)
+	LI R4,cc22+63
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  C  Cancel\n\n");
+;constant(lval)
+	LI R4,cc22+82
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(" Choice: ");
+;constant(lval)
+	LI R4,cc22+96
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    while(1) {
+cc23:
+;        c = trmkey();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;        if(c == 'R' || c == 'r')
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,82
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc26
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,114
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc26
+	CLR R4
+;jump(label)
+	B @cc27
+cc26:
+	LI R4,1
+cc27:
+	MOV R4,R4
+	JNE $+6
+	B @cc25
+;            return 1;
+	LI R4,1
+;modstk(newsp,save)
+	INCT SP
+	RET
+;        if(c == 'C' || c == 'c' || c == 27)
+cc25:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,67
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc29
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,99
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc29
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,27
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc29
+	CLR R4
+;jump(label)
+	B @cc30
+cc29:
+	LI R4,1
+cc30:
+	MOV R4,R4
+	JNE $+6
+	B @cc28
+;            return 0;
+	CLR R4
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    }
+cc28:
+;modstk(newsp,save)
+;jump(label)
+	B @cc23
+cc24:
+;}
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+cc22:	BYTE 32,97,108,114,101,97,100,121,32,101,120,105
+	BYTE 115,116,115,46,13,13,0,65,32,98,97,99
+	BYTE 107,117,112,32,119,105,108,108,32,98,101,32
+	BYTE 109,97,100,101,32,98,101,102,111,114,101,32
+	BYTE 114,101,112,108,97,99,101,109,101,110,116,46
+	BYTE 13,13,0,32,32,82,32,32,82,101,112,108
+	BYTE 97,99,101,32,102,105,108,101,13,0,32,32
+	BYTE 67,32,32,67,97,110,99,101,108,13,13,0
+	BYTE 32,67,104,111,105,99,101,58,32,0
+;/* Edit the current persistent document. */
+;editone()
+	EVEN
+editone:
+;{
+;    if(ebvalid == 0) {
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ebvalid,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc32
+;        nodoc();
+;modstk(newsp,save)
+;zcall()
+	CALL @nodoc
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	RET
+;    }
+;    editctl();
+cc32:
+;zcall()
+	CALL @editctl
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/* View the current RAM document, including unsaved edits. */
+;viewone()
+	EVEN
+viewone:
+;{
+;    if(ebvalid == 0) {
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ebvalid,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc34
+;        nodoc();
+;modstk(newsp,save)
+;zcall()
+	CALL @nodoc
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	RET
+;    }
+;    viewctl();
+cc34:
+;zcall()
+	CALL @viewctl
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/* Explicit failed-open recovery: never consume a future menu command as a pause. */
+;opretry(name)
+	EVEN
+opretry:
+;char *name;
+;{
+;    int c;
+;    trmclear();
+;modstk(newsp,save)
+	DECT SP
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    puts("Cannot open ");
+;constant(lval)
+	LI R4,cc35+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(name);
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("\n\n");
+;constant(lval)
+	LI R4,cc35+13
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  R  Retry filename\n");
+;constant(lval)
+	LI R4,cc35+16
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  C  Cancel and return to menu\n\n");
+;constant(lval)
+	LI R4,cc35+37
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(" Choice: ");
+;constant(lval)
+	LI R4,cc35+70
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    while(1) {
+cc36:
+;        c = trmkey();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;        if(c == 'R' || c == 'r' || c == 13)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,82
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc39
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,114
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc39
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc39
+	CLR R4
+;jump(label)
+	B @cc40
+cc39:
+	LI R4,1
+cc40:
+	MOV R4,R4
+	JNE $+6
+	B @cc38
+;            return 1;
+	LI R4,1
+;modstk(newsp,save)
+	INCT SP
+	RET
+;        if(c == 'C' || c == 'c' || c == 27)
+cc38:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,67
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc42
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,99
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc42
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,27
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc42
+	CLR R4
+;jump(label)
+	B @cc43
+cc42:
+	LI R4,1
+cc43:
+	MOV R4,R4
+	JNE $+6
+	B @cc41
+;            return 0;
+	CLR R4
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    }
+cc41:
+;modstk(newsp,save)
+;jump(label)
+	B @cc36
+cc37:
+;}
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+cc35:	BYTE 67,97,110,110,111,116,32,111,112,101,110,32
+	BYTE 0,13,13,0,32,32,82,32,32,82,101,116
+	BYTE 114,121,32,102,105,108,101,110,97,109,101,13
+	BYTE 0,32,32,67,32,32,67,97,110,99,101,108
+	BYTE 32,97,110,100,32,114,101,116,117,114,110,32
+	BYTE 116,111,32,109,101,110,117,13,13,0,32,67
+	BYTE 104,111,105,99,101,58,32,0
+;/* Open another file without destroying the current document on failure. */
+;openone()
+	EVEN
+openone:
+;{
+;    char name[16];
+;    int ready;
+;    ready = 0;
+;modstk(newsp,save)
+	AI SP,-18
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    while(ready == 0) {
+cc45:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R4
+	JEQ $+6
+	B @cc46
+;        if(nmprompt(" Open file: ", name) == 0)
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc44+0
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,5
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @nmprompt
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JEQ $+6
+	B @cc47
+;            return;
+;modstk(newsp,save)
+	AI SP,18
+	RET
+;        if(fsprobe(name))
+cc47:
+;getloc(sym, off)
+;Char offset
+	LI R4,3
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsprobe
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc48
+;            ready = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;        else if(opretry(name) == 0)
+;jump(label)
+	B @cc49
+cc48:
+;getloc(sym, off)
+;Char offset
+	LI R4,3
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @opretry
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JEQ $+6
+	B @cc50
+;            return;
+;modstk(newsp,save)
+	AI SP,18
+	RET
+;    }
+cc50:
+cc49:
+;modstk(newsp,save)
+;jump(label)
+	B @cc45
+cc46:
+;    if(docguard() == 0)
+;zcall()
+	CALL @docguard
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc51
+;        return;
+;modstk(newsp,save)
+	AI SP,18
+	RET
+;    trmclear();
+cc51:
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    puts("Opening ");
+;constant(lval)
+	LI R4,cc44+13
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(name);
+;getloc(sym, off)
+;Char offset
+	LI R4,3
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(" ...\n");
+;constant(lval)
+	LI R4,cc44+22
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    if(ebloadn(name) == 0) {
+;getloc(sym, off)
+;Char offset
+	LI R4,3
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @ebloadn
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JEQ $+6
+	B @cc52
+;        puts("\nThe previous document is still intact.\n");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc44+28
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;    }
+;modstk(newsp,save)
+;}
+cc52:
+;modstk(newsp,save)
+	AI SP,18
+;modstk(newsp,save)
+	RET
+cc44:	BYTE 32,79,112,101,110,32,102,105,108,101,58,32
+	BYTE 0,79,112,101,110,105,110,103,32,0,32,46
+	BYTE 46,46,13,0,13,84,104,101,32,112,114,101
+	BYTE 118,105,111,117,115,32,100,111,99,117,109,101
+	BYTE 110,116,32,105,115,32,115,116,105,108,108,32
+	BYTE 105,110,116,97,99,116,46,13,0
+	EVEN
+;/* Create a new named document in RAM; disk creation waits for Save. */
+;newone()
+	EVEN
+newone:
+;{
+;    char name[16];
+;    if(nmprompt(" New file: ", name) == 0)
+;modstk(newsp,save)
+	AI SP,-16
+;constant(lval)
+	LI R4,cc53+0
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,3
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @nmprompt
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JEQ $+6
+	B @cc54
+;        return;
+;modstk(newsp,save)
+	AI SP,16
+	RET
+;    if(fsprobe(name)) {
+cc54:
+;getloc(sym, off)
+;Char offset
+	LI R4,1
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsprobe
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc55
+;        trmclear();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;        puts(name);
+;getloc(sym, off)
+;Char offset
+	LI R4,1
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts(" already exists.  Use Open instead.\n");
+;constant(lval)
+	LI R4,cc53+12
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	AI SP,16
+	RET
+;    }
+;    if(docguard() == 0)
+cc55:
+;zcall()
+	CALL @docguard
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc56
+;        return;
+;modstk(newsp,save)
+	AI SP,16
+	RET
+;    ebnewn(name);
+cc56:
+;getloc(sym, off)
+;Char offset
+	LI R4,1
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @ebnewn
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+	AI SP,16
+;modstk(newsp,save)
+	RET
+cc53:	BYTE 32,78,101,119,32,102,105,108,101,58,32,0
+	BYTE 32,97,108,114,101,97,100,121,32,101,120,105
+	BYTE 115,116,115,46,32,32,85,115,101,32,79,112
+	BYTE 101,110,32,105,110,115,116,101,97,100,46,13
+	BYTE 0
+	EVEN
+;/* Save the current document under its current name. */
+;saveone()
+	EVEN
+saveone:
+;{
+;    if(ebvalid == 0) {
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ebvalid,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc58
+;        nodoc();
+;modstk(newsp,save)
+;zcall()
+	CALL @nodoc
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	RET
+;    }
+;    trmclear();
+cc58:
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    puts("Saving ");
+;constant(lval)
+	LI R4,cc57+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(fsname);
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(" ...\n");
+;constant(lval)
+	LI R4,cc57+8
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    if(fssave()) {
+;zcall()
+	CALL @fssave
+;modstk(newsp,save)
+	MOV R4,R4
+	JNE $+6
+	B @cc59
+;        puts("\nSaved and verified: ");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc57+14
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts(fsname);
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts("\n");
+;constant(lval)
+	LI R4,cc57+36
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    }
+;modstk(newsp,save)
+;    else
+;jump(label)
+	B @cc60
+cc59:
+;        puts("\nSave failed.  The document remains in memory.\n");
+;constant(lval)
+	LI R4,cc57+38
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+cc60:
+;    pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc57:	BYTE 83,97,118,105,110,103,32,0,32,46,46,46
+	BYTE 13,0,13,83,97,118,101,100,32,97,110,100
+	BYTE 32,118,101,114,105,102,105,101,100,58,32,0
+	BYTE 13,0,13,83,97,118,101,32,102,97,105,108
+	BYTE 101,100,46,32,32,84,104,101,32,100,111,99
+	BYTE 117,109,101,110,116,32,114,101,109,97,105,110
+	BYTE 115,32,105,110,32,109,101,109,111,114,121,46
+	BYTE 13,0
+;/* Save the current RAM document under another filename. */
+;asone()
+	EVEN
+asone:
+;{
+;    char name[16];
+;    if(ebvalid == 0) {
+;modstk(newsp,save)
+	AI SP,-16
+;getmem(sym)
+	MOV @ebvalid,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc62
+;        nodoc();
+;modstk(newsp,save)
+;zcall()
+	CALL @nodoc
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	AI SP,16
+	RET
+;    }
+;    if(nmprompt(" Save as: ", name) == 0)
+cc62:
+;constant(lval)
+	LI R4,cc61+0
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,3
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @nmprompt
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JEQ $+6
+	B @cc63
+;        return;
+;modstk(newsp,save)
+	AI SP,16
+	RET
+;    if(fsequal(fsname, name)) {
+cc63:
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+;Char offset
+	LI R4,3
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsequal
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JNE $+6
+	B @cc64
+;        saveone();
+;modstk(newsp,save)
+;zcall()
+	CALL @saveone
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	AI SP,16
+	RET
+;    }
+;    if(fsprobe(name)) {
+cc64:
+;getloc(sym, off)
+;Char offset
+	LI R4,1
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsprobe
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc65
+;        if(overask(name) == 0)
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	LI R4,1
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @overask
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JEQ $+6
+	B @cc66
+;            return;
+;modstk(newsp,save)
+	AI SP,16
+	RET
+;    }
+cc66:
+;modstk(newsp,save)
+;    trmclear();
+cc65:
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    puts("Saving as ");
+;constant(lval)
+	LI R4,cc61+11
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(name);
+;getloc(sym, off)
+;Char offset
+	LI R4,1
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(" ...\n");
+;constant(lval)
+	LI R4,cc61+22
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    if(fssavas(name)) {
+;getloc(sym, off)
+;Char offset
+	LI R4,1
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fssavas
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc67
+;        puts("\nSaved and verified: ");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc61+28
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts(fsname);
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts("\n");
+;constant(lval)
+	LI R4,cc61+50
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    }
+;modstk(newsp,save)
+;    else
+;jump(label)
+	B @cc68
+cc67:
+;        puts("\nSave As failed.  Current document name and RAM are unchanged.\n");
+;constant(lval)
+	LI R4,cc61+52
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+cc68:
+;    pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+	AI SP,16
+;modstk(newsp,save)
+	RET
+cc61:	BYTE 32,83,97,118,101,32,97,115,58,32,0,83
+	BYTE 97,118,105,110,103,32,97,115,32,0,32,46
+	BYTE 46,46,13,0,13,83,97,118,101,100,32,97
+	BYTE 110,100,32,118,101,114,105,102,105,101,100,58
+	BYTE 32,0,13,0,13,83,97,118,101,32,65,115
+	BYTE 32,102,97,105,108,101,100,46,32,32,67,117
+	BYTE 114,114,101,110,116,32,100,111,99,117,109,101
+	BYTE 110,116,32,110,97,109,101,32,97,110,100,32
+	BYTE 82,65,77,32,97,114,101,32,117,110,99,104
+	BYTE 97,110,103,101,100,46,13,0
+;/* Run the original FILESTAT analysis against the saved disk copy. */
+;statone()
+	EVEN
+statone:
+;{
+;    int c;
+;    if(ebvalid == 0) {
+;modstk(newsp,save)
+	DECT SP
+;getmem(sym)
+	MOV @ebvalid,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc70
+;        nodoc();
+;modstk(newsp,save)
+;zcall()
+	CALL @nodoc
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    }
+;    if(fsexist == 0) {
+cc70:
+;getmem(sym)
+	MOV @fsexist,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc71
+;        trmclear();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;        puts("Save this new document before running Statistics.\n");
+;constant(lval)
+	LI R4,cc69+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    }
+;    if(ebdirty) {
+cc71:
+;getmem(sym)
+	MOV @ebdirty,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc72
+;        trmclear();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;        puts("This document has unsaved changes.\n\n");
+;constant(lval)
+	LI R4,cc69+51
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts("  S  Save first, then calculate statistics\n");
+;constant(lval)
+	LI R4,cc69+88
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts("  D  Use the last saved disk version\n");
+;constant(lval)
+	LI R4,cc69+132
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts("  C  Cancel\n\n");
+;constant(lval)
+	LI R4,cc69+170
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts(" Choice: ");
+;constant(lval)
+	LI R4,cc69+184
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        while(1) {
+cc73:
+;            c = trmkey();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;            if(c == 'S' || c == 's') {
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,83
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc76
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,115
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc76
+	CLR R4
+;jump(label)
+	B @cc77
+cc76:
+	LI R4,1
+cc77:
+	MOV R4,R4
+	JNE $+6
+	B @cc75
+;                trmclear();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;                puts("Saving ");
+;constant(lval)
+	LI R4,cc69+194
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;                puts(fsname);
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;                puts(" ...\n");
+;constant(lval)
+	LI R4,cc69+202
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;                if(fssave() == 0) {
+;zcall()
+	CALL @fssave
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc78
+;                    puts("\nSave failed; statistics cancelled.\n");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc69+208
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;                    pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;                    return;
+;modstk(newsp,save)
+	INCT SP
+	RET
+;                }
+;                c = 0;
+cc78:
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;                break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc74
+;            }
+;modstk(newsp,save)
+;            if(c == 'D' || c == 'd') {
+cc75:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,68
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc80
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,100
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc80
+	CLR R4
+;jump(label)
+	B @cc81
+cc80:
+	LI R4,1
+cc81:
+	MOV R4,R4
+	JNE $+6
+	B @cc79
+;                c = 0;
+;modstk(newsp,save)
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;                break;
+;modstk(newsp,save)
+;jump(label)
+	B @cc74
+;            }
+;modstk(newsp,save)
+;            if(c == 'C' || c == 'c' || c == 27)
+cc79:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,67
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc83
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,99
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc83
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,27
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc83
+	CLR R4
+;jump(label)
+	B @cc84
+cc83:
+	LI R4,1
+cc84:
+	MOV R4,R4
+	JNE $+6
+	B @cc82
+;                return;
+;modstk(newsp,save)
+	INCT SP
+	RET
+;        }
+cc82:
+;modstk(newsp,save)
+;jump(label)
+	B @cc73
+cc74:
+;    }
+;modstk(newsp,save)
+;    fsreset();
+cc72:
+;zcall()
+	CALL @fsreset
+;modstk(newsp,save)
+;    if(fsopen() == 0) {
+;zcall()
+	CALL @fsopen
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc85
+;        pausekey();
+;modstk(newsp,save)
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    }
+;    runword();
+cc85:
+;zcall()
+	CALL @runword
+;modstk(newsp,save)
+;    if(fsrewind() == 0) {
+;zcall()
+	CALL @fsrewind
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc86
+;        pausekey();
+;modstk(newsp,save)
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    }
+;    runchar();
+cc86:
+;zcall()
+	CALL @runchar
+;modstk(newsp,save)
+;    fsclose();
+;zcall()
+	CALL @fsclose
+;modstk(newsp,save)
+;    trmclear();
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    runrpt();
+;zcall()
+	CALL @runrpt
+;modstk(newsp,save)
+;    pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+cc69:	BYTE 83,97,118,101,32,116,104,105,115,32,110,101
+	BYTE 119,32,100,111,99,117,109,101,110,116,32,98
+	BYTE 101,102,111,114,101,32,114,117,110,110,105,110
+	BYTE 103,32,83,116,97,116,105,115,116,105,99,115
+	BYTE 46,13,0,84,104,105,115,32,100,111,99,117
+	BYTE 109,101,110,116,32,104,97,115,32,117,110,115
+	BYTE 97,118,101,100,32,99,104,97,110,103,101,115
+	BYTE 46,13,13,0,32,32,83,32,32,83,97,118
+	BYTE 101,32,102,105,114,115,116,44,32,116,104,101
+	BYTE 110,32,99,97,108,99,117,108,97,116,101,32
+	BYTE 115,116,97,116,105,115,116,105,99,115,13,0
+	BYTE 32,32,68,32,32,85,115,101,32,116,104,101
+	BYTE 32,108,97,115,116,32,115,97,118,101,100,32
+	BYTE 100,105,115,107,32,118,101,114,115,105,111,110
+	BYTE 13,0,32,32,67,32,32,67,97,110,99,101
+	BYTE 108,13,13,0,32,67,104,111,105,99,101,58
+	BYTE 32,0,83,97,118,105,110,103,32,0,32,46
+	BYTE 46,46,13,0,13,83,97,118,101,32,102,97
+	BYTE 105,108,101,100,59,32,115,116,97,116,105,115
+	BYTE 116,105,99,115,32,99,97,110,99,101,108,108
+	BYTE 101,100,46,13,0
+	EVEN
+;/* Draw one complete Tera Term/ANSI menu frame. */
+;drawmenu()
+	EVEN
+drawmenu:
+;{
+;    trmclear();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    trmrev();
+;zcall()
+	CALL @trmrev
+;modstk(newsp,save)
+;    puts(" FILEEDIT - STEP 7");
+;constant(lval)
+	LI R4,cc87+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    trmesc("[K");
+;constant(lval)
+	LI R4,cc87+19
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;    trmnorm();
+;zcall()
+	CALL @trmnorm
+;modstk(newsp,save)
+;    puts("\n\n");
+;constant(lval)
+	LI R4,cc87+22
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts(" Current file: ");
+;constant(lval)
+	LI R4,cc87+25
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    if(ebvalid) {
+;getmem(sym)
+	MOV @ebvalid,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc88
+;        puts(fsname);
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        if(fsexist == 0)
+;getmem(sym)
+	MOV @fsexist,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc89
+;            puts("  [NEW]");
+;constant(lval)
+	LI R4,cc87+41
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        if(ebdirty)
+cc89:
+;getmem(sym)
+	MOV @ebdirty,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc90
+;            puts("  [MOD]");
+;constant(lval)
+	LI R4,cc87+49
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    }
+cc90:
+;modstk(newsp,save)
+;    else
+;jump(label)
+	B @cc91
+cc88:
+;        puts("(none)");
+;constant(lval)
+	LI R4,cc87+57
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+cc91:
+;    puts("\n\n");
+;constant(lval)
+	LI R4,cc87+64
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("   E  Edit\n");
+;constant(lval)
+	LI R4,cc87+67
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("   O  Open\n");
+;constant(lval)
+	LI R4,cc87+79
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("   N  New\n");
+;constant(lval)
+	LI R4,cc87+91
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("   S  Save\n");
+;constant(lval)
+	LI R4,cc87+102
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("   A  Save As\n");
+;constant(lval)
+	LI R4,cc87+114
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("   V  View\n");
+;constant(lval)
+	LI R4,cc87+129
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("   T  Statistics\n");
+;constant(lval)
+	LI R4,cc87+141
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("   Q  Quit\n\n");
+;constant(lval)
+	LI R4,cc87+159
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    trmrev();
+;zcall()
+	CALL @trmrev
+;modstk(newsp,save)
+;    puts(" E Edit  O Open  N New  S Save  A SaveAs  V View  T Stats  Q Quit");
+;constant(lval)
+	LI R4,cc87+172
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    trmesc("[K");
+;constant(lval)
+	LI R4,cc87+238
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;    trmnorm();
+;zcall()
+	CALL @trmnorm
+;modstk(newsp,save)
+;    puts("\n Command: ");
+;constant(lval)
+	LI R4,cc87+241
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc87:	BYTE 32,70,73,76,69,69,68,73,84,32,45,32
+	BYTE 83,84,69,80,32,55,0,91,75,0,13,13
+	BYTE 0,32,67,117,114,114,101,110,116,32,102,105
+	BYTE 108,101,58,32,0,32,32,91,78,69,87,93
+	BYTE 0,32,32,91,77,79,68,93,0,40,110,111
+	BYTE 110,101,41,0,13,13,0,32,32,32,69,32
+	BYTE 32,69,100,105,116,13,0,32,32,32,79,32
+	BYTE 32,79,112,101,110,13,0,32,32,32,78,32
+	BYTE 32,78,101,119,13,0,32,32,32,83,32,32
+	BYTE 83,97,118,101,13,0,32,32,32,65,32,32
+	BYTE 83,97,118,101,32,65,115,13,0,32,32,32
+	BYTE 86,32,32,86,105,101,119,13,0,32,32,32
+	BYTE 84,32,32,83,116,97,116,105,115,116,105,99
+	BYTE 115,13,0,32,32,32,81,32,32,81,117,105
+	BYTE 116,13,13,0,32,69,32,69,100,105,116,32
+	BYTE 32,79,32,79,112,101,110,32,32,78,32,78
+	BYTE 101,119,32,32,83,32,83,97,118,101,32,32
+	BYTE 65,32,83,97,118,101,65,115,32,32,86,32
+	BYTE 86,105,101,119,32,32,84,32,83,116,97,116
+	BYTE 115,32,32,81,32,81,117,105,116,0,91,75
+	BYTE 0,13,32,67,111,109,109,97,110,100,58,32
+	BYTE 0
+	EVEN
+;/* Persistent editor-menu lifetime. */
+;editmenu()
+	EVEN
+editmenu:
+;{
+;    int c;
+;    int done;
+;    ebnone();
+;modstk(newsp,save)
+	AI SP,-4
+;zcall()
+	CALL @ebnone
+;modstk(newsp,save)
+;    if(fsname[0] != 0) {
+;getmem(sym)
+	MOV @fsname,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc93
+;        trmclear();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;        puts("Opening ");
+;constant(lval)
+	LI R4,cc92+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts(fsname);
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts(" ...\n");
+;constant(lval)
+	LI R4,cc92+9
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        if(ebload() == 0)
+;zcall()
+	CALL @ebload
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc94
+;            pausekey();
+;zcall()
+	CALL @pausekey
+;modstk(newsp,save)
+;    }
+cc94:
+;modstk(newsp,save)
+;    done = 0;
+cc93:
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    while(done == 0) {
+cc95:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R4
+	JEQ $+6
+	B @cc96
+;        drawmenu();
+;modstk(newsp,save)
+;zcall()
+	CALL @drawmenu
+;modstk(newsp,save)
+;        c = trmkey();
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;        if(c == 'E' || c == 'e' || c == '1')
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,69
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc98
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,101
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc98
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,49
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc98
+	CLR R4
+;jump(label)
+	B @cc99
+cc98:
+	LI R4,1
+cc99:
+	MOV R4,R4
+	JNE $+6
+	B @cc97
+;            editone();
+;zcall()
+	CALL @editone
+;modstk(newsp,save)
+;        else if(c == 'O' || c == 'o')
+;jump(label)
+	B @cc100
+cc97:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,79
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc102
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,111
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc102
+	CLR R4
+;jump(label)
+	B @cc103
+cc102:
+	LI R4,1
+cc103:
+	MOV R4,R4
+	JNE $+6
+	B @cc101
+;            openone();
+;zcall()
+	CALL @openone
+;modstk(newsp,save)
+;        else if(c == 'N' || c == 'n')
+;jump(label)
+	B @cc104
+cc101:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,78
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc106
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,110
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc106
+	CLR R4
+;jump(label)
+	B @cc107
+cc106:
+	LI R4,1
+cc107:
+	MOV R4,R4
+	JNE $+6
+	B @cc105
+;            newone();
+;zcall()
+	CALL @newone
+;modstk(newsp,save)
+;        else if(c == 'S' || c == 's')
+;jump(label)
+	B @cc108
+cc105:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,83
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc110
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,115
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc110
+	CLR R4
+;jump(label)
+	B @cc111
+cc110:
+	LI R4,1
+cc111:
+	MOV R4,R4
+	JNE $+6
+	B @cc109
+;            saveone();
+;zcall()
+	CALL @saveone
+;modstk(newsp,save)
+;        else if(c == 'A' || c == 'a')
+;jump(label)
+	B @cc112
+cc109:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,65
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc114
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,97
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc114
+	CLR R4
+;jump(label)
+	B @cc115
+cc114:
+	LI R4,1
+cc115:
+	MOV R4,R4
+	JNE $+6
+	B @cc113
+;            asone();
+;zcall()
+	CALL @asone
+;modstk(newsp,save)
+;        else if(c == 'V' || c == 'v')
+;jump(label)
+	B @cc116
+cc113:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,86
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc118
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,118
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc118
+	CLR R4
+;jump(label)
+	B @cc119
+cc118:
+	LI R4,1
+cc119:
+	MOV R4,R4
+	JNE $+6
+	B @cc117
+;            viewone();
+;zcall()
+	CALL @viewone
+;modstk(newsp,save)
+;        else if(c == 'T' || c == 't')
+;jump(label)
+	B @cc120
+cc117:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,84
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc122
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,116
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc122
+	CLR R4
+;jump(label)
+	B @cc123
+cc122:
+	LI R4,1
+cc123:
+	MOV R4,R4
+	JNE $+6
+	B @cc121
+;            statone();
+;zcall()
+	CALL @statone
+;modstk(newsp,save)
+;        else if(c == 'Q' || c == 'q') {
+;jump(label)
+	B @cc124
+cc121:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,81
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc126
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,113
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc126
+	CLR R4
+;jump(label)
+	B @cc127
+cc126:
+	LI R4,1
+cc127:
+	MOV R4,R4
+	JNE $+6
+	B @cc125
+;            if(docguard())
+;modstk(newsp,save)
+;zcall()
+	CALL @docguard
+;modstk(newsp,save)
+	MOV R4,R4
+	JNE $+6
+	B @cc128
+;                done = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;        }
+cc128:
+;modstk(newsp,save)
+;    }
+cc125:
+cc124:
+cc120:
+cc116:
+cc112:
+cc108:
+cc104:
+cc100:
+;modstk(newsp,save)
+;jump(label)
+	B @cc95
+cc96:
+;    trmclear();
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+	AI SP,4
+;modstk(newsp,save)
+	RET
+cc92:	BYTE 79,112,101,110,105,110,103,32,0,32,46,46
+	BYTE 46,13,0
+	EVEN
+	EXT trmrev
+	EXT runrpt
+	EXT fsname
+	ENT pausekey
+	ENT editmenu
+	EXT ebdirty
+	EXT fssave
+	ENT drawmenu
+	EXT fsopen
+	ENT saveone
+	EXT ebloadn
+	EXT fsclose
+	EXT trmclear
+	ENT openone
+	EXT trmnorm
+	ENT asone
+	EXT puts
+	EXT fsequal
+	EXT runword
+	ENT newone
+	EXT ebvalid
+	EXT editctl
+	EXT fsrewind
+	ENT editone
+	EXT fsexist
+	EXT ebload
+	ENT docguard
+	EXT ebnewn
+	EXT fssavas
+	ENT nodoc
+	EXT ebnone
+	EXT fsreset
+	ENT overask
+	ENT opretry
+	EXT fsprobe
+	EXT viewctl
+	ENT viewone
+	EXT nmprompt
+	EXT trmesc
+	EXT runchar
+	ENT statone
+	EXT trmkey
+	EVEN
+	END
+
+; --- End of Compilation ---

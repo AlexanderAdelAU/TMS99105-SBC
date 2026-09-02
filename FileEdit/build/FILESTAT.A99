@@ -1,0 +1,1090 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R5	EQU 5
+R6	EQU 6
+R7	EQU 7
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	STWP WP 
+	B @_main## ; This calls iolib99 entry point
+;/*
+;** FILESTAT.C -- FileEdit resident program driver (Step 7.1 INT4 RX queue test).
+;**
+;** The original analyser and /L path are preserved.  /V is the read-only
+;** full-screen viewer.  /E now starts a persistent editor shell with Open,
+;** New, Save and Save As; it may be entered with or without an initial file.
+;*/
+;extern puts();
+;extern ovlinit();
+;extern fsset();
+;extern fsreset();
+;extern fsopen();
+;extern fsclose();
+;extern fsrewind();
+;extern fslist();
+;extern runword();
+;extern runchar();
+;extern runrpt();
+;extern viewctl();
+;extern editmenu();
+;extern ebload();
+;extern rxinit();
+;extern rxfini();
+;extern rxtest();
+;extern putnum();
+;extern int rxticks;
+;extern char *fsname;
+;extern int dolst;
+;islist(p)
+	EVEN
+islist:
+;char *p;
+;{
+;modstk(newsp,save)
+;    if(p[0] != '/' && p[0] != '-')
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,47
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc3
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,45
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc3
+	LI R4,1
+;jump(label)
+	B @cc4
+cc3:
+	CLR R4
+cc4:
+	MOV R4,R4
+	JNE $+6
+	B @cc2
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    if(p[1] != 'L' && p[1] != 'l')
+cc2:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,76
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc6
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,108
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc6
+	LI R4,1
+;jump(label)
+	B @cc7
+cc6:
+	CLR R4
+cc7:
+	MOV R4,R4
+	JNE $+6
+	B @cc5
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    if(p[2] != 0)
+cc5:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc8
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    return 1;
+cc8:
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;}
+;isview(p)
+	EVEN
+isview:
+;char *p;
+;{
+;    if(p[0] != '/' && p[0] != '-')
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,47
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc11
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,45
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc11
+	LI R4,1
+;jump(label)
+	B @cc12
+cc11:
+	CLR R4
+cc12:
+	MOV R4,R4
+	JNE $+6
+	B @cc10
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    if(p[1] != 'V' && p[1] != 'v')
+cc10:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,86
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc14
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,118
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc14
+	LI R4,1
+;jump(label)
+	B @cc15
+cc14:
+	CLR R4
+cc15:
+	MOV R4,R4
+	JNE $+6
+	B @cc13
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    if(p[2] != 0)
+cc13:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc16
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    return 1;
+cc16:
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;}
+;isedit(p)
+	EVEN
+isedit:
+;char *p;
+;{
+;    if(p[0] != '/' && p[0] != '-')
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,47
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc19
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,45
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc19
+	LI R4,1
+;jump(label)
+	B @cc20
+cc19:
+	CLR R4
+cc20:
+	MOV R4,R4
+	JNE $+6
+	B @cc18
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    if(p[1] != 'E' && p[1] != 'e')
+cc18:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,69
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc22
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,101
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc22
+	LI R4,1
+;jump(label)
+	B @cc23
+cc22:
+	CLR R4
+cc23:
+	MOV R4,R4
+	JNE $+6
+	B @cc21
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    if(p[2] != 0)
+cc21:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc24
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    return 1;
+cc24:
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;}
+;isint(p)
+	EVEN
+isint:
+;char *p;
+;{
+;    if(p[0] != '/' && p[0] != '-')
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,47
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc27
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,45
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc27
+	LI R4,1
+;jump(label)
+	B @cc28
+cc27:
+	CLR R4
+cc28:
+	MOV R4,R4
+	JNE $+6
+	B @cc26
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    if(p[1] != 'I' && p[1] != 'i')
+cc26:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,73
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc30
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,105
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc30
+	LI R4,1
+;jump(label)
+	B @cc31
+cc30:
+	CLR R4
+cc31:
+	MOV R4,R4
+	JNE $+6
+	B @cc29
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    if(p[2] != 0)
+cc29:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc32
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	RET
+;    return 1;
+cc32:
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;}
+;usage()
+	EVEN
+usage:
+;{
+;    puts("FILEEDIT - overlay text editor with FILESTAT analysis\n");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc33+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("Usage: FILEEDIT filename [/L | /V | /E]\n");
+;constant(lval)
+	LI R4,cc33+55
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("       FILEEDIT /E\n");
+;constant(lval)
+	LI R4,cc33+96
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("       FILEEDIT /I   INT4 timer-hook diagnostic\n");
+;constant(lval)
+	LI R4,cc33+116
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  /L or -L lists the file before analysis.\n");
+;constant(lval)
+	LI R4,cc33+165
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  /V or -V opens the file in the Tera Term viewer.\n");
+;constant(lval)
+	LI R4,cc33+209
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    puts("  /E or -E starts the interactive editor; filename is optional.\n");
+;constant(lval)
+	LI R4,cc33+261
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc33:	BYTE 70,73,76,69,69,68,73,84,32,45,32,111
+	BYTE 118,101,114,108,97,121,32,116,101,120,116,32
+	BYTE 101,100,105,116,111,114,32,119,105,116,104,32
+	BYTE 70,73,76,69,83,84,65,84,32,97,110,97
+	BYTE 108,121,115,105,115,13,0,85,115,97,103,101
+	BYTE 58,32,70,73,76,69,69,68,73,84,32,102
+	BYTE 105,108,101,110,97,109,101,32,91,47,76,32
+	BYTE 124,32,47,86,32,124,32,47,69,93,13,0
+	BYTE 32,32,32,32,32,32,32,70,73,76,69,69
+	BYTE 68,73,84,32,47,69,13,0,32,32,32,32
+	BYTE 32,32,32,70,73,76,69,69,68,73,84,32
+	BYTE 47,73,32,32,32,73,78,84,52,32,116,105
+	BYTE 109,101,114,45,104,111,111,107,32,100,105,97
+	BYTE 103,110,111,115,116,105,99,13,0,32,32,47
+	BYTE 76,32,111,114,32,45,76,32,108,105,115,116
+	BYTE 115,32,116,104,101,32,102,105,108,101,32,98
+	BYTE 101,102,111,114,101,32,97,110,97,108,121,115
+	BYTE 105,115,46,13,0,32,32,47,86,32,111,114
+	BYTE 32,45,86,32,111,112,101,110,115,32,116,104
+	BYTE 101,32,102,105,108,101,32,105,110,32,116,104
+	BYTE 101,32,84,101,114,97,32,84,101,114,109,32
+	BYTE 118,105,101,119,101,114,46,13,0,32,32,47
+	BYTE 69,32,111,114,32,45,69,32,115,116,97,114
+	BYTE 116,115,32,116,104,101,32,105,110,116,101,114
+	BYTE 97,99,116,105,118,101,32,101,100,105,116,111
+	BYTE 114,59,32,102,105,108,101,110,97,109,101,32
+	BYTE 105,115,32,111,112,116,105,111,110,97,108,46
+	BYTE 13,0
+;main(argc, argv)
+	EVEN
+main:
+;int argc;
+;char **argv;
+;{
+;    int doview;
+;    int doedit;
+;    ovlinit();
+;modstk(newsp,save)
+	AI SP,-4
+;zcall()
+	CALL @ovlinit
+;modstk(newsp,save)
+;    fsset("");
+;constant(lval)
+	LI R4,cc34+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsset
+;modstk(newsp,save)
+	INCT SP
+;    /* Step 7.1.3: isolated known-good TMS9902 timer/INT4 hook test. */
+;    if(argc == 2 && isint(argv[1])) {
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc36
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;indirect ccgint
+	MOV *R4,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @isint
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc36
+	LI R4,1
+;jump(label)
+	B @cc37
+cc36:
+	CLR R4
+cc37:
+	MOV R4,R4
+	JNE $+6
+	B @cc35
+;        puts("FILEEDIT INT4 timer-hook test...\n");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc34+1
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts("Waiting for 8 TMS9902 timer interrupts.\n");
+;constant(lval)
+	LI R4,cc34+35
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        rxtest();
+;zcall()
+	CALL @rxtest
+;modstk(newsp,save)
+;        puts("PASS - INT4 hook received ");
+;constant(lval)
+	LI R4,cc34+76
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        putnum(rxticks);
+;getmem(sym)
+	MOV @rxticks,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putnum
+;modstk(newsp,save)
+	INCT SP
+;        puts(" timer interrupts.\n");
+;constant(lval)
+	LI R4,cc34+103
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    /* Step 6 may start directly at the editor with no initial document. */
+;    if(argc == 2 && isedit(argv[1])) {
+cc35:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc39
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;indirect ccgint
+	MOV *R4,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @isedit
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc39
+	LI R4,1
+;jump(label)
+	B @cc40
+cc39:
+	CLR R4
+cc40:
+	MOV R4,R4
+	JNE $+6
+	B @cc38
+;        rxinit();
+;modstk(newsp,save)
+;zcall()
+	CALL @rxinit
+;modstk(newsp,save)
+;        editmenu();
+;zcall()
+	CALL @editmenu
+;modstk(newsp,save)
+;        rxfini();
+;zcall()
+	CALL @rxfini
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    if(argc < 2) {
+cc38:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc41
+;        usage();
+;modstk(newsp,save)
+;zcall()
+	CALL @usage
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    fsset(argv[1]);
+cc41:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;inct()
+	INCT R4
+;indirect ccgint
+	MOV *R4,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsset
+;modstk(newsp,save)
+	INCT SP
+;    dolst = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@dolst
+;    doview = 0;
+	CLR R4
+;put2tos()
+	MOV R4,@2(SP)
+;    doedit = 0;
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    if(argc > 2) {
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc42
+;        if(islist(argv[2]))
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @islist
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc43
+;            dolst = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@dolst
+;        else if(isview(argv[2]))
+;jump(label)
+	B @cc44
+cc43:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @isview
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc45
+;            doview = 1;
+	LI R4,1
+;put2tos()
+	MOV R4,@2(SP)
+;        else if(isedit(argv[2]))
+;jump(label)
+	B @cc46
+cc45:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;const2(val)
+	LI R3,4
+;	zadd()
+	A R3,R4
+;indirect ccgint
+	MOV *R4,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @isedit
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc47
+;            doedit = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;        else {
+;jump(label)
+	B @cc48
+cc47:
+;            usage();
+;modstk(newsp,save)
+;zcall()
+	CALL @usage
+;modstk(newsp,save)
+;            return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;        }
+cc48:
+cc46:
+cc44:
+;    }
+;modstk(newsp,save)
+;    if(argc > 3) {
+cc42:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc49
+;        usage();
+;modstk(newsp,save)
+;zcall()
+	CALL @usage
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    if(doedit) {
+cc49:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc50
+;        rxinit();
+;modstk(newsp,save)
+;zcall()
+	CALL @rxinit
+;modstk(newsp,save)
+;        editmenu();
+;zcall()
+	CALL @editmenu
+;modstk(newsp,save)
+;        rxfini();
+;zcall()
+	CALL @rxfini
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    fsreset();
+cc50:
+;zcall()
+	CALL @fsreset
+;modstk(newsp,save)
+;    if(doview) {
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc51
+;        if(ebload() == 0)
+;modstk(newsp,save)
+;zcall()
+	CALL @ebload
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc52
+;            return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;        rxinit();
+cc52:
+;zcall()
+	CALL @rxinit
+;modstk(newsp,save)
+;        viewctl();
+;zcall()
+	CALL @viewctl
+;modstk(newsp,save)
+;        rxfini();
+;zcall()
+	CALL @rxfini
+;modstk(newsp,save)
+;        return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    if(fsopen() == 0)
+cc51:
+;zcall()
+	CALL @fsopen
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc53
+;        return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(dolst) {
+cc53:
+;getmem(sym)
+	MOV @dolst,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc54
+;        fslist();
+;modstk(newsp,save)
+;zcall()
+	CALL @fslist
+;modstk(newsp,save)
+;        if(fsrewind() == 0)
+;zcall()
+	CALL @fsrewind
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc55
+;            return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+cc55:
+;modstk(newsp,save)
+;    runword();
+cc54:
+;zcall()
+	CALL @runword
+;modstk(newsp,save)
+;    if(fsrewind() == 0)
+;zcall()
+	CALL @fsrewind
+;modstk(newsp,save)
+	MOV R4,R4
+	JEQ $+6
+	B @cc56
+;        return;
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    runchar();
+cc56:
+;zcall()
+	CALL @runchar
+;modstk(newsp,save)
+;    fsclose();
+;zcall()
+	CALL @fsclose
+;modstk(newsp,save)
+;    runrpt();
+;zcall()
+	CALL @runrpt
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+	AI SP,4
+;modstk(newsp,save)
+	RET
+cc34:	BYTE 0,70,73,76,69,69,68,73,84,32,73,78
+	BYTE 84,52,32,116,105,109,101,114,45,104,111,111
+	BYTE 107,32,116,101,115,116,46,46,46,13,0,87
+	BYTE 97,105,116,105,110,103,32,102,111,114,32,56
+	BYTE 32,84,77,83,57,57,48,50,32,116,105,109
+	BYTE 101,114,32,105,110,116,101,114,114,117,112,116
+	BYTE 115,46,13,0,80,65,83,83,32,45,32,73
+	BYTE 78,84,52,32,104,111,111,107,32,114,101,99
+	BYTE 101,105,118,101,100,32,0,32,116,105,109,101
+	BYTE 114,32,105,110,116,101,114,114,117,112,116,115
+	BYTE 46,13,0
+	EVEN
+	EXT rxinit
+	EXT runrpt
+	EXT fsname
+	ENT main
+	EXT editmenu
+	EXT fslist
+	EXT rxtest
+	ENT isedit
+	EXT fsopen
+	EXT fsclose
+	ENT islist
+	EXT puts
+	EXT runword
+	EXT dolst
+	EXT rxticks
+	ENT isview
+	EXT fsrewind
+	EXT fsset
+	EXT ebload
+	ENT isint
+	EXT fsreset
+	EXT ovlinit
+	EXT viewctl
+	ENT usage
+	EXT rxfini
+	EXT runchar
+	EXT putnum
+	EVEN
+	END
+
+; --- End of Compilation ---

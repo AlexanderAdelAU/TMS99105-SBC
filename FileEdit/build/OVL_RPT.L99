@@ -1,0 +1,306 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0005                  R5	EQU 5
+  0006                  R6	EQU 6
+  0007                  R7	EQU 7
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM OVL_RPT
+                        ;/* OVL_RPT.C -- FILESTAT formatted-report overlay. */
+                        ;#asm
+  8000                          AORG    08000H
+                        ;extern puts();
+                        ;extern putnum();
+                        ;extern putstat();
+                        ;extern int nline;
+                        ;extern int nword;
+                        ;extern int nchar;
+                        ;extern int nalpha;
+                        ;extern int ndigit;
+                        ;extern int nspace;
+                        ;extern int npunct;
+                        ;extern int longlen;
+                        ;extern char longword[];
+                        ;extern char *fsname;
+                        ;report()
+  8000                  	EVEN
+                        report:
+                        ;{
+                        ;modstk(newsp,save)
+                        ;    puts("\nFILESTAT report\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  8000   0204 814A      	LI R4,cc1+0
+  8004   064A           	DECT SP
+  8006   C684           	MOV R4,*SP
+                        ;zcall()
+  8008   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  800C   05CA           	INCT SP
+                        ;    puts("File: ");
+                        ;constant(lval)
+  800E   0204 815C      	LI R4,cc1+18
+  8012   064A           	DECT SP
+  8014   C684           	MOV R4,*SP
+                        ;zcall()
+  8016   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  801A   05CA           	INCT SP
+                        ;    puts(fsname);
+                        ;getmem(sym)
+  801C   C120 0000      	MOV @fsname,R4
+  8020   064A           	DECT SP
+  8022   C684           	MOV R4,*SP
+                        ;zcall()
+  8024   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  8028   05CA           	INCT SP
+                        ;    puts("\n");
+                        ;constant(lval)
+  802A   0204 8163      	LI R4,cc1+25
+  802E   064A           	DECT SP
+  8030   C684           	MOV R4,*SP
+                        ;zcall()
+  8032   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  8036   05CA           	INCT SP
+                        ;    putstat("Lines", nline);
+                        ;constant(lval)
+  8038   0204 8165      	LI R4,cc1+27
+  803C   064A           	DECT SP
+  803E   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  8040   C120 0000      	MOV @nline,R4
+  8044   064A           	DECT SP
+  8046   C684           	MOV R4,*SP
+                        ;zcall()
+  8048   2DA0 0000      	CALL @putstat
+                        ;modstk(newsp,save)
+  804C   022A 0004      	AI SP,4
+                        ;    putstat("Words", nword);
+                        ;constant(lval)
+  8050   0204 816B      	LI R4,cc1+33
+  8054   064A           	DECT SP
+  8056   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  8058   C120 0000      	MOV @nword,R4
+  805C   064A           	DECT SP
+  805E   C684           	MOV R4,*SP
+                        ;zcall()
+  8060   2DA0 0000      	CALL @putstat
+                        ;modstk(newsp,save)
+  8064   022A 0004      	AI SP,4
+                        ;    putstat("Characters", nchar);
+                        ;constant(lval)
+  8068   0204 8171      	LI R4,cc1+39
+  806C   064A           	DECT SP
+  806E   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  8070   C120 0000      	MOV @nchar,R4
+  8074   064A           	DECT SP
+  8076   C684           	MOV R4,*SP
+                        ;zcall()
+  8078   2DA0 0000      	CALL @putstat
+                        ;modstk(newsp,save)
+  807C   022A 0004      	AI SP,4
+                        ;    putstat("Letters", nalpha);
+                        ;constant(lval)
+  8080   0204 817C      	LI R4,cc1+50
+  8084   064A           	DECT SP
+  8086   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  8088   C120 0000      	MOV @nalpha,R4
+  808C   064A           	DECT SP
+  808E   C684           	MOV R4,*SP
+                        ;zcall()
+  8090   2DA0 0000      	CALL @putstat
+                        ;modstk(newsp,save)
+  8094   022A 0004      	AI SP,4
+                        ;    putstat("Digits", ndigit);
+                        ;constant(lval)
+  8098   0204 8184      	LI R4,cc1+58
+  809C   064A           	DECT SP
+  809E   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  80A0   C120 0000      	MOV @ndigit,R4
+  80A4   064A           	DECT SP
+  80A6   C684           	MOV R4,*SP
+                        ;zcall()
+  80A8   2DA0 0000      	CALL @putstat
+                        ;modstk(newsp,save)
+  80AC   022A 0004      	AI SP,4
+                        ;    putstat("Whitespace", nspace);
+                        ;constant(lval)
+  80B0   0204 818B      	LI R4,cc1+65
+  80B4   064A           	DECT SP
+  80B6   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  80B8   C120 0000      	MOV @nspace,R4
+  80BC   064A           	DECT SP
+  80BE   C684           	MOV R4,*SP
+                        ;zcall()
+  80C0   2DA0 0000      	CALL @putstat
+                        ;modstk(newsp,save)
+  80C4   022A 0004      	AI SP,4
+                        ;    putstat("Punctuation", npunct);
+                        ;constant(lval)
+  80C8   0204 8196      	LI R4,cc1+76
+  80CC   064A           	DECT SP
+  80CE   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  80D0   C120 0000      	MOV @npunct,R4
+  80D4   064A           	DECT SP
+  80D6   C684           	MOV R4,*SP
+                        ;zcall()
+  80D8   2DA0 0000      	CALL @putstat
+                        ;modstk(newsp,save)
+  80DC   022A 0004      	AI SP,4
+                        ;    puts("Longest word: ");
+                        ;constant(lval)
+  80E0   0204 81A2      	LI R4,cc1+88
+  80E4   064A           	DECT SP
+  80E6   C684           	MOV R4,*SP
+                        ;zcall()
+  80E8   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  80EC   05CA           	INCT SP
+                        ;    if(longword[0])
+                        ;address(ptr)
+  80EE   0204 0000      	LI R4,longword
+                        ;indirect ccgchar
+  80F2   D114           	MOVB *R4,R4
+  80F4   0884           	SRA R4,8
+  80F6   C104           	MOV R4,R4
+  80F8   1602           	JNE $+6
+  80FA   0460 8110      	B @cc2
+                        ;        puts(longword);
+                        ;address(ptr)
+  80FE   0204 0000      	LI R4,longword
+  8102   064A           	DECT SP
+  8104   C684           	MOV R4,*SP
+                        ;zcall()
+  8106   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  810A   05CA           	INCT SP
+                        ;    else
+                        ;jump(label)
+  810C   0460 811E      	B @cc3
+                        cc2:
+                        ;        puts("(none)");
+                        ;constant(lval)
+  8110   0204 81B1      	LI R4,cc1+103
+  8114   064A           	DECT SP
+  8116   C684           	MOV R4,*SP
+                        ;zcall()
+  8118   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  811C   05CA           	INCT SP
+                        cc3:
+                        ;    puts(" (");
+                        ;constant(lval)
+  811E   0204 81B8      	LI R4,cc1+110
+  8122   064A           	DECT SP
+  8124   C684           	MOV R4,*SP
+                        ;zcall()
+  8126   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  812A   05CA           	INCT SP
+                        ;    putnum(longlen);
+                        ;getmem(sym)
+  812C   C120 0000      	MOV @longlen,R4
+  8130   064A           	DECT SP
+  8132   C684           	MOV R4,*SP
+                        ;zcall()
+  8134   2DA0 0000      	CALL @putnum
+                        ;modstk(newsp,save)
+  8138   05CA           	INCT SP
+                        ;    puts(")\n");
+                        ;constant(lval)
+  813A   0204 81BB      	LI R4,cc1+113
+  813E   064A           	DECT SP
+  8140   C684           	MOV R4,*SP
+                        ;zcall()
+  8142   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  8146   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  8148   2DC0           	RET
+  814A   0D46 494C      cc1:	BYTE 13,70,73,76,69,83,84,65,84,32,114,101
+  814E   4553 5441      
+  8152   5420 7265      
+  8156   706F 7274      	BYTE 112,111,114,116,13,0,70,105,108,101,58,32
+  815A   0D00 4669      
+  815E   6C65 3A20      
+  8162   000D 004C      	BYTE 0,13,0,76,105,110,101,115,0,87,111,114
+  8166   696E 6573      
+  816A   0057 6F72      
+  816E   6473 0043      	BYTE 100,115,0,67,104,97,114,97,99,116,101,114
+  8172   6861 7261      
+  8176   6374 6572      
+  817A   7300 4C65      	BYTE 115,0,76,101,116,116,101,114,115,0,68,105
+  817E   7474 6572      
+  8182   7300 4469      
+  8186   6769 7473      	BYTE 103,105,116,115,0,87,104,105,116,101,115,112
+  818A   0057 6869      
+  818E   7465 7370      
+  8192   6163 6500      	BYTE 97,99,101,0,80,117,110,99,116,117,97,116
+  8196   5075 6E63      
+  819A   7475 6174      
+  819E   696F 6E00      	BYTE 105,111,110,0,76,111,110,103,101,115,116,32
+  81A2   4C6F 6E67      
+  81A6   6573 7420      
+  81AA   776F 7264      	BYTE 119,111,114,100,58,32,0,40,110,111,110,101
+  81AE   3A20 0028      
+  81B2   6E6F 6E65      
+  81B6   2900 2028      	BYTE 41,0,32,40,0,41,13,0
+  81BA   0029 0D00      
+                        	EXT nalpha
+                        	EXT fsname
+                        	EXT ndigit
+                        	EXT putstat
+                        	EXT longword
+                        	EXT puts
+                        	EXT nchar
+                        	EXT nspace
+                        	ENT report
+                        	EXT nline
+                        	EXT npunct
+                        	EXT nword
+                        	EXT longlen
+                        	EXT putnum
+  81BE                  	EVEN
+  81BE                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R5                0005   R6                0006   R7                0007   
+R8                0008   R9                0009   RET               2DC0'  SL                0009   
+SP                000A   WHEX              2E80'  WP                000D   WRITE             2F00'  
+cc1               814A'  cc2               8110'  cc3               811E'  fsname            0000*  
+longlen           0000*  longword          0000*  nalpha            0000*  nchar             0000*  
+ndigit            0000*  nline             0000*  npunct            0000*  nspace            0000*  
+nword             0000*  putnum            0000*  puts              0000*  putstat           0000*  
+report            8000'  
+

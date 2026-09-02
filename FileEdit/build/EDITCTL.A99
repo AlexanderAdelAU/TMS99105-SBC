@@ -1,0 +1,423 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R5	EQU 5
+R6	EQU 6
+R7	EQU 7
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM EDITCTL
+;/*
+;** EDITCTL.C -- small resident editor lifetime controller (Step 6.3).
+;**
+;** Persistent cursor/document state stays resident.  The heavier key parser,
+;** navigation and editing operations now live in OVL_EDIT.  OVL_VIEW renders
+;** frames and OVL_EDIT processes exactly one key, so neither overlay ever calls
+;** another overlay while it is mapped.
+;*/
+;extern runview();
+;extern runedit();
+;extern trmshow();
+;extern trmhide();
+;extern trmclear();
+;extern ebseek();
+;extern ebedln();
+;extern ebindex();
+;extern int vmode;
+;extern int vleft;
+;extern int eblen;
+;extern char *ebbase;
+;int etop;
+etop:	BSS 2
+;int eline;
+eline:	BSS 2
+;int ecol;
+ecol:	BSS 2
+;int ewant;
+ewant:	BSS 2
+;int etotal;
+etotal:	BSS 2
+;int eleft;
+eleft:	BSS 2
+;int edflag;
+edflag:	BSS 2
+;/*
+;** Shared visual-column helpers must be resident because both OVL_VIEW and
+;** OVL_EDIT use them.  Keeping them here also prevents an overlay-to-overlay
+;** call through the common >8000 window.
+;*/
+;edxcol()
+	EVEN
+edxcol:
+;{
+;modstk(newsp,save)
+;    int i;
+;    int end;
+;    int c;
+;    int col;
+;    i = ebindex(eline, eleft);
+;modstk(newsp,save)
+	AI SP,-8
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @eline,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @eleft,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @ebindex
+;modstk(newsp,save)
+	AI SP,4
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    end = ebindex(eline, ecol);
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @eline,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @ecol,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @ebindex
+;modstk(newsp,save)
+	AI SP,4
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    col = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;    while(i < end && i < eblen) {
+cc2:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc4
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc4
+	LI R4,1
+;jump(label)
+	B @cc5
+cc4:
+	CLR R4
+cc5:
+	MOV R4,R4
+	JNE $+6
+	B @cc3
+;        c = ebbase[i];
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;put2tos()
+	MOV R4,@2(SP)
+;        if(c == 9)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,9
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc6
+;            col = col + (4 - ((col - 1) % 4));
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;	dec()
+	DEC R4
+	MOV R4,R3 ;optimised push/pop
+	LI R4,4
+	BL @_ccdiv##
+;swap()
+	MOV R3,R0;;
+	MOV R4,R3
+	MOV R0,R4
+;const2(val)
+	LI R3,4
+;zsub()
+	S R4,R3
+	MOV R3,R4
+	MOV *SP+,R3
+;	zadd()
+	A R3,R4
+;puttos()
+	MOV R4,*SP
+;        else
+;jump(label)
+	B @cc7
+cc6:
+;            col = col + 1;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;puttos()
+	MOV R4,*SP
+cc7:
+;        i = i + 1;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+;inc()
+	INC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc2
+cc3:
+;    return col;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;modstk(newsp,save)
+	AI SP,8
+	RET
+;}
+;edvcol()
+	EVEN
+edvcol:
+;{
+;    int save;
+;    int col;
+;    save = eleft;
+;modstk(newsp,save)
+	AI SP,-4
+;getmem(sym)
+	MOV @eleft,R4
+;put2tos()
+	MOV R4,@2(SP)
+;    eleft = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@eleft
+;    col = edxcol();
+;zcall()
+	CALL @edxcol
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;    eleft = save;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@eleft
+;    return col;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;}
+;editctl()
+	EVEN
+editctl:
+;{
+;    int redraw;
+;    etotal = ebedln();
+;modstk(newsp,save)
+	DECT SP
+;zcall()
+	CALL @ebedln
+;modstk(newsp,save)
+;putmem(sym)
+	MOV R4,@etotal
+;    etop = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@etop
+;    eline = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@eline
+;    ecol = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@ecol
+;    ewant = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@ewant
+;    eleft = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@eleft
+;    vleft = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@vleft
+;    vmode = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@vmode
+;    edflag = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@edflag
+;    redraw = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;    trmclear();
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    trmhide();
+;zcall()
+	CALL @trmhide
+;modstk(newsp,save)
+;    while(edflag != 2) {
+cc10:
+;getmem(sym)
+	MOV @edflag,R4
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc11
+;        if(redraw) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc12
+;            ebseek(etop);
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @etop,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @ebseek
+;modstk(newsp,save)
+	INCT SP
+;            runview();
+;zcall()
+	CALL @runview
+;modstk(newsp,save)
+;        }
+;modstk(newsp,save)
+;        /* OVL_EDIT waits for and processes exactly one key. */
+;        runedit();
+cc12:
+;zcall()
+	CALL @runedit
+;modstk(newsp,save)
+;        redraw = edflag;
+;getmem(sym)
+	MOV @edflag,R4
+;puttos()
+	MOV R4,*SP
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc10
+cc11:
+;    trmshow();
+;zcall()
+	CALL @trmshow
+;modstk(newsp,save)
+;    trmclear();
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    vmode = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@vmode
+;}
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+	EXT trmhide
+	ENT etop
+	EXT eblen
+	EXT ebindex
+	ENT etotal
+	EXT trmclear
+	ENT eleft
+	EXT runview
+	ENT eline
+	EXT trmshow
+	EXT ebbase
+	EXT ebedln
+	ENT editctl
+	ENT ewant
+	ENT edflag
+	EXT ebseek
+	ENT edvcol
+	ENT edxcol
+	EXT vleft
+	EXT vmode
+	EXT runedit
+	ENT ecol
+	EVEN
+	END
+
+; --- End of Compilation ---

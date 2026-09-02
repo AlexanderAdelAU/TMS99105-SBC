@@ -1,0 +1,1358 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R5	EQU 5
+R6	EQU 6
+R7	EQU 7
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM OVL_VIEW
+;/*
+;** OVL_VIEW.C -- FileEdit Step 7 shared one-frame renderer with line gutter.
+;**
+;** OVL_VIEW remains the fourth/last code overlay in segment 8.  It renders
+;** either the read-only viewer (vmode=0) or the in-memory editor
+;** (vmode=1) from the persistent EDITBUF arena at >9000-BFFF.
+;**
+;** It owns no lifetime and reads no keyboard input.
+;*/
+;#asm
+        AORG    08000H
+;extern putchar();
+;extern puts();
+;extern trmesc();
+;extern trmrev();
+;extern trmnorm();
+;extern trmpos();
+;extern trmclrln();
+;extern trmnum();
+;extern trmrule();
+;extern char *fsname;
+;extern char *ebbase;
+;extern int eblen;
+;extern int eblines;
+;extern int vidx;
+;extern int vtop;
+;extern int vtotal;
+;extern int vmode;
+;extern int vleft;
+;extern int etop;
+;extern int eline;
+;extern int ecol;
+;extern int etotal;
+;extern int ebdirty;
+;extern edvcol();
+;extern int fsexist;
+;/* Editor gutter: five right-aligned digits plus one separator space. */
+;vlnum(n)
+	EVEN
+vlnum:
+;int n;
+;{
+;modstk(newsp,save)
+;    if(n < 10000) putchar(' ');
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10000
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc2
+	LI R4,32
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    if(n < 1000) putchar(' ');
+cc2:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1000
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc3
+	LI R4,32
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    if(n < 100) putchar(' ');
+cc3:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,100
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc4
+	LI R4,32
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    if(n < 10) putchar(' ');
+cc4:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc5
+	LI R4,32
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    trmnum(n);
+cc5:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmnum
+;modstk(newsp,save)
+	INCT SP
+;    putchar(' ');
+	LI R4,32
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/* Render one logical buffer line on one terminal row. */
+;vline(row, lno)
+	EVEN
+vline:
+;int row, lno;
+;{
+;    int c;
+;    int col;
+;    int n;
+;    int skip;
+;    int lim;
+;    trmpos(row, 1);
+;modstk(newsp,save)
+	AI SP,-10
+;getloc(sym, off)
+	MOV @14(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+	LI R4,1
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmpos
+;modstk(newsp,save)
+	AI SP,4
+;    trmclrln();
+;zcall()
+	CALL @trmclrln
+;modstk(newsp,save)
+;    /* The gutter is display-only.  No line-number bytes enter EDITBUF. */
+;    if(vmode) {
+;getmem(sym)
+	MOV @vmode,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc7
+;        if(lno <= etotal)
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	MOV @etotal,R4
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc8
+;            vlnum(lno);
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @vlnum
+;modstk(newsp,save)
+	INCT SP
+;        else
+;jump(label)
+	B @cc9
+cc8:
+;            puts("      ");
+;constant(lval)
+	LI R4,cc6+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+cc9:
+;        lim = 73;             /* columns 7..79 belong to document text */
+	LI R4,73
+;puttos()
+	MOV R4,*SP
+;    }
+;modstk(newsp,save)
+;    else
+;jump(label)
+	B @cc10
+cc7:
+;        lim = 79;
+	LI R4,79
+;puttos()
+	MOV R4,*SP
+cc10:
+;    if(vidx >= eblen) {
+;getmem(sym)
+	MOV @vidx,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc11
+;        /* The editor exposes one final empty logical line after a trailing CR. */
+;        if(vmode && lno <= etotal)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @vmode,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc13
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	MOV @etotal,R4
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc13
+	LI R4,1
+;jump(label)
+	B @cc14
+cc13:
+	CLR R4
+cc14:
+	MOV R4,R4
+	JNE $+6
+	B @cc12
+;            return 1;
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,10
+	RET
+;        return 0;
+cc12:
+	CLR R4
+;modstk(newsp,save)
+	AI SP,10
+	RET
+;    }
+;    /* Horizontal offset is reserved for the editor's later long-line step. */
+;    skip = 0;
+cc11:
+	CLR R4
+;put2tos()
+	MOV R4,@2(SP)
+;    while(skip < vleft && vidx < eblen && ebbase[vidx] != 13) {
+cc15:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	MOV @vleft,R4
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc17
+;getmem(sym)
+	MOV @vidx,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc17
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @vidx,R4
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc17
+	LI R4,1
+;jump(label)
+	B @cc18
+cc17:
+	CLR R4
+cc18:
+	MOV R4,R4
+	JNE $+6
+	B @cc16
+;        vidx = vidx + 1;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @vidx,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@vidx
+;        skip = skip + 1;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;put2tos()
+	MOV R4,@2(SP)
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc15
+cc16:
+;    if(vidx >= eblen)
+;getmem(sym)
+	MOV @vidx,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc19
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,10
+	RET
+;    c = ebbase[vidx];
+cc19:
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @vidx,R4
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    vidx = vidx + 1;
+;getmem(sym)
+	MOV @vidx,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@vidx
+;    col = 1;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+;    while(c != 13) {
+cc20:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc21
+;        if(c == 9) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,9
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc22
+;            n = 4 - ((col - 1) % 4);
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+;	dec()
+	DEC R4
+	MOV R4,R3 ;optimised push/pop
+	LI R4,4
+	BL @_ccdiv##
+;swap()
+	MOV R3,R0;;
+	MOV R4,R3
+	MOV R0,R4
+;const2(val)
+	LI R3,4
+;zsub()
+	S R4,R3
+	MOV R3,R4
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;            while(n > 0) {
+cc23:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;gt0(label)
+	MOV R4,R4
+	JGT $+6
+	B @cc24
+;                if(col <= lim)
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc25
+;                    putchar(' ');
+	LI R4,32
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;                col = col + 1;
+cc25:
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+;inc()
+	INC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;                n = n - 1;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load/expr
+;	dec()
+	DEC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;            }
+;modstk(newsp,save)
+;jump(label)
+	B @cc23
+cc24:
+;        }
+;modstk(newsp,save)
+;        else if(c == 10) {
+;jump(label)
+	B @cc26
+cc22:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc27
+;            /* Ignore a bare LF if one reaches the normalized buffer. */
+;        }
+;modstk(newsp,save)
+;        else if(c >= 32 && c < 127) {
+;jump(label)
+	B @cc28
+cc27:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,32
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc30
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,127
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc30
+	LI R4,1
+;jump(label)
+	B @cc31
+cc30:
+	CLR R4
+cc31:
+	MOV R4,R4
+	JNE $+6
+	B @cc29
+;            if(col <= lim)
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc32
+;                putchar(c);
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;            col = col + 1;
+cc32:
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+;inc()
+	INC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;        }
+;modstk(newsp,save)
+;        else {
+;jump(label)
+	B @cc33
+cc29:
+;            if(col <= lim)
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc34
+;                putchar('.');
+	LI R4,46
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;            col = col + 1;
+cc34:
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+;inc()
+	INC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;        }
+;modstk(newsp,save)
+cc33:
+cc28:
+cc26:
+;        if(vidx >= eblen)
+;getmem(sym)
+	MOV @vidx,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc35
+;            return 1;
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,10
+	RET
+;        c = ebbase[vidx];
+cc35:
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @vidx,R4
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;        vidx = vidx + 1;
+;getmem(sym)
+	MOV @vidx,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@vidx
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc20
+cc21:
+;    return 1;
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,10
+	RET
+;}
+cc6:	BYTE 32,32,32,32,32,32,0
+	EVEN
+;viewfile()
+	EVEN
+viewfile:
+;{
+;    int row;
+;    int shown;
+;    int last;
+;    int top;
+;    int total;
+;    if(vmode) {
+;modstk(newsp,save)
+	AI SP,-10
+;getmem(sym)
+	MOV @vmode,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc37
+;        top = etop;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @etop,R4
+;put2tos()
+	MOV R4,@2(SP)
+;        total = etotal;
+;getmem(sym)
+	MOV @etotal,R4
+;puttos()
+	MOV R4,*SP
+;    }
+;modstk(newsp,save)
+;    else {
+;jump(label)
+	B @cc38
+cc37:
+;        top = vtop;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @vtop,R4
+;put2tos()
+	MOV R4,@2(SP)
+;        total = vtotal;
+;getmem(sym)
+	MOV @vtotal,R4
+;puttos()
+	MOV R4,*SP
+;    }
+;modstk(newsp,save)
+cc38:
+;    trmpos(1, 1);
+	LI R4,1
+	DECT SP
+	MOV R4,*SP
+	LI R4,1
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmpos
+;modstk(newsp,save)
+	AI SP,4
+;    trmrev();
+;zcall()
+	CALL @trmrev
+;modstk(newsp,save)
+;    if(vmode)
+;getmem(sym)
+	MOV @vmode,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc39
+;        puts(" FILEEDIT  ");
+;constant(lval)
+	LI R4,cc36+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    else
+;jump(label)
+	B @cc40
+cc39:
+;        puts(" FILEEDIT VIEWER  ");
+;constant(lval)
+	LI R4,cc36+12
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+cc40:
+;    puts(fsname);
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    if(vmode) {
+;getmem(sym)
+	MOV @vmode,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc41
+;        if(fsexist == 0)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @fsexist,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc42
+;            puts("  [NEW]");
+;constant(lval)
+	LI R4,cc36+31
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        if(ebdirty)
+cc42:
+;getmem(sym)
+	MOV @ebdirty,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc43
+;            puts("  [MOD]");
+;constant(lval)
+	LI R4,cc36+39
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    }
+cc43:
+;modstk(newsp,save)
+;    puts(" ");
+cc41:
+;constant(lval)
+	LI R4,cc36+47
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    trmesc("[K");
+;constant(lval)
+	LI R4,cc36+49
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;    trmnorm();
+;zcall()
+	CALL @trmnorm
+;modstk(newsp,save)
+;    trmrule(2);
+	LI R4,2
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmrule
+;modstk(newsp,save)
+	INCT SP
+;    row = 3;
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;putstk - int
+	MOV R4,*R3
+;    shown = 0;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;    while(row <= 22) {
+cc44:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,22
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc45
+;        if(vline(row, top + shown) == 0)
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @vline
+;modstk(newsp,save)
+	AI SP,4
+	MOV R4,R4
+	JEQ $+6
+	B @cc46
+;            row = 23;
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	LI R4,23
+;putstk - int
+	MOV R4,*R3
+;        else {
+;jump(label)
+	B @cc47
+cc46:
+;            shown = shown + 1;
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+;inc()
+	INC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;            row = row + 1;
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load/expr
+;inc()
+	INC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;        }
+;modstk(newsp,save)
+cc47:
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc44
+cc45:
+;    row = 3 + shown;
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+;const2(val)
+	LI R3,3
+;	zadd()
+	A R3,R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;    while(row <= 22) {
+cc48:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,22
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc49
+;        trmpos(row, 1);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+	LI R4,1
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmpos
+;modstk(newsp,save)
+	AI SP,4
+;        trmclrln();
+;zcall()
+	CALL @trmclrln
+;modstk(newsp,save)
+;        row = row + 1;
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load/expr
+;inc()
+	INC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc48
+cc49:
+;    last = top + shown - 1;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+;	dec()
+	DEC R4
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    if(shown == 0)
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R4
+	JEQ $+6
+	B @cc50
+;        last = top;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;    if(last > total)
+cc50:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc51
+;        last = total;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;    trmrule(23);
+cc51:
+	LI R4,23
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmrule
+;modstk(newsp,save)
+	INCT SP
+;    trmpos(24, 1);
+	LI R4,24
+	DECT SP
+	MOV R4,*SP
+	LI R4,1
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmpos
+;modstk(newsp,save)
+	AI SP,4
+;    trmrev();
+;zcall()
+	CALL @trmrev
+;modstk(newsp,save)
+;    if(vmode) {
+;getmem(sym)
+	MOV @vmode,R4
+	MOV R4,R4
+	JNE $+6
+	B @cc52
+;        puts(" Ln ");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc36+52
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        trmnum(eline);
+;getmem(sym)
+	MOV @eline,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmnum
+;modstk(newsp,save)
+	INCT SP
+;        puts("/");
+;constant(lval)
+	LI R4,cc36+57
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        trmnum(etotal);
+;getmem(sym)
+	MOV @etotal,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmnum
+;modstk(newsp,save)
+	INCT SP
+;        puts(" Col ");
+;constant(lval)
+	LI R4,cc36+59
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        trmnum(edvcol());
+;zcall()
+	CALL @edvcol
+;modstk(newsp,save)
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmnum
+;modstk(newsp,save)
+	INCT SP
+;        trmpos(24, 27);
+	LI R4,24
+	DECT SP
+	MOV R4,*SP
+	LI R4,27
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmpos
+;modstk(newsp,save)
+	AI SP,4
+;        puts("Arrows Home End PgUp/PgDn Tab  ^O Save  ^X Menu ");
+;constant(lval)
+	LI R4,cc36+65
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    }
+;modstk(newsp,save)
+;    else {
+;jump(label)
+	B @cc53
+cc52:
+;        if(vtotal == 0)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @vtotal,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc54
+;            puts(" Empty file  ");
+;constant(lval)
+	LI R4,cc36+114
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        else {
+;jump(label)
+	B @cc55
+cc54:
+;            puts(" Lines ");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc36+128
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;            trmnum(vtop);
+;getmem(sym)
+	MOV @vtop,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmnum
+;modstk(newsp,save)
+	INCT SP
+;            puts("-");
+;constant(lval)
+	LI R4,cc36+136
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;            trmnum(last);
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmnum
+;modstk(newsp,save)
+	INCT SP
+;            puts(" of ");
+;constant(lval)
+	LI R4,cc36+138
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;            trmnum(vtotal);
+;getmem(sym)
+	MOV @vtotal,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmnum
+;modstk(newsp,save)
+	INCT SP
+;            puts("  ");
+;constant(lval)
+	LI R4,cc36+143
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        }
+;modstk(newsp,save)
+cc55:
+;        puts("Up/Down  PgUp/PgDn  Home  Q quit ");
+;constant(lval)
+	LI R4,cc36+146
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    }
+;modstk(newsp,save)
+cc53:
+;    trmesc("[K");
+;constant(lval)
+	LI R4,cc36+180
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;    trmnorm();
+;zcall()
+	CALL @trmnorm
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+	AI SP,10
+;modstk(newsp,save)
+	RET
+cc36:	BYTE 32,70,73,76,69,69,68,73,84,32,32,0
+	BYTE 32,70,73,76,69,69,68,73,84,32,86,73
+	BYTE 69,87,69,82,32,32,0,32,32,91,78,69
+	BYTE 87,93,0,32,32,91,77,79,68,93,0,32
+	BYTE 0,91,75,0,32,76,110,32,0,47,0,32
+	BYTE 67,111,108,32,0,65,114,114,111,119,115,32
+	BYTE 72,111,109,101,32,69,110,100,32,80,103,85
+	BYTE 112,47,80,103,68,110,32,84,97,98,32,32
+	BYTE 94,79,32,83,97,118,101,32,32,94,88,32
+	BYTE 77,101,110,117,32,0,32,69,109,112,116,121
+	BYTE 32,102,105,108,101,32,32,0,32,76,105,110
+	BYTE 101,115,32,0,45,0,32,111,102,32,0,32
+	BYTE 32,0,85,112,47,68,111,119,110,32,32,80
+	BYTE 103,85,112,47,80,103,68,110,32,32,72,111
+	BYTE 109,101,32,32,81,32,113,117,105,116,32,0
+	BYTE 91,75,0
+	EVEN
+	EXT trmrev
+	EXT trmnum
+	EXT trmpos
+	EXT fsname
+	EXT ebdirty
+	EXT etop
+	EXT eblen
+	EXT etotal
+	EXT vtotal
+	EXT eblines
+	EXT trmnorm
+	EXT vidx
+	EXT eline
+	EXT ebbase
+	EXT puts
+	EXT trmrule
+	EXT trmclrln
+	EXT vtop
+	EXT fsexist
+	ENT viewfile
+	EXT edvcol
+	EXT vleft
+	ENT vline
+	EXT vmode
+	EXT putchar
+	ENT vlnum
+	EXT trmesc
+	EXT ecol
+	EVEN
+	END
+
+; --- End of Compilation ---

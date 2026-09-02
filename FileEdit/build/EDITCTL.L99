@@ -1,0 +1,437 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0005                  R5	EQU 5
+  0006                  R6	EQU 6
+  0007                  R7	EQU 7
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM EDITCTL
+                        ;/*
+                        ;** EDITCTL.C -- small resident editor lifetime controller (Step 6.3).
+                        ;**
+                        ;** Persistent cursor/document state stays resident.  The heavier key parser,
+                        ;** navigation and editing operations now live in OVL_EDIT.  OVL_VIEW renders
+                        ;** frames and OVL_EDIT processes exactly one key, so neither overlay ever calls
+                        ;** another overlay while it is mapped.
+                        ;*/
+                        ;extern runview();
+                        ;extern runedit();
+                        ;extern trmshow();
+                        ;extern trmhide();
+                        ;extern trmclear();
+                        ;extern ebseek();
+                        ;extern ebedln();
+                        ;extern ebindex();
+                        ;extern int vmode;
+                        ;extern int vleft;
+                        ;extern int eblen;
+                        ;extern char *ebbase;
+                        ;int etop;
+  0000                  etop:	BSS 2
+                        ;int eline;
+  0002                  eline:	BSS 2
+                        ;int ecol;
+  0004                  ecol:	BSS 2
+                        ;int ewant;
+  0006                  ewant:	BSS 2
+                        ;int etotal;
+  0008                  etotal:	BSS 2
+                        ;int eleft;
+  000A                  eleft:	BSS 2
+                        ;int edflag;
+  000C                  edflag:	BSS 2
+                        ;/*
+                        ;** Shared visual-column helpers must be resident because both OVL_VIEW and
+                        ;** OVL_EDIT use them.  Keeping them here also prevents an overlay-to-overlay
+                        ;** call through the common >8000 window.
+                        ;*/
+                        ;edxcol()
+  000E                  	EVEN
+                        edxcol:
+                        ;{
+                        ;modstk(newsp,save)
+                        ;    int i;
+                        ;    int end;
+                        ;    int c;
+                        ;    int col;
+                        ;    i = ebindex(eline, eleft);
+                        ;modstk(newsp,save)
+  000E   022A FFF8      	AI SP,-8
+                        ;getloc(sym, off)
+  0012   0204 0006      	LI R4,6
+  0016   A10A           	A SP,R4
+  0018   064A           	DECT SP
+  001A   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  001C   C120 0002      	MOV @eline,R4
+  0020   064A           	DECT SP
+  0022   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0024   C120 000A      	MOV @eleft,R4
+  0028   064A           	DECT SP
+  002A   C684           	MOV R4,*SP
+                        ;zcall()
+  002C   2DA0 0000      	CALL @ebindex
+                        ;modstk(newsp,save)
+  0030   022A 0004      	AI SP,4
+  0034   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0036   C4C4           	MOV R4,*R3
+                        ;    end = ebindex(eline, ecol);
+                        ;getloc(sym, off)
+  0038   0204 0004      	LI R4,4
+  003C   A10A           	A SP,R4
+  003E   064A           	DECT SP
+  0040   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  0042   C120 0002      	MOV @eline,R4
+  0046   064A           	DECT SP
+  0048   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  004A   C120 0004      	MOV @ecol,R4
+  004E   064A           	DECT SP
+  0050   C684           	MOV R4,*SP
+                        ;zcall()
+  0052   2DA0 0000      	CALL @ebindex
+                        ;modstk(newsp,save)
+  0056   022A 0004      	AI SP,4
+  005A   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  005C   C4C4           	MOV R4,*R3
+                        ;    col = 1;
+  005E   0204 0001      	LI R4,1
+                        ;puttos()
+  0062   C684           	MOV R4,*SP
+                        ;    while(i < end && i < eblen) {
+                        cc2:
+                        ;getloc(sym, off)
+  0064   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  0068   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  006A   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+  006E   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;_cclt
+  0070   8103           	C R3,R4 ;optimised
+  0072   1102           	JLT $+6
+  0074   0460 0092      	B @cc4
+                        ;getloc(sym, off)
+  0078   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  007C   C0C4           	MOV R4,R3 ;optimised push/pop
+  007E   C120 0000      	MOV @eblen,R4
+                        ;_cclt
+  0082   8103           	C R3,R4 ;optimised
+  0084   1102           	JLT $+6
+  0086   0460 0092      	B @cc4
+  008A   0204 0001      	LI R4,1
+                        ;jump(label)
+  008E   0460 0094      	B @cc5
+                        cc4:
+  0092   04C4           	CLR R4
+                        cc5:
+  0094   C104           	MOV R4,R4
+  0096   1602           	JNE $+6
+  0098   0460 010E      	B @cc3
+                        ;        c = ebbase[i];
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  009C   C120 0000      	MOV @ebbase,R4
+  00A0   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  00A2   C12A 0006      	MOV @6(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  00A6   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  00A8   A103           	A R3,R4
+                        ;indirect ccgchar
+  00AA   D114           	MOVB *R4,R4
+  00AC   0884           	SRA R4,8
+                        ;put2tos()
+  00AE   CA84 0002      	MOV R4,@2(SP)
+                        ;        if(c == 9)
+                        ;getloc(sym, off)
+  00B2   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  00B6   C0C4           	MOV R4,R3 ;optimised push/pop
+  00B8   0204 0009      	LI R4,9
+                        ;_cceq
+  00BC   8103           	C R3,R4 ;optimised
+  00BE   1302           	JEQ $+6
+  00C0   0460 00F2      	B @cc6
+                        ;            col = col + (4 - ((col - 1) % 4));
+                        ;getloc(sym, off)
+  00C4   C11A           	MOV *SP,R4 ;optimised load
+  00C6   064A           	DECT SP
+  00C8   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  00CA   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;	dec()
+  00CE   0604           	DEC R4
+  00D0   C0C4           	MOV R4,R3 ;optimised push/pop
+  00D2   0204 0004      	LI R4,4
+  00D6   06A0 0000      	BL @_ccdiv##
+                        ;swap()
+  00DA   C003           	MOV R3,R0;;
+  00DC   C0C4           	MOV R4,R3
+  00DE   C100           	MOV R0,R4
+                        ;const2(val)
+  00E0   0203 0004      	LI R3,4
+                        ;zsub()
+  00E4   60C4           	S R4,R3
+  00E6   C103           	MOV R3,R4
+  00E8   C0FA           	MOV *SP+,R3
+                        ;	zadd()
+  00EA   A103           	A R3,R4
+                        ;puttos()
+  00EC   C684           	MOV R4,*SP
+                        ;        else
+                        ;jump(label)
+  00EE   0460 00F8      	B @cc7
+                        cc6:
+                        ;            col = col + 1;
+                        ;getloc(sym, off)
+  00F2   C11A           	MOV *SP,R4 ;optimised load
+                        ;inc()
+  00F4   0584           	INC R4
+                        ;puttos()
+  00F6   C684           	MOV R4,*SP
+                        cc7:
+                        ;        i = i + 1;
+                        ;getloc(sym, off)
+  00F8   0204 0006      	LI R4,6
+  00FC   A10A           	A SP,R4
+  00FE   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0100   C12A 0006      	MOV @6(SP),R4 ;optimised load/expr
+                        ;inc()
+  0104   0584           	INC R4
+  0106   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;putstk - int
+  0108   C4C4           	MOV R4,*R3
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  010A   0460 0064      	B @cc2
+                        cc3:
+                        ;    return col;
+                        ;getloc(sym, off)
+  010E   C11A           	MOV *SP,R4 ;optimised load
+                        ;modstk(newsp,save)
+  0110   022A 0008      	AI SP,8
+  0114   2DC0           	RET
+                        ;}
+                        ;edvcol()
+  0116                  	EVEN
+                        edvcol:
+                        ;{
+                        ;    int save;
+                        ;    int col;
+                        ;    save = eleft;
+                        ;modstk(newsp,save)
+  0116   022A FFFC      	AI SP,-4
+                        ;getmem(sym)
+  011A   C120 000A      	MOV @eleft,R4
+                        ;put2tos()
+  011E   CA84 0002      	MOV R4,@2(SP)
+                        ;    eleft = 0;
+  0122   04C4           	CLR R4
+                        ;putmem(sym)
+  0124   C804 000A      	MOV R4,@eleft
+                        ;    col = edxcol();
+                        ;zcall()
+  0128   2DA0 000E      	CALL @edxcol
+                        ;modstk(newsp,save)
+                        ;puttos()
+  012C   C684           	MOV R4,*SP
+                        ;    eleft = save;
+                        ;getloc(sym, off)
+  012E   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;putmem(sym)
+  0132   C804 000A      	MOV R4,@eleft
+                        ;    return col;
+                        ;getloc(sym, off)
+  0136   C11A           	MOV *SP,R4 ;optimised load
+                        ;modstk(newsp,save)
+  0138   022A 0004      	AI SP,4
+  013C   2DC0           	RET
+                        ;}
+                        ;editctl()
+  013E                  	EVEN
+                        editctl:
+                        ;{
+                        ;    int redraw;
+                        ;    etotal = ebedln();
+                        ;modstk(newsp,save)
+  013E   064A           	DECT SP
+                        ;zcall()
+  0140   2DA0 0000      	CALL @ebedln
+                        ;modstk(newsp,save)
+                        ;putmem(sym)
+  0144   C804 0008      	MOV R4,@etotal
+                        ;    etop = 1;
+  0148   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  014C   C804 0000      	MOV R4,@etop
+                        ;    eline = 1;
+  0150   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  0154   C804 0002      	MOV R4,@eline
+                        ;    ecol = 0;
+  0158   04C4           	CLR R4
+                        ;putmem(sym)
+  015A   C804 0004      	MOV R4,@ecol
+                        ;    ewant = 0;
+  015E   04C4           	CLR R4
+                        ;putmem(sym)
+  0160   C804 0006      	MOV R4,@ewant
+                        ;    eleft = 0;
+  0164   04C4           	CLR R4
+                        ;putmem(sym)
+  0166   C804 000A      	MOV R4,@eleft
+                        ;    vleft = 0;
+  016A   04C4           	CLR R4
+                        ;putmem(sym)
+  016C   C804 0000      	MOV R4,@vleft
+                        ;    vmode = 1;
+  0170   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  0174   C804 0000      	MOV R4,@vmode
+                        ;    edflag = 1;
+  0178   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  017C   C804 000C      	MOV R4,@edflag
+                        ;    redraw = 1;
+  0180   0204 0001      	LI R4,1
+                        ;puttos()
+  0184   C684           	MOV R4,*SP
+                        ;    trmclear();
+                        ;zcall()
+  0186   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    trmhide();
+                        ;zcall()
+  018A   2DA0 0000      	CALL @trmhide
+                        ;modstk(newsp,save)
+                        ;    while(edflag != 2) {
+                        cc10:
+                        ;getmem(sym)
+  018E   C120 000C      	MOV @edflag,R4
+  0192   C0C4           	MOV R4,R3 ;optimised push/pop
+  0194   0204 0002      	LI R4,2
+                        ;_ccne
+  0198   8103           	C R3,R4 ;optimised
+  019A   1602           	JNE $+6
+  019C   0460 01CA      	B @cc11
+                        ;        if(redraw) {
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  01A0   C11A           	MOV *SP,R4 ;optimised load
+  01A2   C104           	MOV R4,R4
+  01A4   1602           	JNE $+6
+  01A6   0460 01BC      	B @cc12
+                        ;            ebseek(etop);
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  01AA   C120 0000      	MOV @etop,R4
+  01AE   064A           	DECT SP
+  01B0   C684           	MOV R4,*SP
+                        ;zcall()
+  01B2   2DA0 0000      	CALL @ebseek
+                        ;modstk(newsp,save)
+  01B6   05CA           	INCT SP
+                        ;            runview();
+                        ;zcall()
+  01B8   2DA0 0000      	CALL @runview
+                        ;modstk(newsp,save)
+                        ;        }
+                        ;modstk(newsp,save)
+                        ;        /* OVL_EDIT waits for and processes exactly one key. */
+                        ;        runedit();
+                        cc12:
+                        ;zcall()
+  01BC   2DA0 0000      	CALL @runedit
+                        ;modstk(newsp,save)
+                        ;        redraw = edflag;
+                        ;getmem(sym)
+  01C0   C120 000C      	MOV @edflag,R4
+                        ;puttos()
+  01C4   C684           	MOV R4,*SP
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  01C6   0460 018E      	B @cc10
+                        cc11:
+                        ;    trmshow();
+                        ;zcall()
+  01CA   2DA0 0000      	CALL @trmshow
+                        ;modstk(newsp,save)
+                        ;    trmclear();
+                        ;zcall()
+  01CE   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    vmode = 0;
+  01D2   04C4           	CLR R4
+                        ;putmem(sym)
+  01D4   C804 0000      	MOV R4,@vmode
+                        ;}
+                        ;modstk(newsp,save)
+  01D8   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  01DA   2DC0           	RET
+                        	EXT trmhide
+                        	ENT etop
+                        	EXT eblen
+                        	EXT ebindex
+                        	ENT etotal
+                        	EXT trmclear
+                        	ENT eleft
+                        	EXT runview
+                        	ENT eline
+                        	EXT trmshow
+                        	EXT ebbase
+                        	EXT ebedln
+                        	ENT editctl
+                        	ENT ewant
+                        	ENT edflag
+                        	EXT ebseek
+                        	ENT edvcol
+                        	ENT edxcol
+                        	EXT vleft
+                        	EXT vmode
+                        	EXT runedit
+                        	ENT ecol
+  01DC                  	EVEN
+  01DC                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R5                0005   R6                0006   R7                0007   
+R8                0008   R9                0009   RET               2DC0'  SL                0009   
+SP                000A   WHEX              2E80'  WP                000D   WRITE             2F00'  
+_ccdiv            0000*  cc10              018E'  cc11              01CA'  cc12              01BC'  
+cc2               0064'  cc3               010E'  cc4               0092'  cc5               0094'  
+cc6               00F2'  cc7               00F8'  ebbase            0000*  ebedln            0000*  
+ebindex           0000*  eblen             0000*  ebseek            0000*  ecol              0004'  
+edflag            000C'  editctl           013E'  edvcol            0116'  edxcol            000E'  
+eleft             000A'  eline             0002'  etop              0000'  etotal            0008'  
+ewant             0006'  runedit           0000*  runview           0000*  trmclear          0000*  
+trmhide           0000*  trmshow           0000*  vleft             0000*  vmode             0000*  
+

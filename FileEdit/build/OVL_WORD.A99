@@ -1,0 +1,478 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R5	EQU 5
+R6	EQU 6
+R7	EQU 7
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM OVL_WORD
+;/*
+;** OVL_WORD.C -- FILESTAT word and line analysis overlay.
+;**
+;** This module runs at >8000.  Results needed after it returns are written to
+;** resident FILEDATA storage.
+;*/
+;#asm
+        AORG    08000H
+;extern fsgetc();
+;extern noteword();
+;extern int nline;
+;extern int nword;
+;isword(c)
+	EVEN
+isword:
+;int c;
+;{
+;modstk(newsp,save)
+;    if(c >= 'A' && c <= 'Z')
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,65
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc3
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,90
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc3
+	LI R4,1
+;jump(label)
+	B @cc4
+cc3:
+	CLR R4
+cc4:
+	MOV R4,R4
+	JNE $+6
+	B @cc2
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;    if(c >= 'a' && c <= 'z')
+cc2:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,97
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc6
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,122
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc6
+	LI R4,1
+;jump(label)
+	B @cc7
+cc6:
+	CLR R4
+cc7:
+	MOV R4,R4
+	JNE $+6
+	B @cc5
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;    if(c >= '0' && c <= '9')
+cc5:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,48
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc9
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,57
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc9
+	LI R4,1
+;jump(label)
+	B @cc10
+cc9:
+	CLR R4
+cc10:
+	MOV R4,R4
+	JNE $+6
+	B @cc8
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;    if(c == '_')
+cc8:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,95
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc11
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;    return 0;
+cc11:
+	CLR R4
+;modstk(newsp,save)
+	RET
+;}
+;wordscan()
+	EVEN
+wordscan:
+;{
+;    char word[32];
+;    int c;
+;    int inword;
+;    int len;
+;    int saw;
+;    int lastnl;
+;    inword = 0;
+;modstk(newsp,save)
+	AI SP,-42
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;    len = 0;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;    saw = 0;
+	CLR R4
+;put2tos()
+	MOV R4,@2(SP)
+;    lastnl = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;    c = fsgetc();
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsgetc
+;modstk(newsp,save)
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    while(c != -1) {
+cc13:
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	SETO R4
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc14
+;        saw = 1;
+;modstk(newsp,save)
+	LI R4,1
+;put2tos()
+	MOV R4,@2(SP)
+;        if(c == '\n') {
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc15
+;            nline = nline + 1;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @nline,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@nline
+;            lastnl = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;        }
+;modstk(newsp,save)
+;        else
+;jump(label)
+	B @cc16
+cc15:
+;            lastnl = 0;
+	CLR R4
+;puttos()
+	MOV R4,*SP
+cc16:
+;        if(isword(c)) {
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @isword
+;modstk(newsp,save)
+	INCT SP
+	MOV R4,R4
+	JNE $+6
+	B @cc17
+;            if(inword == 0) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R4
+	JEQ $+6
+	B @cc18
+;                inword = 1;
+;modstk(newsp,save)
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+;                len = 0;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;                nword = nword + 1;
+;getmem(sym)
+	MOV @nword,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@nword
+;            }
+;modstk(newsp,save)
+;            if(len < 31)
+cc18:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,31
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc19
+;                word[len] = c;
+;getloc(sym, off)
+;Char offset
+	LI R4,11
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;            len = len + 1;
+cc19:
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load/expr
+;inc()
+	INC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;        }
+;modstk(newsp,save)
+;        else if(inword) {
+;jump(label)
+	B @cc20
+cc17:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc21
+;            noteword(word, len);
+;modstk(newsp,save)
+;getloc(sym, off)
+;Char offset
+	LI R4,11
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @noteword
+;modstk(newsp,save)
+	AI SP,4
+;            inword = 0;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;            len = 0;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;        }
+;modstk(newsp,save)
+;        c = fsgetc();
+cc21:
+cc20:
+;getloc(sym, off)
+	LI R4,8
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsgetc
+;modstk(newsp,save)
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc13
+cc14:
+;    if(inword)
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc22
+;        noteword(word, len);
+;getloc(sym, off)
+;Char offset
+	LI R4,11
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @noteword
+;modstk(newsp,save)
+	AI SP,4
+;    /* Count a final line that has no terminating newline. */
+;    if(saw && lastnl == 0)
+cc22:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R4
+	JNE $+6
+	B @cc24
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc24
+	LI R4,1
+;jump(label)
+	B @cc25
+cc24:
+	CLR R4
+cc25:
+	MOV R4,R4
+	JNE $+6
+	B @cc23
+;        nline = nline + 1;
+;getmem(sym)
+	MOV @nline,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@nline
+;}
+cc23:
+;modstk(newsp,save)
+	AI SP,42
+;modstk(newsp,save)
+	RET
+	EXT fsgetc
+	ENT wordscan
+	EXT noteword
+	ENT isword
+	EXT nline
+	EXT nword
+	EVEN
+	END
+
+; --- End of Compilation ---

@@ -1,0 +1,272 @@
+                        ;*******************************************************************
+                        ;  OVLMGR.A99 - Overlay Manager (consolidated, single manager)
+                        ;  TMS99105 SBC
+                        ;
+                        ;  USAGE (unchanged from the caller's point of view):
+                        ;    LI   R1,OVL_DECL   ; overlay ID
+                        ;    CALL @OVLMGR       ; swap if needed (preserves R1-R11,R13-R15)
+                        ;    CALL @OVL_FUNCn    ; call into that overlay's fixed slot
+                        ;*******************************************************************
+                        
+                        ;*******************************************************************
+                        ;  MEMORY GEOMETRY
+                        ;
+                        ;    >1000-7FFF   resident / common (page 0)          28K
+                        ;    >8000-BFFF   window A -- FOUR pages, segments 8..11
+                        ;    >C000        shell / monitor
+                        ;
+                        ;  There is no window B any more. Codegen was never swappable: its
+                        ;  page was mapped once at startup and stayed mapped for the life of
+                        ;  the run, which is resident behaviour wearing an overlay's clothes.
+                        ;  Making it genuinely resident released a whole segment to window A
+                        ;  and retired OVL_TESTB and R_CODEON with it.
+                        ;
+                        ;  MAP_WIN_BASE (>80C0) is a CRU address and is unrelated to memory
+                        ;  segment 8. It does not move.
+                        ;*******************************************************************
+                        
+                        ;*******************************************************************
+                        ;  MULTI-PAGE OVERLAYS
+                        ;
+                        ;  The CCC3 expression engine measured 13656 bytes. A 4KB page cannot
+                        ;  hold it; nor could the 8KB pair this file previously supported.
+                        ;  Window A is therefore FOUR 4KB pages mapped SIMULTANEOUSLY, giving
+                        ;  one contiguous 16K window >8000-BFFF. Every page of an overlay is
+                        ;  addressable at once, so calls between them are ordinary direct
+                        ;  calls -- no trampoline, no save-stack frame. The pages of ONE
+                        ;  overlay are co-resident; DIFFERENT overlays remain mutually
+                        ;  exclusive and a direct call between those is still never legal.
+                        ;
+                        ;  OVL_TABLE rows are now TEN words -- five (segment,page) pairs --
+                        ;  so index = ID*20. A pair whose SEGMENT is zero ends the list, so
+                        ;  a single-page overlay costs one iteration and behaves exactly as
+                        ;  before. Pages are stored EXPLICITLY rather than assumed
+                        ;  consecutive: an adjacency rule would be an unenforced invariant a
+                        ;  later page reshuffle could break silently. DREL checks that the
+                        ;  SEGMENTS are adjacent, because they form one virtual window, but
+                        ;  the physical pages may be anything.
+                        ;*******************************************************************
+                        
+                        ;--- CONSTANTS ---
+                        	DXOP	PSEL,2
+                        	DXOP	PSEL_DIS,0
+                        	DXOP	PSEL_EN,1
+                        	DXOP	CALL,6
+                        	DXOP	RET,7
+                        	DXOP	WHEX,10
+                        	DXOP	MESG,14
+                        
+  0000                  R0	EQU	0
+  0001                  R1	EQU	1
+  0002                  R2	EQU	2
+  0003                  R3	EQU	3
+  0004                  R4	EQU	4
+  0005                  R5	EQU	5
+  0006                  R6	EQU	6
+  0007                  R7	EQU	7
+  0008                  R8	EQU	8
+  0009                  R9	EQU	9
+  000A                  R10	EQU	10
+  000B                  R11	EQU	11
+  000C                  R12	EQU	12
+  000D                  WP	EQU	13
+  000D                  R13	EQU	13
+  000E                  R14	EQU	14
+  000F                  R15	EQU	15
+  000A                  SP	EQU	10
+                        
+  80C0                  MAP_WIN_BASE:	EQU	080C0H
+  0002                  BYTEWIDE:	EQU	2		;CRU BITS PER MAP REGISTER (unchanged)
+                        
+  0010                  WINA_SEG2:	EQU	16		;window A's FIRST segment * 2
+                        					;(segment 8 -> >8000). Only used to
+                        					;decide when CUR_WINA_ID is updated.
+  0014                  OVLROW:		EQU	20		;bytes per OVL_TABLE row (5 pairs)
+                        
+                        ;--- overlay class IDs and the generated table ---
+                        	INCL	"OVLADDR.INC"
+                        ;------------------------------------------------------------
+                        ;  OVLADDR.INC
+                        ;
+                        ;  AUTO-GENERATED BY DREL - DO NOT EDIT
+                        ;
+                        ;  Generated from overlay .R99 EPOINT records.
+                        ;  Overlay IDs and aliases came from the DREL command line.
+                        ;
+                        ;  Source descriptors:
+                        ;      OVL_WORD.R99=2,1,wordscan:O_WORD
+                        ;      OVL_CHAR.R99=3,2,charscan:O_CHAR
+                        ;      OVL_RPT.R99=4,3,report:O_RPT
+                        ;      OVL_VIEW.R99=5,4,viewfile:O_VIEW
+                        ;      OVL_EDIT.R99=6,5,editstep:O_EDIT
+                        ;------------------------------------------------------------
+                        
+  80DC                  O_WORD     EQU 80DCH	; wordscan
+  8000                  O_CHAR     EQU 8000H	; charscan
+  8000                  O_RPT      EQU 8000H	; report
+  83EC                  O_VIEW     EQU 83ECH	; viewfile
+  8BF0                  O_EDIT     EQU 8BF0H	; editstep
+                        	INCL	"OVLTABLE.INC"
+                        ;------------------------------------------------------------
+                        ;  OVLTABLE.INC
+                        ;
+                        ;  AUTO-GENERATED BY DREL - DO NOT EDIT
+                        ;
+                        ;  Overlay ID -> up to 5 (segment,page) pairs.
+                        ;  10 words per row, so byte offset = ID*20.
+                        ;  A zero segment terminates the row.
+                        ;------------------------------------------------------------
+                        OVL_TABLE:
+  0000   0000 0000      	WORD	0,0,0,0,0,0,0,0,0,0	;unused ID 0
+  0004   0000 0000      
+  0008   0000 0000      
+  000C   0000 0000      
+  0010   0000 0000      
+  0014   0008 0002      	WORD	8,2,0,0,0,0,0,0,0,0	;ID 1
+  0018   0000 0000      
+  001C   0000 0000      
+  0020   0000 0000      
+  0024   0000 0000      
+  0028   0008 0003      	WORD	8,3,0,0,0,0,0,0,0,0	;ID 2
+  002C   0000 0000      
+  0030   0000 0000      
+  0034   0000 0000      
+  0038   0000 0000      
+  003C   0008 0004      	WORD	8,4,0,0,0,0,0,0,0,0	;ID 3
+  0040   0000 0000      
+  0044   0000 0000      
+  0048   0000 0000      
+  004C   0000 0000      
+  0050   0008 0005      	WORD	8,5,0,0,0,0,0,0,0,0	;ID 4
+  0054   0000 0000      
+  0058   0000 0000      
+  005C   0000 0000      
+  0060   0000 0000      
+  0064   0008 0006      	WORD	8,6,0,0,0,0,0,0,0,0	;ID 5
+  0068   0000 0000      
+  006C   0000 0000      
+  0070   0000 0000      
+  0074   0000 0000      
+                        
+                        ;--- PER-SEGMENT "currently loaded page" tracker, indexed segment*2 ---
+                        CURRENT_PAGE:
+  0078   0000 0000      	WORD	0,0,0,0,0,0,0,0
+  007C   0000 0000      
+  0080   0000 0000      
+  0084   0000 0000      
+  0088   0000 0000      	WORD	0,0,0,0,0,0,0,0
+  008C   0000 0000      
+  0090   0000 0000      
+  0094   0000 0000      
+                        
+                        ;--- PER-SEGMENT "currently active overlay ID" tracker ---
+                        CURRENT_ID:
+  0098   0000 0000      	WORD	0,0,0,0,0,0,0,0
+  009C   0000 0000      
+  00A0   0000 0000      
+  00A4   0000 0000      
+  00A8   0000 0000      	WORD	0,0,0,0,0,0,0,0
+  00AC   0000 0000      
+  00B0   0000 0000      
+  00B4   0000 0000      
+                        
+                        ;--- the window-A overlay ID, as a real data word OVLSTUBS can EXT.
+                        ;    For a multi-page overlay this is the ID of the whole set: one ID
+                        ;    identifies every page of it. ---
+                        CUR_WINA_ID:
+  00B8   0000           	WORD	0
+                        
+                        ;*******************************************************************
+                        ;  OVLMGR - Overlay Manager
+                        ;
+                        ;  Entry: R1 = overlay ID
+                        ;  Modifies: R0, R2, R3, R5, R12
+                        ;  Preserves: R1, R4, R6-R11, R13-R15  (R1 unchanged on return)
+                        ;
+                        ;  Walks the row's (segment,page) pairs until a zero segment ends the
+                        ;  list, mapping each. The CRU-write sequence inside the loop is the
+                        ;  proven one, unchanged; only the surrounding iteration is new.
+                        ;*******************************************************************
+                        OVLMGR:
+  00BA   C0C1           	MOV	R1,R3
+  00BC   0A43           	SLA	R3,4			;ID*16
+  00BE   C141           	MOV	R1,R5
+  00C0   0A25           	SLA	R5,2			;ID*4
+  00C2   A0C5           	A	R5,R3			;R3 = ID*20, the row's byte offset
+  00C4   04C5           	CLR	R5			;R5 = byte offset of the pair
+                        
+                        ;--- one (segment,page) pair per iteration; segment 0 ends the row ---
+                        OVLM_PAIR:
+  00C6   C083           	MOV	R3,R2
+  00C8   A085           	A	R5,R2			;R2 -> this pair
+  00CA   C022 0002      	MOV	@OVL_TABLE+2(R2),R0	;R0 = physical page. Read the page
+                        					;BEFORE overwriting R2 with the
+                        					;segment, so only one index is live.
+  00CE   C0A2 0000      	MOV	@OVL_TABLE(R2),R2	;R2 = segment (source is fetched
+                        					;before the destination is written,
+                        					;so reusing R2 is safe here)
+  00D2   1319           	JEQ	OVLMGR_RET		;segment 0 -> no more pages
+  00D4   0A12           	SLA	R2,1			;R2 = segment*2, which is both the
+                        					;table word-offset and the CRU scale
+                        
+  00D6   C881 0098      	MOV	R1,@CURRENT_ID(R2)	;record the ID for this segment
+  00DA   0282 0010      	CI	R2,WINA_SEG2		;window A's FIRST segment?
+  00DE   1602           	JNE	OVLM_P1
+  00E0   C801 00B8      	MOV	R1,@CUR_WINA_ID		;the EXT-able word OVLSTUBS reads
+                        OVLM_P1:
+  00E4   8880 0078      	C	R0,@CURRENT_PAGE(R2)
+  00E8   1309           	JEQ	OVLM_NEXT		;this page is already here
+                        
+  00EA   C880 0078      	MOV	R0,@CURRENT_PAGE(R2)
+                        
+                        	;--- PROVEN CRU-WRITE SEQUENCE, UNCHANGED ---
+  00EE   0A80           	SLA	R0,8			;page into high byte for LDCR
+  00F0   2C00           	PSEL_DIS
+  00F2   020C 80C0      	LI	R12,MAP_WIN_BASE
+  00F6   A302           	A	R2,R12			;R12 = MAP_WIN_BASE + segment*2
+  00F8   3080           	LDCR	R0,BYTEWIDE
+  00FA   2C40           	PSEL_EN
+                        
+                        OVLM_NEXT:
+  00FC   0225 0004      	AI	R5,4			;next pair
+  0100   0285 0014      	CI	R5,OVLROW
+  0104   16E0           	JNE	OVLM_PAIR
+                        
+                        OVLMGR_RET:
+  0106   2DC0           	RET
+                        
+                        
+                        ;*******************************************************************
+                        ;  OVLMGR_INIT - Initialise overlay manager. Call once at startup.
+                        ;*******************************************************************
+                        OVLMGR_INIT:
+  0108   0200 0078      	LI	R0,CURRENT_PAGE
+  010C   0201 0020      	LI	R1,32			;16 words CURRENT_PAGE + 16 words
+                        					;CURRENT_ID, contiguous
+                        OVLMGR_INITL:
+  0110   04F0           	CLR	*R0+
+  0112   0601           	DEC	R1
+  0114   16FD           	JNE	OVLMGR_INITL
+  0116   2C40           	PSEL_EN
+  0118   2DC0           	RET
+                        
+                        	ENT	OVLMGR
+                        	ENT	OVLMGR_INIT
+                        	ENT	CUR_WINA_ID
+                        
+  011A                  	END
+
+No error(s).
+BYTEWIDE          0002   CALL              2D80'  CURRENT_ID        0098'  CURRENT_PAGE      0078'  
+CUR_WINA_ID       00B8'  MAP_WIN_BASE      80C0   MESG              2F80'  OVLMGR            00BA'  
+OVLMGR_INIT       0108'  OVLMGR_INITL      0110'  OVLMGR_RET        0106'  OVLM_NEXT         00FC'  
+OVLM_P1           00E4'  OVLM_PAIR         00C6'  OVLROW            0014   OVL_TABLE         0000'  
+O_CHAR            8000   O_EDIT            8BF0   O_RPT             8000   O_VIEW            83EC   
+O_WORD            80DC   PSEL              2C80'  PSEL_DIS          2C00'  PSEL_EN           2C40'  
+R0                0000   R1                0001   R10               000A   R11               000B   
+R12               000C   R13               000D   R14               000E   R15               000F   
+R2                0002   R3                0003   R4                0004   R5                0005   
+R6                0006   R7                0007   R8                0008   R9                0009   
+RET               2DC0'  SP                000A   WHEX              2E80'  WINA_SEG2         0010   
+WP                000D   
+

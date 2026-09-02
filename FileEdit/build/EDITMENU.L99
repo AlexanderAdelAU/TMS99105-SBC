@@ -1,0 +1,2851 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0005                  R5	EQU 5
+  0006                  R6	EQU 6
+  0007                  R7	EQU 7
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM EDITMENU
+                        ;/*
+                        ;** EDITMENU.C -- resident FileEdit shell (Step 7).
+                        ;**
+                        ;** The editor now owns a persistent current document across menu commands.
+                        ;** Open, New, Save and Save As are normal application operations; the mapper,
+                        ;** buffer address and capacity are deliberately absent from the user interface.
+                        ;*/
+                        ;extern puts();
+                        ;extern fsreset();
+                        ;extern fsopen();
+                        ;extern fsclose();
+                        ;extern fsrewind();
+                        ;extern fsprobe();
+                        ;extern fssave();
+                        ;extern fssavas();
+                        ;extern fsequal();
+                        ;extern runword();
+                        ;extern runchar();
+                        ;extern runrpt();
+                        ;extern viewctl();
+                        ;extern editctl();
+                        ;extern ebload();
+                        ;extern ebloadn();
+                        ;extern ebnewn();
+                        ;extern ebnone();
+                        ;extern nmprompt();
+                        ;extern trmclear();
+                        ;extern trmrev();
+                        ;extern trmnorm();
+                        ;extern trmesc();
+                        ;extern trmkey();
+                        ;extern char *fsname;
+                        ;extern int ebvalid;
+                        ;extern int ebdirty;
+                        ;extern int fsexist;
+                        ;/* Pause after a message/report so it remains visible. */
+                        ;pausekey()
+  0000                  	EVEN
+                        pausekey:
+                        ;{
+                        ;modstk(newsp,save)
+                        ;    puts("\nPress any key to return to the menu...");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0000   0204 0014      	LI R4,cc1+0
+  0004   064A           	DECT SP
+  0006   C684           	MOV R4,*SP
+                        ;zcall()
+  0008   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  000C   05CA           	INCT SP
+                        ;    trmkey();
+                        ;zcall()
+  000E   2DA0 0000      	CALL @trmkey
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0012   2DC0           	RET
+  0014   0D50 7265      cc1:	BYTE 13,80,114,101,115,115,32,97,110,121,32,107
+  0018   7373 2061      
+  001C   6E79 206B      
+  0020   6579 2074      	BYTE 101,121,32,116,111,32,114,101,116,117,114,110
+  0024   6F20 7265      
+  0028   7475 726E      
+  002C   2074 6F20      	BYTE 32,116,111,32,116,104,101,32,109,101,110,117
+  0030   7468 6520      
+  0034   6D65 6E75      
+  0038   2E2E 2E00      	BYTE 46,46,46,0
+                        ;nodoc()
+  003C                  	EVEN
+                        nodoc:
+                        ;{
+                        ;    trmclear();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  003C   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    puts("No document is open.  Use Open or New first.\n");
+                        ;constant(lval)
+  0040   0204 0054      	LI R4,cc2+0
+  0044   064A           	DECT SP
+  0046   C684           	MOV R4,*SP
+                        ;zcall()
+  0048   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  004C   05CA           	INCT SP
+                        ;    pausekey();
+                        ;zcall()
+  004E   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0052   2DC0           	RET
+  0054   4E6F 2064      cc2:	BYTE 78,111,32,100,111,99,117,109,101,110,116,32
+  0058   6F63 756D      
+  005C   656E 7420      
+  0060   6973 206F      	BYTE 105,115,32,111,112,101,110,46,32,32,85,115
+  0064   7065 6E2E      
+  0068   2020 5573      
+  006C   6520 4F70      	BYTE 101,32,79,112,101,110,32,111,114,32,78,101
+  0070   656E 206F      
+  0074   7220 4E65      
+  0078   7720 6669      	BYTE 119,32,102,105,114,115,116,46,13,0
+  007C   7273 742E      
+  0080   0D00           
+                        ;/*
+                        ;** Protect a document before Open/New/Quit.  Returning to the menu from the
+                        ;** editor itself never discards RAM changes; only a document transition asks.
+                        ;*/
+                        ;docguard()
+  0082                  	EVEN
+                        docguard:
+                        ;{
+                        ;    int c;
+                        ;    if(ebvalid == 0)
+                        ;modstk(newsp,save)
+  0082   064A           	DECT SP
+                        ;getmem(sym)
+  0084   C120 0000      	MOV @ebvalid,R4
+  0088   C104           	MOV R4,R4
+  008A   1302           	JEQ $+6
+  008C   0460 0098      	B @cc4
+                        ;        return 1;
+  0090   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0094   05CA           	INCT SP
+  0096   2DC0           	RET
+                        ;    if(ebdirty == 0 && fsexist)
+                        cc4:
+                        ;getmem(sym)
+  0098   C120 0000      	MOV @ebdirty,R4
+  009C   C0C4           	MOV R4,R3 ;optimised push/pop
+  009E   04C4           	CLR R4
+                        ;_cceq
+  00A0   8103           	C R3,R4 ;optimised
+  00A2   1302           	JEQ $+6
+  00A4   0460 00BC      	B @cc6
+                        ;getmem(sym)
+  00A8   C120 0000      	MOV @fsexist,R4
+  00AC   C104           	MOV R4,R4
+  00AE   1602           	JNE $+6
+  00B0   0460 00BC      	B @cc6
+  00B4   0204 0001      	LI R4,1
+                        ;jump(label)
+  00B8   0460 00BE      	B @cc7
+                        cc6:
+  00BC   04C4           	CLR R4
+                        cc7:
+  00BE   C104           	MOV R4,R4
+  00C0   1602           	JNE $+6
+  00C2   0460 00CE      	B @cc5
+                        ;        return 1;
+  00C6   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  00CA   05CA           	INCT SP
+  00CC   2DC0           	RET
+                        ;    trmclear();
+                        cc5:
+                        ;zcall()
+  00CE   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    if(fsexist)
+                        ;getmem(sym)
+  00D2   C120 0000      	MOV @fsexist,R4
+  00D6   C104           	MOV R4,R4
+  00D8   1602           	JNE $+6
+  00DA   0460 00F0      	B @cc8
+                        ;        puts("Unsaved changes in ");
+                        ;constant(lval)
+  00DE   0204 026E      	LI R4,cc3+0
+  00E2   064A           	DECT SP
+  00E4   C684           	MOV R4,*SP
+                        ;zcall()
+  00E6   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  00EA   05CA           	INCT SP
+                        ;    else
+                        ;jump(label)
+  00EC   0460 00FE      	B @cc9
+                        cc8:
+                        ;        puts("New document has not been saved: ");
+                        ;constant(lval)
+  00F0   0204 0282      	LI R4,cc3+20
+  00F4   064A           	DECT SP
+  00F6   C684           	MOV R4,*SP
+                        ;zcall()
+  00F8   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  00FC   05CA           	INCT SP
+                        cc9:
+                        ;    puts(fsname);
+                        ;getmem(sym)
+  00FE   C120 0000      	MOV @fsname,R4
+  0102   064A           	DECT SP
+  0104   C684           	MOV R4,*SP
+                        ;zcall()
+  0106   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  010A   05CA           	INCT SP
+                        ;    puts("\n\n");
+                        ;constant(lval)
+  010C   0204 02A4      	LI R4,cc3+54
+  0110   064A           	DECT SP
+  0112   C684           	MOV R4,*SP
+                        ;zcall()
+  0114   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0118   05CA           	INCT SP
+                        ;    puts("  S  Save and continue\n");
+                        ;constant(lval)
+  011A   0204 02A7      	LI R4,cc3+57
+  011E   064A           	DECT SP
+  0120   C684           	MOV R4,*SP
+                        ;zcall()
+  0122   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0126   05CA           	INCT SP
+                        ;    puts("  D  Don't save\n");
+                        ;constant(lval)
+  0128   0204 02BF      	LI R4,cc3+81
+  012C   064A           	DECT SP
+  012E   C684           	MOV R4,*SP
+                        ;zcall()
+  0130   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0134   05CA           	INCT SP
+                        ;    puts("  C  Cancel\n\n");
+                        ;constant(lval)
+  0136   0204 02D0      	LI R4,cc3+98
+  013A   064A           	DECT SP
+  013C   C684           	MOV R4,*SP
+                        ;zcall()
+  013E   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0142   05CA           	INCT SP
+                        ;    puts(" Choice: ");
+                        ;constant(lval)
+  0144   0204 02DE      	LI R4,cc3+112
+  0148   064A           	DECT SP
+  014A   C684           	MOV R4,*SP
+                        ;zcall()
+  014C   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0150   05CA           	INCT SP
+                        ;    while(1) {
+                        cc10:
+                        ;        c = trmkey();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0152   2DA0 0000      	CALL @trmkey
+                        ;modstk(newsp,save)
+                        ;puttos()
+  0156   C684           	MOV R4,*SP
+                        ;        if(c == 'S' || c == 's') {
+                        ;getloc(sym, off)
+  0158   C11A           	MOV *SP,R4 ;optimised load
+  015A   C0C4           	MOV R4,R3 ;optimised push/pop
+  015C   0204 0053      	LI R4,83
+                        ;_cceq
+  0160   8103           	C R3,R4 ;optimised
+  0162   1602           	JNE $+6
+  0164   0460 017E      	B @cc13
+                        ;getloc(sym, off)
+  0168   C11A           	MOV *SP,R4 ;optimised load
+  016A   C0C4           	MOV R4,R3 ;optimised push/pop
+  016C   0204 0073      	LI R4,115
+                        ;_cceq
+  0170   8103           	C R3,R4 ;optimised
+  0172   1602           	JNE $+6
+  0174   0460 017E      	B @cc13
+  0178   04C4           	CLR R4
+                        ;jump(label)
+  017A   0460 0182      	B @cc14
+                        cc13:
+  017E   0204 0001      	LI R4,1
+                        cc14:
+  0182   C104           	MOV R4,R4
+  0184   1602           	JNE $+6
+  0186   0460 01E4      	B @cc12
+                        ;            trmclear();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  018A   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;            puts("Saving ");
+                        ;constant(lval)
+  018E   0204 02E8      	LI R4,cc3+122
+  0192   064A           	DECT SP
+  0194   C684           	MOV R4,*SP
+                        ;zcall()
+  0196   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  019A   05CA           	INCT SP
+                        ;            puts(fsname);
+                        ;getmem(sym)
+  019C   C120 0000      	MOV @fsname,R4
+  01A0   064A           	DECT SP
+  01A2   C684           	MOV R4,*SP
+                        ;zcall()
+  01A4   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  01A8   05CA           	INCT SP
+                        ;            puts(" ...\n");
+                        ;constant(lval)
+  01AA   0204 02F0      	LI R4,cc3+130
+  01AE   064A           	DECT SP
+  01B0   C684           	MOV R4,*SP
+                        ;zcall()
+  01B2   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  01B6   05CA           	INCT SP
+                        ;            if(fssave())
+                        ;zcall()
+  01B8   2DA0 0000      	CALL @fssave
+                        ;modstk(newsp,save)
+  01BC   C104           	MOV R4,R4
+  01BE   1602           	JNE $+6
+  01C0   0460 01CC      	B @cc15
+                        ;                return 1;
+  01C4   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  01C8   05CA           	INCT SP
+  01CA   2DC0           	RET
+                        ;            puts("\nSave did not complete.  Document remains in memory.\n");
+                        cc15:
+                        ;constant(lval)
+  01CC   0204 02F6      	LI R4,cc3+136
+  01D0   064A           	DECT SP
+  01D2   C684           	MOV R4,*SP
+                        ;zcall()
+  01D4   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  01D8   05CA           	INCT SP
+                        ;            pausekey();
+                        ;zcall()
+  01DA   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;            return 0;
+  01DE   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  01E0   05CA           	INCT SP
+  01E2   2DC0           	RET
+                        ;        }
+                        ;        if(c == 'D' || c == 'd')
+                        cc12:
+                        ;getloc(sym, off)
+  01E4   C11A           	MOV *SP,R4 ;optimised load
+  01E6   C0C4           	MOV R4,R3 ;optimised push/pop
+  01E8   0204 0044      	LI R4,68
+                        ;_cceq
+  01EC   8103           	C R3,R4 ;optimised
+  01EE   1602           	JNE $+6
+  01F0   0460 020A      	B @cc17
+                        ;getloc(sym, off)
+  01F4   C11A           	MOV *SP,R4 ;optimised load
+  01F6   C0C4           	MOV R4,R3 ;optimised push/pop
+  01F8   0204 0064      	LI R4,100
+                        ;_cceq
+  01FC   8103           	C R3,R4 ;optimised
+  01FE   1602           	JNE $+6
+  0200   0460 020A      	B @cc17
+  0204   04C4           	CLR R4
+                        ;jump(label)
+  0206   0460 020E      	B @cc18
+                        cc17:
+  020A   0204 0001      	LI R4,1
+                        cc18:
+  020E   C104           	MOV R4,R4
+  0210   1602           	JNE $+6
+  0212   0460 021E      	B @cc16
+                        ;            return 1;
+  0216   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  021A   05CA           	INCT SP
+  021C   2DC0           	RET
+                        ;        if(c == 'C' || c == 'c' || c == 27)
+                        cc16:
+                        ;getloc(sym, off)
+  021E   C11A           	MOV *SP,R4 ;optimised load
+  0220   C0C4           	MOV R4,R3 ;optimised push/pop
+  0222   0204 0043      	LI R4,67
+                        ;_cceq
+  0226   8103           	C R3,R4 ;optimised
+  0228   1602           	JNE $+6
+  022A   0460 0254      	B @cc20
+                        ;getloc(sym, off)
+  022E   C11A           	MOV *SP,R4 ;optimised load
+  0230   C0C4           	MOV R4,R3 ;optimised push/pop
+  0232   0204 0063      	LI R4,99
+                        ;_cceq
+  0236   8103           	C R3,R4 ;optimised
+  0238   1602           	JNE $+6
+  023A   0460 0254      	B @cc20
+                        ;getloc(sym, off)
+  023E   C11A           	MOV *SP,R4 ;optimised load
+  0240   C0C4           	MOV R4,R3 ;optimised push/pop
+  0242   0204 001B      	LI R4,27
+                        ;_cceq
+  0246   8103           	C R3,R4 ;optimised
+  0248   1602           	JNE $+6
+  024A   0460 0254      	B @cc20
+  024E   04C4           	CLR R4
+                        ;jump(label)
+  0250   0460 0258      	B @cc21
+                        cc20:
+  0254   0204 0001      	LI R4,1
+                        cc21:
+  0258   C104           	MOV R4,R4
+  025A   1602           	JNE $+6
+  025C   0460 0266      	B @cc19
+                        ;            return 0;
+  0260   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0262   05CA           	INCT SP
+  0264   2DC0           	RET
+                        ;    }
+                        cc19:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0266   0460 0152      	B @cc10
+                        cc11:
+                        ;}
+                        ;modstk(newsp,save)
+  026A   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  026C   2DC0           	RET
+  026E   556E 7361      cc3:	BYTE 85,110,115,97,118,101,100,32,99,104,97,110
+  0272   7665 6420      
+  0276   6368 616E      
+  027A   6765 7320      	BYTE 103,101,115,32,105,110,32,0,78,101,119,32
+  027E   696E 2000      
+  0282   4E65 7720      
+  0286   646F 6375      	BYTE 100,111,99,117,109,101,110,116,32,104,97,115
+  028A   6D65 6E74      
+  028E   2068 6173      
+  0292   206E 6F74      	BYTE 32,110,111,116,32,98,101,101,110,32,115,97
+  0296   2062 6565      
+  029A   6E20 7361      
+  029E   7665 643A      	BYTE 118,101,100,58,32,0,13,13,0,32,32,83
+  02A2   2000 0D0D      
+  02A6   0020 2053      
+  02AA   2020 5361      	BYTE 32,32,83,97,118,101,32,97,110,100,32,99
+  02AE   7665 2061      
+  02B2   6E64 2063      
+  02B6   6F6E 7469      	BYTE 111,110,116,105,110,117,101,13,0,32,32,68
+  02BA   6E75 650D      
+  02BE   0020 2044      
+  02C2   2020 446F      	BYTE 32,32,68,111,110,39,116,32,115,97,118,101
+  02C6   6E27 7420      
+  02CA   7361 7665      
+  02CE   0D00 2020      	BYTE 13,0,32,32,67,32,32,67,97,110,99,101
+  02D2   4320 2043      
+  02D6   616E 6365      
+  02DA   6C0D 0D00      	BYTE 108,13,13,0,32,67,104,111,105,99,101,58
+  02DE   2043 686F      
+  02E2   6963 653A      
+  02E6   2000 5361      	BYTE 32,0,83,97,118,105,110,103,32,0,32,46
+  02EA   7669 6E67      
+  02EE   2000 202E      
+  02F2   2E2E 0D00      	BYTE 46,46,13,0,13,83,97,118,101,32,100,105
+  02F6   0D53 6176      
+  02FA   6520 6469      
+  02FE   6420 6E6F      	BYTE 100,32,110,111,116,32,99,111,109,112,108,101
+  0302   7420 636F      
+  0306   6D70 6C65      
+  030A   7465 2E20      	BYTE 116,101,46,32,32,68,111,99,117,109,101,110
+  030E   2044 6F63      
+  0312   756D 656E      
+  0316   7420 7265      	BYTE 116,32,114,101,109,97,105,110,115,32,105,110
+  031A   6D61 696E      
+  031E   7320 696E      
+  0322   206D 656D      	BYTE 32,109,101,109,111,114,121,46,13,0
+  0326   6F72 792E      
+  032A   0D00           
+                        ;/* Confirm Save As replacement when the requested target already exists. */
+                        ;overask(name)
+  032C                  	EVEN
+                        overask:
+                        ;char *name;
+                        ;{
+                        ;    int c;
+                        ;    trmclear();
+                        ;modstk(newsp,save)
+  032C   064A           	DECT SP
+                        ;zcall()
+  032E   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    puts(name);
+                        ;getloc(sym, off)
+  0332   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0336   064A           	DECT SP
+  0338   C684           	MOV R4,*SP
+                        ;zcall()
+  033A   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  033E   05CA           	INCT SP
+                        ;    puts(" already exists.\n\n");
+                        ;constant(lval)
+  0340   0204 0416      	LI R4,cc22+0
+  0344   064A           	DECT SP
+  0346   C684           	MOV R4,*SP
+                        ;zcall()
+  0348   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  034C   05CA           	INCT SP
+                        ;    puts("A backup will be made before replacement.\n\n");
+                        ;constant(lval)
+  034E   0204 0429      	LI R4,cc22+19
+  0352   064A           	DECT SP
+  0354   C684           	MOV R4,*SP
+                        ;zcall()
+  0356   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  035A   05CA           	INCT SP
+                        ;    puts("  R  Replace file\n");
+                        ;constant(lval)
+  035C   0204 0455      	LI R4,cc22+63
+  0360   064A           	DECT SP
+  0362   C684           	MOV R4,*SP
+                        ;zcall()
+  0364   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0368   05CA           	INCT SP
+                        ;    puts("  C  Cancel\n\n");
+                        ;constant(lval)
+  036A   0204 0468      	LI R4,cc22+82
+  036E   064A           	DECT SP
+  0370   C684           	MOV R4,*SP
+                        ;zcall()
+  0372   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0376   05CA           	INCT SP
+                        ;    puts(" Choice: ");
+                        ;constant(lval)
+  0378   0204 0476      	LI R4,cc22+96
+  037C   064A           	DECT SP
+  037E   C684           	MOV R4,*SP
+                        ;zcall()
+  0380   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0384   05CA           	INCT SP
+                        ;    while(1) {
+                        cc23:
+                        ;        c = trmkey();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0386   2DA0 0000      	CALL @trmkey
+                        ;modstk(newsp,save)
+                        ;puttos()
+  038A   C684           	MOV R4,*SP
+                        ;        if(c == 'R' || c == 'r')
+                        ;getloc(sym, off)
+  038C   C11A           	MOV *SP,R4 ;optimised load
+  038E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0390   0204 0052      	LI R4,82
+                        ;_cceq
+  0394   8103           	C R3,R4 ;optimised
+  0396   1602           	JNE $+6
+  0398   0460 03B2      	B @cc26
+                        ;getloc(sym, off)
+  039C   C11A           	MOV *SP,R4 ;optimised load
+  039E   C0C4           	MOV R4,R3 ;optimised push/pop
+  03A0   0204 0072      	LI R4,114
+                        ;_cceq
+  03A4   8103           	C R3,R4 ;optimised
+  03A6   1602           	JNE $+6
+  03A8   0460 03B2      	B @cc26
+  03AC   04C4           	CLR R4
+                        ;jump(label)
+  03AE   0460 03B6      	B @cc27
+                        cc26:
+  03B2   0204 0001      	LI R4,1
+                        cc27:
+  03B6   C104           	MOV R4,R4
+  03B8   1602           	JNE $+6
+  03BA   0460 03C6      	B @cc25
+                        ;            return 1;
+  03BE   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  03C2   05CA           	INCT SP
+  03C4   2DC0           	RET
+                        ;        if(c == 'C' || c == 'c' || c == 27)
+                        cc25:
+                        ;getloc(sym, off)
+  03C6   C11A           	MOV *SP,R4 ;optimised load
+  03C8   C0C4           	MOV R4,R3 ;optimised push/pop
+  03CA   0204 0043      	LI R4,67
+                        ;_cceq
+  03CE   8103           	C R3,R4 ;optimised
+  03D0   1602           	JNE $+6
+  03D2   0460 03FC      	B @cc29
+                        ;getloc(sym, off)
+  03D6   C11A           	MOV *SP,R4 ;optimised load
+  03D8   C0C4           	MOV R4,R3 ;optimised push/pop
+  03DA   0204 0063      	LI R4,99
+                        ;_cceq
+  03DE   8103           	C R3,R4 ;optimised
+  03E0   1602           	JNE $+6
+  03E2   0460 03FC      	B @cc29
+                        ;getloc(sym, off)
+  03E6   C11A           	MOV *SP,R4 ;optimised load
+  03E8   C0C4           	MOV R4,R3 ;optimised push/pop
+  03EA   0204 001B      	LI R4,27
+                        ;_cceq
+  03EE   8103           	C R3,R4 ;optimised
+  03F0   1602           	JNE $+6
+  03F2   0460 03FC      	B @cc29
+  03F6   04C4           	CLR R4
+                        ;jump(label)
+  03F8   0460 0400      	B @cc30
+                        cc29:
+  03FC   0204 0001      	LI R4,1
+                        cc30:
+  0400   C104           	MOV R4,R4
+  0402   1602           	JNE $+6
+  0404   0460 040E      	B @cc28
+                        ;            return 0;
+  0408   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  040A   05CA           	INCT SP
+  040C   2DC0           	RET
+                        ;    }
+                        cc28:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  040E   0460 0386      	B @cc23
+                        cc24:
+                        ;}
+                        ;modstk(newsp,save)
+  0412   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  0414   2DC0           	RET
+  0416   2061 6C72      cc22:	BYTE 32,97,108,114,101,97,100,121,32,101,120,105
+  041A   6561 6479      
+  041E   2065 7869      
+  0422   7374 732E      	BYTE 115,116,115,46,13,13,0,65,32,98,97,99
+  0426   0D0D 0041      
+  042A   2062 6163      
+  042E   6B75 7020      	BYTE 107,117,112,32,119,105,108,108,32,98,101,32
+  0432   7769 6C6C      
+  0436   2062 6520      
+  043A   6D61 6465      	BYTE 109,97,100,101,32,98,101,102,111,114,101,32
+  043E   2062 6566      
+  0442   6F72 6520      
+  0446   7265 706C      	BYTE 114,101,112,108,97,99,101,109,101,110,116,46
+  044A   6163 656D      
+  044E   656E 742E      
+  0452   0D0D 0020      	BYTE 13,13,0,32,32,82,32,32,82,101,112,108
+  0456   2052 2020      
+  045A   5265 706C      
+  045E   6163 6520      	BYTE 97,99,101,32,102,105,108,101,13,0,32,32
+  0462   6669 6C65      
+  0466   0D00 2020      
+  046A   4320 2043      	BYTE 67,32,32,67,97,110,99,101,108,13,13,0
+  046E   616E 6365      
+  0472   6C0D 0D00      
+  0476   2043 686F      	BYTE 32,67,104,111,105,99,101,58,32,0
+  047A   6963 653A      
+  047E   2000           
+                        ;/* Edit the current persistent document. */
+                        ;editone()
+  0480                  	EVEN
+                        editone:
+                        ;{
+                        ;    if(ebvalid == 0) {
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0480   C120 0000      	MOV @ebvalid,R4
+  0484   C104           	MOV R4,R4
+  0486   1302           	JEQ $+6
+  0488   0460 0492      	B @cc32
+                        ;        nodoc();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  048C   2DA0 003C      	CALL @nodoc
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  0490   2DC0           	RET
+                        ;    }
+                        ;    editctl();
+                        cc32:
+                        ;zcall()
+  0492   2DA0 0000      	CALL @editctl
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0496   2DC0           	RET
+                        ;/* View the current RAM document, including unsaved edits. */
+                        ;viewone()
+  0498                  	EVEN
+                        viewone:
+                        ;{
+                        ;    if(ebvalid == 0) {
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0498   C120 0000      	MOV @ebvalid,R4
+  049C   C104           	MOV R4,R4
+  049E   1302           	JEQ $+6
+  04A0   0460 04AA      	B @cc34
+                        ;        nodoc();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  04A4   2DA0 003C      	CALL @nodoc
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  04A8   2DC0           	RET
+                        ;    }
+                        ;    viewctl();
+                        cc34:
+                        ;zcall()
+  04AA   2DA0 0000      	CALL @viewctl
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  04AE   2DC0           	RET
+                        ;/* Explicit failed-open recovery: never consume a future menu command as a pause. */
+                        ;opretry(name)
+  04B0                  	EVEN
+                        opretry:
+                        ;char *name;
+                        ;{
+                        ;    int c;
+                        ;    trmclear();
+                        ;modstk(newsp,save)
+  04B0   064A           	DECT SP
+                        ;zcall()
+  04B2   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    puts("Cannot open ");
+                        ;constant(lval)
+  04B6   0204 05AA      	LI R4,cc35+0
+  04BA   064A           	DECT SP
+  04BC   C684           	MOV R4,*SP
+                        ;zcall()
+  04BE   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04C2   05CA           	INCT SP
+                        ;    puts(name);
+                        ;getloc(sym, off)
+  04C4   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  04C8   064A           	DECT SP
+  04CA   C684           	MOV R4,*SP
+                        ;zcall()
+  04CC   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04D0   05CA           	INCT SP
+                        ;    puts("\n\n");
+                        ;constant(lval)
+  04D2   0204 05B7      	LI R4,cc35+13
+  04D6   064A           	DECT SP
+  04D8   C684           	MOV R4,*SP
+                        ;zcall()
+  04DA   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04DE   05CA           	INCT SP
+                        ;    puts("  R  Retry filename\n");
+                        ;constant(lval)
+  04E0   0204 05BA      	LI R4,cc35+16
+  04E4   064A           	DECT SP
+  04E6   C684           	MOV R4,*SP
+                        ;zcall()
+  04E8   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04EC   05CA           	INCT SP
+                        ;    puts("  C  Cancel and return to menu\n\n");
+                        ;constant(lval)
+  04EE   0204 05CF      	LI R4,cc35+37
+  04F2   064A           	DECT SP
+  04F4   C684           	MOV R4,*SP
+                        ;zcall()
+  04F6   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04FA   05CA           	INCT SP
+                        ;    puts(" Choice: ");
+                        ;constant(lval)
+  04FC   0204 05F0      	LI R4,cc35+70
+  0500   064A           	DECT SP
+  0502   C684           	MOV R4,*SP
+                        ;zcall()
+  0504   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0508   05CA           	INCT SP
+                        ;    while(1) {
+                        cc36:
+                        ;        c = trmkey();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  050A   2DA0 0000      	CALL @trmkey
+                        ;modstk(newsp,save)
+                        ;puttos()
+  050E   C684           	MOV R4,*SP
+                        ;        if(c == 'R' || c == 'r' || c == 13)
+                        ;getloc(sym, off)
+  0510   C11A           	MOV *SP,R4 ;optimised load
+  0512   C0C4           	MOV R4,R3 ;optimised push/pop
+  0514   0204 0052      	LI R4,82
+                        ;_cceq
+  0518   8103           	C R3,R4 ;optimised
+  051A   1602           	JNE $+6
+  051C   0460 0546      	B @cc39
+                        ;getloc(sym, off)
+  0520   C11A           	MOV *SP,R4 ;optimised load
+  0522   C0C4           	MOV R4,R3 ;optimised push/pop
+  0524   0204 0072      	LI R4,114
+                        ;_cceq
+  0528   8103           	C R3,R4 ;optimised
+  052A   1602           	JNE $+6
+  052C   0460 0546      	B @cc39
+                        ;getloc(sym, off)
+  0530   C11A           	MOV *SP,R4 ;optimised load
+  0532   C0C4           	MOV R4,R3 ;optimised push/pop
+  0534   0204 000D      	LI R4,13
+                        ;_cceq
+  0538   8103           	C R3,R4 ;optimised
+  053A   1602           	JNE $+6
+  053C   0460 0546      	B @cc39
+  0540   04C4           	CLR R4
+                        ;jump(label)
+  0542   0460 054A      	B @cc40
+                        cc39:
+  0546   0204 0001      	LI R4,1
+                        cc40:
+  054A   C104           	MOV R4,R4
+  054C   1602           	JNE $+6
+  054E   0460 055A      	B @cc38
+                        ;            return 1;
+  0552   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0556   05CA           	INCT SP
+  0558   2DC0           	RET
+                        ;        if(c == 'C' || c == 'c' || c == 27)
+                        cc38:
+                        ;getloc(sym, off)
+  055A   C11A           	MOV *SP,R4 ;optimised load
+  055C   C0C4           	MOV R4,R3 ;optimised push/pop
+  055E   0204 0043      	LI R4,67
+                        ;_cceq
+  0562   8103           	C R3,R4 ;optimised
+  0564   1602           	JNE $+6
+  0566   0460 0590      	B @cc42
+                        ;getloc(sym, off)
+  056A   C11A           	MOV *SP,R4 ;optimised load
+  056C   C0C4           	MOV R4,R3 ;optimised push/pop
+  056E   0204 0063      	LI R4,99
+                        ;_cceq
+  0572   8103           	C R3,R4 ;optimised
+  0574   1602           	JNE $+6
+  0576   0460 0590      	B @cc42
+                        ;getloc(sym, off)
+  057A   C11A           	MOV *SP,R4 ;optimised load
+  057C   C0C4           	MOV R4,R3 ;optimised push/pop
+  057E   0204 001B      	LI R4,27
+                        ;_cceq
+  0582   8103           	C R3,R4 ;optimised
+  0584   1602           	JNE $+6
+  0586   0460 0590      	B @cc42
+  058A   04C4           	CLR R4
+                        ;jump(label)
+  058C   0460 0594      	B @cc43
+                        cc42:
+  0590   0204 0001      	LI R4,1
+                        cc43:
+  0594   C104           	MOV R4,R4
+  0596   1602           	JNE $+6
+  0598   0460 05A2      	B @cc41
+                        ;            return 0;
+  059C   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  059E   05CA           	INCT SP
+  05A0   2DC0           	RET
+                        ;    }
+                        cc41:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  05A2   0460 050A      	B @cc36
+                        cc37:
+                        ;}
+                        ;modstk(newsp,save)
+  05A6   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  05A8   2DC0           	RET
+  05AA   4361 6E6E      cc35:	BYTE 67,97,110,110,111,116,32,111,112,101,110,32
+  05AE   6F74 206F      
+  05B2   7065 6E20      
+  05B6   000D 0D00      	BYTE 0,13,13,0,32,32,82,32,32,82,101,116
+  05BA   2020 5220      
+  05BE   2052 6574      
+  05C2   7279 2066      	BYTE 114,121,32,102,105,108,101,110,97,109,101,13
+  05C6   696C 656E      
+  05CA   616D 650D      
+  05CE   0020 2043      	BYTE 0,32,32,67,32,32,67,97,110,99,101,108
+  05D2   2020 4361      
+  05D6   6E63 656C      
+  05DA   2061 6E64      	BYTE 32,97,110,100,32,114,101,116,117,114,110,32
+  05DE   2072 6574      
+  05E2   7572 6E20      
+  05E6   746F 206D      	BYTE 116,111,32,109,101,110,117,13,13,0,32,67
+  05EA   656E 750D      
+  05EE   0D00 2043      
+  05F2   686F 6963      	BYTE 104,111,105,99,101,58,32,0
+  05F6   653A 2000      
+                        ;/* Open another file without destroying the current document on failure. */
+                        ;openone()
+  05FA                  	EVEN
+                        openone:
+                        ;{
+                        ;    char name[16];
+                        ;    int ready;
+                        ;    ready = 0;
+                        ;modstk(newsp,save)
+  05FA   022A FFEE      	AI SP,-18
+  05FE   04C4           	CLR R4
+                        ;puttos()
+  0600   C684           	MOV R4,*SP
+                        ;    while(ready == 0) {
+                        cc45:
+                        ;getloc(sym, off)
+  0602   C11A           	MOV *SP,R4 ;optimised load
+  0604   C104           	MOV R4,R4
+  0606   1302           	JEQ $+6
+  0608   0460 0678      	B @cc46
+                        ;        if(nmprompt(" Open file: ", name) == 0)
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  060C   0204 06EA      	LI R4,cc44+0
+  0610   064A           	DECT SP
+  0612   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0614   0204 0005      	LI R4,5
+  0618   A10A           	A SP,R4
+  061A   064A           	DECT SP
+  061C   C684           	MOV R4,*SP
+                        ;zcall()
+  061E   2DA0 0000      	CALL @nmprompt
+                        ;modstk(newsp,save)
+  0622   022A 0004      	AI SP,4
+  0626   C104           	MOV R4,R4
+  0628   1302           	JEQ $+6
+  062A   0460 0634      	B @cc47
+                        ;            return;
+                        ;modstk(newsp,save)
+  062E   022A 0012      	AI SP,18
+  0632   2DC0           	RET
+                        ;        if(fsprobe(name))
+                        cc47:
+                        ;getloc(sym, off)
+                        ;Char offset
+  0634   0204 0003      	LI R4,3
+  0638   A10A           	A SP,R4
+  063A   064A           	DECT SP
+  063C   C684           	MOV R4,*SP
+                        ;zcall()
+  063E   2DA0 0000      	CALL @fsprobe
+                        ;modstk(newsp,save)
+  0642   05CA           	INCT SP
+  0644   C104           	MOV R4,R4
+  0646   1602           	JNE $+6
+  0648   0460 0656      	B @cc48
+                        ;            ready = 1;
+  064C   0204 0001      	LI R4,1
+                        ;puttos()
+  0650   C684           	MOV R4,*SP
+                        ;        else if(opretry(name) == 0)
+                        ;jump(label)
+  0652   0460 0674      	B @cc49
+                        cc48:
+                        ;getloc(sym, off)
+                        ;Char offset
+  0656   0204 0003      	LI R4,3
+  065A   A10A           	A SP,R4
+  065C   064A           	DECT SP
+  065E   C684           	MOV R4,*SP
+                        ;zcall()
+  0660   2DA0 04B0      	CALL @opretry
+                        ;modstk(newsp,save)
+  0664   05CA           	INCT SP
+  0666   C104           	MOV R4,R4
+  0668   1302           	JEQ $+6
+  066A   0460 0674      	B @cc50
+                        ;            return;
+                        ;modstk(newsp,save)
+  066E   022A 0012      	AI SP,18
+  0672   2DC0           	RET
+                        ;    }
+                        cc50:
+                        cc49:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0674   0460 0602      	B @cc45
+                        cc46:
+                        ;    if(docguard() == 0)
+                        ;zcall()
+  0678   2DA0 0082      	CALL @docguard
+                        ;modstk(newsp,save)
+  067C   C104           	MOV R4,R4
+  067E   1302           	JEQ $+6
+  0680   0460 068A      	B @cc51
+                        ;        return;
+                        ;modstk(newsp,save)
+  0684   022A 0012      	AI SP,18
+  0688   2DC0           	RET
+                        ;    trmclear();
+                        cc51:
+                        ;zcall()
+  068A   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    puts("Opening ");
+                        ;constant(lval)
+  068E   0204 06F7      	LI R4,cc44+13
+  0692   064A           	DECT SP
+  0694   C684           	MOV R4,*SP
+                        ;zcall()
+  0696   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  069A   05CA           	INCT SP
+                        ;    puts(name);
+                        ;getloc(sym, off)
+                        ;Char offset
+  069C   0204 0003      	LI R4,3
+  06A0   A10A           	A SP,R4
+  06A2   064A           	DECT SP
+  06A4   C684           	MOV R4,*SP
+                        ;zcall()
+  06A6   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  06AA   05CA           	INCT SP
+                        ;    puts(" ...\n");
+                        ;constant(lval)
+  06AC   0204 0700      	LI R4,cc44+22
+  06B0   064A           	DECT SP
+  06B2   C684           	MOV R4,*SP
+                        ;zcall()
+  06B4   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  06B8   05CA           	INCT SP
+                        ;    if(ebloadn(name) == 0) {
+                        ;getloc(sym, off)
+                        ;Char offset
+  06BA   0204 0003      	LI R4,3
+  06BE   A10A           	A SP,R4
+  06C0   064A           	DECT SP
+  06C2   C684           	MOV R4,*SP
+                        ;zcall()
+  06C4   2DA0 0000      	CALL @ebloadn
+                        ;modstk(newsp,save)
+  06C8   05CA           	INCT SP
+  06CA   C104           	MOV R4,R4
+  06CC   1302           	JEQ $+6
+  06CE   0460 06E4      	B @cc52
+                        ;        puts("\nThe previous document is still intact.\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  06D2   0204 0706      	LI R4,cc44+28
+  06D6   064A           	DECT SP
+  06D8   C684           	MOV R4,*SP
+                        ;zcall()
+  06DA   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  06DE   05CA           	INCT SP
+                        ;        pausekey();
+                        ;zcall()
+  06E0   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;}
+                        cc52:
+                        ;modstk(newsp,save)
+  06E4   022A 0012      	AI SP,18
+                        ;modstk(newsp,save)
+  06E8   2DC0           	RET
+  06EA   204F 7065      cc44:	BYTE 32,79,112,101,110,32,102,105,108,101,58,32
+  06EE   6E20 6669      
+  06F2   6C65 3A20      
+  06F6   004F 7065      	BYTE 0,79,112,101,110,105,110,103,32,0,32,46
+  06FA   6E69 6E67      
+  06FE   2000 202E      
+  0702   2E2E 0D00      	BYTE 46,46,13,0,13,84,104,101,32,112,114,101
+  0706   0D54 6865      
+  070A   2070 7265      
+  070E   7669 6F75      	BYTE 118,105,111,117,115,32,100,111,99,117,109,101
+  0712   7320 646F      
+  0716   6375 6D65      
+  071A   6E74 2069      	BYTE 110,116,32,105,115,32,115,116,105,108,108,32
+  071E   7320 7374      
+  0722   696C 6C20      
+  0726   696E 7461      	BYTE 105,110,116,97,99,116,46,13,0
+  072A   6374 2E0D      
+  072E   00             
+  072F   00             	EVEN
+                        ;/* Create a new named document in RAM; disk creation waits for Save. */
+                        ;newone()
+  0730                  	EVEN
+                        newone:
+                        ;{
+                        ;    char name[16];
+                        ;    if(nmprompt(" New file: ", name) == 0)
+                        ;modstk(newsp,save)
+  0730   022A FFF0      	AI SP,-16
+                        ;constant(lval)
+  0734   0204 07C8      	LI R4,cc53+0
+  0738   064A           	DECT SP
+  073A   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  073C   0204 0003      	LI R4,3
+  0740   A10A           	A SP,R4
+  0742   064A           	DECT SP
+  0744   C684           	MOV R4,*SP
+                        ;zcall()
+  0746   2DA0 0000      	CALL @nmprompt
+                        ;modstk(newsp,save)
+  074A   022A 0004      	AI SP,4
+  074E   C104           	MOV R4,R4
+  0750   1302           	JEQ $+6
+  0752   0460 075C      	B @cc54
+                        ;        return;
+                        ;modstk(newsp,save)
+  0756   022A 0010      	AI SP,16
+  075A   2DC0           	RET
+                        ;    if(fsprobe(name)) {
+                        cc54:
+                        ;getloc(sym, off)
+                        ;Char offset
+  075C   0204 0001      	LI R4,1
+  0760   A10A           	A SP,R4
+  0762   064A           	DECT SP
+  0764   C684           	MOV R4,*SP
+                        ;zcall()
+  0766   2DA0 0000      	CALL @fsprobe
+                        ;modstk(newsp,save)
+  076A   05CA           	INCT SP
+  076C   C104           	MOV R4,R4
+  076E   1602           	JNE $+6
+  0770   0460 07A0      	B @cc55
+                        ;        trmclear();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0774   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;        puts(name);
+                        ;getloc(sym, off)
+                        ;Char offset
+  0778   0204 0001      	LI R4,1
+  077C   A10A           	A SP,R4
+  077E   064A           	DECT SP
+  0780   C684           	MOV R4,*SP
+                        ;zcall()
+  0782   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0786   05CA           	INCT SP
+                        ;        puts(" already exists.  Use Open instead.\n");
+                        ;constant(lval)
+  0788   0204 07D4      	LI R4,cc53+12
+  078C   064A           	DECT SP
+  078E   C684           	MOV R4,*SP
+                        ;zcall()
+  0790   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0794   05CA           	INCT SP
+                        ;        pausekey();
+                        ;zcall()
+  0796   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  079A   022A 0010      	AI SP,16
+  079E   2DC0           	RET
+                        ;    }
+                        ;    if(docguard() == 0)
+                        cc55:
+                        ;zcall()
+  07A0   2DA0 0082      	CALL @docguard
+                        ;modstk(newsp,save)
+  07A4   C104           	MOV R4,R4
+  07A6   1302           	JEQ $+6
+  07A8   0460 07B2      	B @cc56
+                        ;        return;
+                        ;modstk(newsp,save)
+  07AC   022A 0010      	AI SP,16
+  07B0   2DC0           	RET
+                        ;    ebnewn(name);
+                        cc56:
+                        ;getloc(sym, off)
+                        ;Char offset
+  07B2   0204 0001      	LI R4,1
+  07B6   A10A           	A SP,R4
+  07B8   064A           	DECT SP
+  07BA   C684           	MOV R4,*SP
+                        ;zcall()
+  07BC   2DA0 0000      	CALL @ebnewn
+                        ;modstk(newsp,save)
+  07C0   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+  07C2   022A 0010      	AI SP,16
+                        ;modstk(newsp,save)
+  07C6   2DC0           	RET
+  07C8   204E 6577      cc53:	BYTE 32,78,101,119,32,102,105,108,101,58,32,0
+  07CC   2066 696C      
+  07D0   653A 2000      
+  07D4   2061 6C72      	BYTE 32,97,108,114,101,97,100,121,32,101,120,105
+  07D8   6561 6479      
+  07DC   2065 7869      
+  07E0   7374 732E      	BYTE 115,116,115,46,32,32,85,115,101,32,79,112
+  07E4   2020 5573      
+  07E8   6520 4F70      
+  07EC   656E 2069      	BYTE 101,110,32,105,110,115,116,101,97,100,46,13
+  07F0   6E73 7465      
+  07F4   6164 2E0D      
+  07F8   00             	BYTE 0
+  07F9   00             	EVEN
+                        ;/* Save the current document under its current name. */
+                        ;saveone()
+  07FA                  	EVEN
+                        saveone:
+                        ;{
+                        ;    if(ebvalid == 0) {
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  07FA   C120 0000      	MOV @ebvalid,R4
+  07FE   C104           	MOV R4,R4
+  0800   1302           	JEQ $+6
+  0802   0460 080C      	B @cc58
+                        ;        nodoc();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0806   2DA0 003C      	CALL @nodoc
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  080A   2DC0           	RET
+                        ;    }
+                        ;    trmclear();
+                        cc58:
+                        ;zcall()
+  080C   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    puts("Saving ");
+                        ;constant(lval)
+  0810   0204 0888      	LI R4,cc57+0
+  0814   064A           	DECT SP
+  0816   C684           	MOV R4,*SP
+                        ;zcall()
+  0818   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  081C   05CA           	INCT SP
+                        ;    puts(fsname);
+                        ;getmem(sym)
+  081E   C120 0000      	MOV @fsname,R4
+  0822   064A           	DECT SP
+  0824   C684           	MOV R4,*SP
+                        ;zcall()
+  0826   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  082A   05CA           	INCT SP
+                        ;    puts(" ...\n");
+                        ;constant(lval)
+  082C   0204 0890      	LI R4,cc57+8
+  0830   064A           	DECT SP
+  0832   C684           	MOV R4,*SP
+                        ;zcall()
+  0834   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0838   05CA           	INCT SP
+                        ;    if(fssave()) {
+                        ;zcall()
+  083A   2DA0 0000      	CALL @fssave
+                        ;modstk(newsp,save)
+  083E   C104           	MOV R4,R4
+  0840   1602           	JNE $+6
+  0842   0460 0874      	B @cc59
+                        ;        puts("\nSaved and verified: ");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0846   0204 0896      	LI R4,cc57+14
+  084A   064A           	DECT SP
+  084C   C684           	MOV R4,*SP
+                        ;zcall()
+  084E   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0852   05CA           	INCT SP
+                        ;        puts(fsname);
+                        ;getmem(sym)
+  0854   C120 0000      	MOV @fsname,R4
+  0858   064A           	DECT SP
+  085A   C684           	MOV R4,*SP
+                        ;zcall()
+  085C   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0860   05CA           	INCT SP
+                        ;        puts("\n");
+                        ;constant(lval)
+  0862   0204 08AC      	LI R4,cc57+36
+  0866   064A           	DECT SP
+  0868   C684           	MOV R4,*SP
+                        ;zcall()
+  086A   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  086E   05CA           	INCT SP
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;    else
+                        ;jump(label)
+  0870   0460 0882      	B @cc60
+                        cc59:
+                        ;        puts("\nSave failed.  The document remains in memory.\n");
+                        ;constant(lval)
+  0874   0204 08AE      	LI R4,cc57+38
+  0878   064A           	DECT SP
+  087A   C684           	MOV R4,*SP
+                        ;zcall()
+  087C   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0880   05CA           	INCT SP
+                        cc60:
+                        ;    pausekey();
+                        ;zcall()
+  0882   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0886   2DC0           	RET
+  0888   5361 7669      cc57:	BYTE 83,97,118,105,110,103,32,0,32,46,46,46
+  088C   6E67 2000      
+  0890   202E 2E2E      
+  0894   0D00 0D53      	BYTE 13,0,13,83,97,118,101,100,32,97,110,100
+  0898   6176 6564      
+  089C   2061 6E64      
+  08A0   2076 6572      	BYTE 32,118,101,114,105,102,105,101,100,58,32,0
+  08A4   6966 6965      
+  08A8   643A 2000      
+  08AC   0D00 0D53      	BYTE 13,0,13,83,97,118,101,32,102,97,105,108
+  08B0   6176 6520      
+  08B4   6661 696C      
+  08B8   6564 2E20      	BYTE 101,100,46,32,32,84,104,101,32,100,111,99
+  08BC   2054 6865      
+  08C0   2064 6F63      
+  08C4   756D 656E      	BYTE 117,109,101,110,116,32,114,101,109,97,105,110
+  08C8   7420 7265      
+  08CC   6D61 696E      
+  08D0   7320 696E      	BYTE 115,32,105,110,32,109,101,109,111,114,121,46
+  08D4   206D 656D      
+  08D8   6F72 792E      
+  08DC   0D00           	BYTE 13,0
+                        ;/* Save the current RAM document under another filename. */
+                        ;asone()
+  08DE                  	EVEN
+                        asone:
+                        ;{
+                        ;    char name[16];
+                        ;    if(ebvalid == 0) {
+                        ;modstk(newsp,save)
+  08DE   022A FFF0      	AI SP,-16
+                        ;getmem(sym)
+  08E2   C120 0000      	MOV @ebvalid,R4
+  08E6   C104           	MOV R4,R4
+  08E8   1302           	JEQ $+6
+  08EA   0460 08F8      	B @cc62
+                        ;        nodoc();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  08EE   2DA0 003C      	CALL @nodoc
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  08F2   022A 0010      	AI SP,16
+  08F6   2DC0           	RET
+                        ;    }
+                        ;    if(nmprompt(" Save as: ", name) == 0)
+                        cc62:
+                        ;constant(lval)
+  08F8   0204 0A10      	LI R4,cc61+0
+  08FC   064A           	DECT SP
+  08FE   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0900   0204 0003      	LI R4,3
+  0904   A10A           	A SP,R4
+  0906   064A           	DECT SP
+  0908   C684           	MOV R4,*SP
+                        ;zcall()
+  090A   2DA0 0000      	CALL @nmprompt
+                        ;modstk(newsp,save)
+  090E   022A 0004      	AI SP,4
+  0912   C104           	MOV R4,R4
+  0914   1302           	JEQ $+6
+  0916   0460 0920      	B @cc63
+                        ;        return;
+                        ;modstk(newsp,save)
+  091A   022A 0010      	AI SP,16
+  091E   2DC0           	RET
+                        ;    if(fsequal(fsname, name)) {
+                        cc63:
+                        ;getmem(sym)
+  0920   C120 0000      	MOV @fsname,R4
+  0924   064A           	DECT SP
+  0926   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+                        ;Char offset
+  0928   0204 0003      	LI R4,3
+  092C   A10A           	A SP,R4
+  092E   064A           	DECT SP
+  0930   C684           	MOV R4,*SP
+                        ;zcall()
+  0932   2DA0 0000      	CALL @fsequal
+                        ;modstk(newsp,save)
+  0936   022A 0004      	AI SP,4
+  093A   C104           	MOV R4,R4
+  093C   1602           	JNE $+6
+  093E   0460 094C      	B @cc64
+                        ;        saveone();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0942   2DA0 07FA      	CALL @saveone
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  0946   022A 0010      	AI SP,16
+  094A   2DC0           	RET
+                        ;    }
+                        ;    if(fsprobe(name)) {
+                        cc64:
+                        ;getloc(sym, off)
+                        ;Char offset
+  094C   0204 0001      	LI R4,1
+  0950   A10A           	A SP,R4
+  0952   064A           	DECT SP
+  0954   C684           	MOV R4,*SP
+                        ;zcall()
+  0956   2DA0 0000      	CALL @fsprobe
+                        ;modstk(newsp,save)
+  095A   05CA           	INCT SP
+  095C   C104           	MOV R4,R4
+  095E   1602           	JNE $+6
+  0960   0460 0982      	B @cc65
+                        ;        if(overask(name) == 0)
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+                        ;Char offset
+  0964   0204 0001      	LI R4,1
+  0968   A10A           	A SP,R4
+  096A   064A           	DECT SP
+  096C   C684           	MOV R4,*SP
+                        ;zcall()
+  096E   2DA0 032C      	CALL @overask
+                        ;modstk(newsp,save)
+  0972   05CA           	INCT SP
+  0974   C104           	MOV R4,R4
+  0976   1302           	JEQ $+6
+  0978   0460 0982      	B @cc66
+                        ;            return;
+                        ;modstk(newsp,save)
+  097C   022A 0010      	AI SP,16
+  0980   2DC0           	RET
+                        ;    }
+                        cc66:
+                        ;modstk(newsp,save)
+                        ;    trmclear();
+                        cc65:
+                        ;zcall()
+  0982   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    puts("Saving as ");
+                        ;constant(lval)
+  0986   0204 0A1B      	LI R4,cc61+11
+  098A   064A           	DECT SP
+  098C   C684           	MOV R4,*SP
+                        ;zcall()
+  098E   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0992   05CA           	INCT SP
+                        ;    puts(name);
+                        ;getloc(sym, off)
+                        ;Char offset
+  0994   0204 0001      	LI R4,1
+  0998   A10A           	A SP,R4
+  099A   064A           	DECT SP
+  099C   C684           	MOV R4,*SP
+                        ;zcall()
+  099E   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  09A2   05CA           	INCT SP
+                        ;    puts(" ...\n");
+                        ;constant(lval)
+  09A4   0204 0A26      	LI R4,cc61+22
+  09A8   064A           	DECT SP
+  09AA   C684           	MOV R4,*SP
+                        ;zcall()
+  09AC   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  09B0   05CA           	INCT SP
+                        ;    if(fssavas(name)) {
+                        ;getloc(sym, off)
+                        ;Char offset
+  09B2   0204 0001      	LI R4,1
+  09B6   A10A           	A SP,R4
+  09B8   064A           	DECT SP
+  09BA   C684           	MOV R4,*SP
+                        ;zcall()
+  09BC   2DA0 0000      	CALL @fssavas
+                        ;modstk(newsp,save)
+  09C0   05CA           	INCT SP
+  09C2   C104           	MOV R4,R4
+  09C4   1602           	JNE $+6
+  09C6   0460 09F8      	B @cc67
+                        ;        puts("\nSaved and verified: ");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  09CA   0204 0A2C      	LI R4,cc61+28
+  09CE   064A           	DECT SP
+  09D0   C684           	MOV R4,*SP
+                        ;zcall()
+  09D2   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  09D6   05CA           	INCT SP
+                        ;        puts(fsname);
+                        ;getmem(sym)
+  09D8   C120 0000      	MOV @fsname,R4
+  09DC   064A           	DECT SP
+  09DE   C684           	MOV R4,*SP
+                        ;zcall()
+  09E0   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  09E4   05CA           	INCT SP
+                        ;        puts("\n");
+                        ;constant(lval)
+  09E6   0204 0A42      	LI R4,cc61+50
+  09EA   064A           	DECT SP
+  09EC   C684           	MOV R4,*SP
+                        ;zcall()
+  09EE   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  09F2   05CA           	INCT SP
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;    else
+                        ;jump(label)
+  09F4   0460 0A06      	B @cc68
+                        cc67:
+                        ;        puts("\nSave As failed.  Current document name and RAM are unchanged.\n");
+                        ;constant(lval)
+  09F8   0204 0A44      	LI R4,cc61+52
+  09FC   064A           	DECT SP
+  09FE   C684           	MOV R4,*SP
+                        ;zcall()
+  0A00   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0A04   05CA           	INCT SP
+                        cc68:
+                        ;    pausekey();
+                        ;zcall()
+  0A06   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+  0A0A   022A 0010      	AI SP,16
+                        ;modstk(newsp,save)
+  0A0E   2DC0           	RET
+  0A10   2053 6176      cc61:	BYTE 32,83,97,118,101,32,97,115,58,32,0,83
+  0A14   6520 6173      
+  0A18   3A20 0053      
+  0A1C   6176 696E      	BYTE 97,118,105,110,103,32,97,115,32,0,32,46
+  0A20   6720 6173      
+  0A24   2000 202E      
+  0A28   2E2E 0D00      	BYTE 46,46,13,0,13,83,97,118,101,100,32,97
+  0A2C   0D53 6176      
+  0A30   6564 2061      
+  0A34   6E64 2076      	BYTE 110,100,32,118,101,114,105,102,105,101,100,58
+  0A38   6572 6966      
+  0A3C   6965 643A      
+  0A40   2000 0D00      	BYTE 32,0,13,0,13,83,97,118,101,32,65,115
+  0A44   0D53 6176      
+  0A48   6520 4173      
+  0A4C   2066 6169      	BYTE 32,102,97,105,108,101,100,46,32,32,67,117
+  0A50   6C65 642E      
+  0A54   2020 4375      
+  0A58   7272 656E      	BYTE 114,114,101,110,116,32,100,111,99,117,109,101
+  0A5C   7420 646F      
+  0A60   6375 6D65      
+  0A64   6E74 206E      	BYTE 110,116,32,110,97,109,101,32,97,110,100,32
+  0A68   616D 6520      
+  0A6C   616E 6420      
+  0A70   5241 4D20      	BYTE 82,65,77,32,97,114,101,32,117,110,99,104
+  0A74   6172 6520      
+  0A78   756E 6368      
+  0A7C   616E 6765      	BYTE 97,110,103,101,100,46,13,0
+  0A80   642E 0D00      
+                        ;/* Run the original FILESTAT analysis against the saved disk copy. */
+                        ;statone()
+  0A84                  	EVEN
+                        statone:
+                        ;{
+                        ;    int c;
+                        ;    if(ebvalid == 0) {
+                        ;modstk(newsp,save)
+  0A84   064A           	DECT SP
+                        ;getmem(sym)
+  0A86   C120 0000      	MOV @ebvalid,R4
+  0A8A   C104           	MOV R4,R4
+  0A8C   1302           	JEQ $+6
+  0A8E   0460 0A9A      	B @cc70
+                        ;        nodoc();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0A92   2DA0 003C      	CALL @nodoc
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  0A96   05CA           	INCT SP
+  0A98   2DC0           	RET
+                        ;    }
+                        ;    if(fsexist == 0) {
+                        cc70:
+                        ;getmem(sym)
+  0A9A   C120 0000      	MOV @fsexist,R4
+  0A9E   C104           	MOV R4,R4
+  0AA0   1302           	JEQ $+6
+  0AA2   0460 0AC0      	B @cc71
+                        ;        trmclear();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0AA6   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;        puts("Save this new document before running Statistics.\n");
+                        ;constant(lval)
+  0AAA   0204 0C72      	LI R4,cc69+0
+  0AAE   064A           	DECT SP
+  0AB0   C684           	MOV R4,*SP
+                        ;zcall()
+  0AB2   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0AB6   05CA           	INCT SP
+                        ;        pausekey();
+                        ;zcall()
+  0AB8   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  0ABC   05CA           	INCT SP
+  0ABE   2DC0           	RET
+                        ;    }
+                        ;    if(ebdirty) {
+                        cc71:
+                        ;getmem(sym)
+  0AC0   C120 0000      	MOV @ebdirty,R4
+  0AC4   C104           	MOV R4,R4
+  0AC6   1602           	JNE $+6
+  0AC8   0460 0C2A      	B @cc72
+                        ;        trmclear();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0ACC   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;        puts("This document has unsaved changes.\n\n");
+                        ;constant(lval)
+  0AD0   0204 0CA5      	LI R4,cc69+51
+  0AD4   064A           	DECT SP
+  0AD6   C684           	MOV R4,*SP
+                        ;zcall()
+  0AD8   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0ADC   05CA           	INCT SP
+                        ;        puts("  S  Save first, then calculate statistics\n");
+                        ;constant(lval)
+  0ADE   0204 0CCA      	LI R4,cc69+88
+  0AE2   064A           	DECT SP
+  0AE4   C684           	MOV R4,*SP
+                        ;zcall()
+  0AE6   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0AEA   05CA           	INCT SP
+                        ;        puts("  D  Use the last saved disk version\n");
+                        ;constant(lval)
+  0AEC   0204 0CF6      	LI R4,cc69+132
+  0AF0   064A           	DECT SP
+  0AF2   C684           	MOV R4,*SP
+                        ;zcall()
+  0AF4   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0AF8   05CA           	INCT SP
+                        ;        puts("  C  Cancel\n\n");
+                        ;constant(lval)
+  0AFA   0204 0D1C      	LI R4,cc69+170
+  0AFE   064A           	DECT SP
+  0B00   C684           	MOV R4,*SP
+                        ;zcall()
+  0B02   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0B06   05CA           	INCT SP
+                        ;        puts(" Choice: ");
+                        ;constant(lval)
+  0B08   0204 0D2A      	LI R4,cc69+184
+  0B0C   064A           	DECT SP
+  0B0E   C684           	MOV R4,*SP
+                        ;zcall()
+  0B10   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0B14   05CA           	INCT SP
+                        ;        while(1) {
+                        cc73:
+                        ;            c = trmkey();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0B16   2DA0 0000      	CALL @trmkey
+                        ;modstk(newsp,save)
+                        ;puttos()
+  0B1A   C684           	MOV R4,*SP
+                        ;            if(c == 'S' || c == 's') {
+                        ;getloc(sym, off)
+  0B1C   C11A           	MOV *SP,R4 ;optimised load
+  0B1E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0B20   0204 0053      	LI R4,83
+                        ;_cceq
+  0B24   8103           	C R3,R4 ;optimised
+  0B26   1602           	JNE $+6
+  0B28   0460 0B42      	B @cc76
+                        ;getloc(sym, off)
+  0B2C   C11A           	MOV *SP,R4 ;optimised load
+  0B2E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0B30   0204 0073      	LI R4,115
+                        ;_cceq
+  0B34   8103           	C R3,R4 ;optimised
+  0B36   1602           	JNE $+6
+  0B38   0460 0B42      	B @cc76
+  0B3C   04C4           	CLR R4
+                        ;jump(label)
+  0B3E   0460 0B46      	B @cc77
+                        cc76:
+  0B42   0204 0001      	LI R4,1
+                        cc77:
+  0B46   C104           	MOV R4,R4
+  0B48   1602           	JNE $+6
+  0B4A   0460 0BA6      	B @cc75
+                        ;                trmclear();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0B4E   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;                puts("Saving ");
+                        ;constant(lval)
+  0B52   0204 0D34      	LI R4,cc69+194
+  0B56   064A           	DECT SP
+  0B58   C684           	MOV R4,*SP
+                        ;zcall()
+  0B5A   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0B5E   05CA           	INCT SP
+                        ;                puts(fsname);
+                        ;getmem(sym)
+  0B60   C120 0000      	MOV @fsname,R4
+  0B64   064A           	DECT SP
+  0B66   C684           	MOV R4,*SP
+                        ;zcall()
+  0B68   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0B6C   05CA           	INCT SP
+                        ;                puts(" ...\n");
+                        ;constant(lval)
+  0B6E   0204 0D3C      	LI R4,cc69+202
+  0B72   064A           	DECT SP
+  0B74   C684           	MOV R4,*SP
+                        ;zcall()
+  0B76   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0B7A   05CA           	INCT SP
+                        ;                if(fssave() == 0) {
+                        ;zcall()
+  0B7C   2DA0 0000      	CALL @fssave
+                        ;modstk(newsp,save)
+  0B80   C104           	MOV R4,R4
+  0B82   1302           	JEQ $+6
+  0B84   0460 0B9E      	B @cc78
+                        ;                    puts("\nSave failed; statistics cancelled.\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0B88   0204 0D42      	LI R4,cc69+208
+  0B8C   064A           	DECT SP
+  0B8E   C684           	MOV R4,*SP
+                        ;zcall()
+  0B90   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0B94   05CA           	INCT SP
+                        ;                    pausekey();
+                        ;zcall()
+  0B96   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;                    return;
+                        ;modstk(newsp,save)
+  0B9A   05CA           	INCT SP
+  0B9C   2DC0           	RET
+                        ;                }
+                        ;                c = 0;
+                        cc78:
+  0B9E   04C4           	CLR R4
+                        ;puttos()
+  0BA0   C684           	MOV R4,*SP
+                        ;                break;
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0BA2   0460 0C2A      	B @cc74
+                        ;            }
+                        ;modstk(newsp,save)
+                        ;            if(c == 'D' || c == 'd') {
+                        cc75:
+                        ;getloc(sym, off)
+  0BA6   C11A           	MOV *SP,R4 ;optimised load
+  0BA8   C0C4           	MOV R4,R3 ;optimised push/pop
+  0BAA   0204 0044      	LI R4,68
+                        ;_cceq
+  0BAE   8103           	C R3,R4 ;optimised
+  0BB0   1602           	JNE $+6
+  0BB2   0460 0BCC      	B @cc80
+                        ;getloc(sym, off)
+  0BB6   C11A           	MOV *SP,R4 ;optimised load
+  0BB8   C0C4           	MOV R4,R3 ;optimised push/pop
+  0BBA   0204 0064      	LI R4,100
+                        ;_cceq
+  0BBE   8103           	C R3,R4 ;optimised
+  0BC0   1602           	JNE $+6
+  0BC2   0460 0BCC      	B @cc80
+  0BC6   04C4           	CLR R4
+                        ;jump(label)
+  0BC8   0460 0BD0      	B @cc81
+                        cc80:
+  0BCC   0204 0001      	LI R4,1
+                        cc81:
+  0BD0   C104           	MOV R4,R4
+  0BD2   1602           	JNE $+6
+  0BD4   0460 0BE0      	B @cc79
+                        ;                c = 0;
+                        ;modstk(newsp,save)
+  0BD8   04C4           	CLR R4
+                        ;puttos()
+  0BDA   C684           	MOV R4,*SP
+                        ;                break;
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0BDC   0460 0C2A      	B @cc74
+                        ;            }
+                        ;modstk(newsp,save)
+                        ;            if(c == 'C' || c == 'c' || c == 27)
+                        cc79:
+                        ;getloc(sym, off)
+  0BE0   C11A           	MOV *SP,R4 ;optimised load
+  0BE2   C0C4           	MOV R4,R3 ;optimised push/pop
+  0BE4   0204 0043      	LI R4,67
+                        ;_cceq
+  0BE8   8103           	C R3,R4 ;optimised
+  0BEA   1602           	JNE $+6
+  0BEC   0460 0C16      	B @cc83
+                        ;getloc(sym, off)
+  0BF0   C11A           	MOV *SP,R4 ;optimised load
+  0BF2   C0C4           	MOV R4,R3 ;optimised push/pop
+  0BF4   0204 0063      	LI R4,99
+                        ;_cceq
+  0BF8   8103           	C R3,R4 ;optimised
+  0BFA   1602           	JNE $+6
+  0BFC   0460 0C16      	B @cc83
+                        ;getloc(sym, off)
+  0C00   C11A           	MOV *SP,R4 ;optimised load
+  0C02   C0C4           	MOV R4,R3 ;optimised push/pop
+  0C04   0204 001B      	LI R4,27
+                        ;_cceq
+  0C08   8103           	C R3,R4 ;optimised
+  0C0A   1602           	JNE $+6
+  0C0C   0460 0C16      	B @cc83
+  0C10   04C4           	CLR R4
+                        ;jump(label)
+  0C12   0460 0C1A      	B @cc84
+                        cc83:
+  0C16   0204 0001      	LI R4,1
+                        cc84:
+  0C1A   C104           	MOV R4,R4
+  0C1C   1602           	JNE $+6
+  0C1E   0460 0C26      	B @cc82
+                        ;                return;
+                        ;modstk(newsp,save)
+  0C22   05CA           	INCT SP
+  0C24   2DC0           	RET
+                        ;        }
+                        cc82:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0C26   0460 0B16      	B @cc73
+                        cc74:
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;    fsreset();
+                        cc72:
+                        ;zcall()
+  0C2A   2DA0 0000      	CALL @fsreset
+                        ;modstk(newsp,save)
+                        ;    if(fsopen() == 0) {
+                        ;zcall()
+  0C2E   2DA0 0000      	CALL @fsopen
+                        ;modstk(newsp,save)
+  0C32   C104           	MOV R4,R4
+  0C34   1302           	JEQ $+6
+  0C36   0460 0C42      	B @cc85
+                        ;        pausekey();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0C3A   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  0C3E   05CA           	INCT SP
+  0C40   2DC0           	RET
+                        ;    }
+                        ;    runword();
+                        cc85:
+                        ;zcall()
+  0C42   2DA0 0000      	CALL @runword
+                        ;modstk(newsp,save)
+                        ;    if(fsrewind() == 0) {
+                        ;zcall()
+  0C46   2DA0 0000      	CALL @fsrewind
+                        ;modstk(newsp,save)
+  0C4A   C104           	MOV R4,R4
+  0C4C   1302           	JEQ $+6
+  0C4E   0460 0C5A      	B @cc86
+                        ;        pausekey();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0C52   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  0C56   05CA           	INCT SP
+  0C58   2DC0           	RET
+                        ;    }
+                        ;    runchar();
+                        cc86:
+                        ;zcall()
+  0C5A   2DA0 0000      	CALL @runchar
+                        ;modstk(newsp,save)
+                        ;    fsclose();
+                        ;zcall()
+  0C5E   2DA0 0000      	CALL @fsclose
+                        ;modstk(newsp,save)
+                        ;    trmclear();
+                        ;zcall()
+  0C62   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    runrpt();
+                        ;zcall()
+  0C66   2DA0 0000      	CALL @runrpt
+                        ;modstk(newsp,save)
+                        ;    pausekey();
+                        ;zcall()
+  0C6A   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+  0C6E   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  0C70   2DC0           	RET
+  0C72   5361 7665      cc69:	BYTE 83,97,118,101,32,116,104,105,115,32,110,101
+  0C76   2074 6869      
+  0C7A   7320 6E65      
+  0C7E   7720 646F      	BYTE 119,32,100,111,99,117,109,101,110,116,32,98
+  0C82   6375 6D65      
+  0C86   6E74 2062      
+  0C8A   6566 6F72      	BYTE 101,102,111,114,101,32,114,117,110,110,105,110
+  0C8E   6520 7275      
+  0C92   6E6E 696E      
+  0C96   6720 5374      	BYTE 103,32,83,116,97,116,105,115,116,105,99,115
+  0C9A   6174 6973      
+  0C9E   7469 6373      
+  0CA2   2E0D 0054      	BYTE 46,13,0,84,104,105,115,32,100,111,99,117
+  0CA6   6869 7320      
+  0CAA   646F 6375      
+  0CAE   6D65 6E74      	BYTE 109,101,110,116,32,104,97,115,32,117,110,115
+  0CB2   2068 6173      
+  0CB6   2075 6E73      
+  0CBA   6176 6564      	BYTE 97,118,101,100,32,99,104,97,110,103,101,115
+  0CBE   2063 6861      
+  0CC2   6E67 6573      
+  0CC6   2E0D 0D00      	BYTE 46,13,13,0,32,32,83,32,32,83,97,118
+  0CCA   2020 5320      
+  0CCE   2053 6176      
+  0CD2   6520 6669      	BYTE 101,32,102,105,114,115,116,44,32,116,104,101
+  0CD6   7273 742C      
+  0CDA   2074 6865      
+  0CDE   6E20 6361      	BYTE 110,32,99,97,108,99,117,108,97,116,101,32
+  0CE2   6C63 756C      
+  0CE6   6174 6520      
+  0CEA   7374 6174      	BYTE 115,116,97,116,105,115,116,105,99,115,13,0
+  0CEE   6973 7469      
+  0CF2   6373 0D00      
+  0CF6   2020 4420      	BYTE 32,32,68,32,32,85,115,101,32,116,104,101
+  0CFA   2055 7365      
+  0CFE   2074 6865      
+  0D02   206C 6173      	BYTE 32,108,97,115,116,32,115,97,118,101,100,32
+  0D06   7420 7361      
+  0D0A   7665 6420      
+  0D0E   6469 736B      	BYTE 100,105,115,107,32,118,101,114,115,105,111,110
+  0D12   2076 6572      
+  0D16   7369 6F6E      
+  0D1A   0D00 2020      	BYTE 13,0,32,32,67,32,32,67,97,110,99,101
+  0D1E   4320 2043      
+  0D22   616E 6365      
+  0D26   6C0D 0D00      	BYTE 108,13,13,0,32,67,104,111,105,99,101,58
+  0D2A   2043 686F      
+  0D2E   6963 653A      
+  0D32   2000 5361      	BYTE 32,0,83,97,118,105,110,103,32,0,32,46
+  0D36   7669 6E67      
+  0D3A   2000 202E      
+  0D3E   2E2E 0D00      	BYTE 46,46,13,0,13,83,97,118,101,32,102,97
+  0D42   0D53 6176      
+  0D46   6520 6661      
+  0D4A   696C 6564      	BYTE 105,108,101,100,59,32,115,116,97,116,105,115
+  0D4E   3B20 7374      
+  0D52   6174 6973      
+  0D56   7469 6373      	BYTE 116,105,99,115,32,99,97,110,99,101,108,108
+  0D5A   2063 616E      
+  0D5E   6365 6C6C      
+  0D62   6564 2E0D      	BYTE 101,100,46,13,0
+  0D66   00             
+  0D67   00             	EVEN
+                        ;/* Draw one complete Tera Term/ANSI menu frame. */
+                        ;drawmenu()
+  0D68                  	EVEN
+                        drawmenu:
+                        ;{
+                        ;    trmclear();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0D68   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;    trmrev();
+                        ;zcall()
+  0D6C   2DA0 0000      	CALL @trmrev
+                        ;modstk(newsp,save)
+                        ;    puts(" FILEEDIT - STEP 7");
+                        ;constant(lval)
+  0D70   0204 0EBE      	LI R4,cc87+0
+  0D74   064A           	DECT SP
+  0D76   C684           	MOV R4,*SP
+                        ;zcall()
+  0D78   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0D7C   05CA           	INCT SP
+                        ;    trmesc("[K");
+                        ;constant(lval)
+  0D7E   0204 0ED1      	LI R4,cc87+19
+  0D82   064A           	DECT SP
+  0D84   C684           	MOV R4,*SP
+                        ;zcall()
+  0D86   2DA0 0000      	CALL @trmesc
+                        ;modstk(newsp,save)
+  0D8A   05CA           	INCT SP
+                        ;    trmnorm();
+                        ;zcall()
+  0D8C   2DA0 0000      	CALL @trmnorm
+                        ;modstk(newsp,save)
+                        ;    puts("\n\n");
+                        ;constant(lval)
+  0D90   0204 0ED4      	LI R4,cc87+22
+  0D94   064A           	DECT SP
+  0D96   C684           	MOV R4,*SP
+                        ;zcall()
+  0D98   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0D9C   05CA           	INCT SP
+                        ;    puts(" Current file: ");
+                        ;constant(lval)
+  0D9E   0204 0ED7      	LI R4,cc87+25
+  0DA2   064A           	DECT SP
+  0DA4   C684           	MOV R4,*SP
+                        ;zcall()
+  0DA6   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0DAA   05CA           	INCT SP
+                        ;    if(ebvalid) {
+                        ;getmem(sym)
+  0DAC   C120 0000      	MOV @ebvalid,R4
+  0DB0   C104           	MOV R4,R4
+  0DB2   1602           	JNE $+6
+  0DB4   0460 0DFE      	B @cc88
+                        ;        puts(fsname);
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0DB8   C120 0000      	MOV @fsname,R4
+  0DBC   064A           	DECT SP
+  0DBE   C684           	MOV R4,*SP
+                        ;zcall()
+  0DC0   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0DC4   05CA           	INCT SP
+                        ;        if(fsexist == 0)
+                        ;getmem(sym)
+  0DC6   C120 0000      	MOV @fsexist,R4
+  0DCA   C104           	MOV R4,R4
+  0DCC   1302           	JEQ $+6
+  0DCE   0460 0DE0      	B @cc89
+                        ;            puts("  [NEW]");
+                        ;constant(lval)
+  0DD2   0204 0EE7      	LI R4,cc87+41
+  0DD6   064A           	DECT SP
+  0DD8   C684           	MOV R4,*SP
+                        ;zcall()
+  0DDA   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0DDE   05CA           	INCT SP
+                        ;        if(ebdirty)
+                        cc89:
+                        ;getmem(sym)
+  0DE0   C120 0000      	MOV @ebdirty,R4
+  0DE4   C104           	MOV R4,R4
+  0DE6   1602           	JNE $+6
+  0DE8   0460 0DFA      	B @cc90
+                        ;            puts("  [MOD]");
+                        ;constant(lval)
+  0DEC   0204 0EEF      	LI R4,cc87+49
+  0DF0   064A           	DECT SP
+  0DF2   C684           	MOV R4,*SP
+                        ;zcall()
+  0DF4   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0DF8   05CA           	INCT SP
+                        ;    }
+                        cc90:
+                        ;modstk(newsp,save)
+                        ;    else
+                        ;jump(label)
+  0DFA   0460 0E0C      	B @cc91
+                        cc88:
+                        ;        puts("(none)");
+                        ;constant(lval)
+  0DFE   0204 0EF7      	LI R4,cc87+57
+  0E02   064A           	DECT SP
+  0E04   C684           	MOV R4,*SP
+                        ;zcall()
+  0E06   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E0A   05CA           	INCT SP
+                        cc91:
+                        ;    puts("\n\n");
+                        ;constant(lval)
+  0E0C   0204 0EFE      	LI R4,cc87+64
+  0E10   064A           	DECT SP
+  0E12   C684           	MOV R4,*SP
+                        ;zcall()
+  0E14   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E18   05CA           	INCT SP
+                        ;    puts("   E  Edit\n");
+                        ;constant(lval)
+  0E1A   0204 0F01      	LI R4,cc87+67
+  0E1E   064A           	DECT SP
+  0E20   C684           	MOV R4,*SP
+                        ;zcall()
+  0E22   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E26   05CA           	INCT SP
+                        ;    puts("   O  Open\n");
+                        ;constant(lval)
+  0E28   0204 0F0D      	LI R4,cc87+79
+  0E2C   064A           	DECT SP
+  0E2E   C684           	MOV R4,*SP
+                        ;zcall()
+  0E30   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E34   05CA           	INCT SP
+                        ;    puts("   N  New\n");
+                        ;constant(lval)
+  0E36   0204 0F19      	LI R4,cc87+91
+  0E3A   064A           	DECT SP
+  0E3C   C684           	MOV R4,*SP
+                        ;zcall()
+  0E3E   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E42   05CA           	INCT SP
+                        ;    puts("   S  Save\n");
+                        ;constant(lval)
+  0E44   0204 0F24      	LI R4,cc87+102
+  0E48   064A           	DECT SP
+  0E4A   C684           	MOV R4,*SP
+                        ;zcall()
+  0E4C   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E50   05CA           	INCT SP
+                        ;    puts("   A  Save As\n");
+                        ;constant(lval)
+  0E52   0204 0F30      	LI R4,cc87+114
+  0E56   064A           	DECT SP
+  0E58   C684           	MOV R4,*SP
+                        ;zcall()
+  0E5A   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E5E   05CA           	INCT SP
+                        ;    puts("   V  View\n");
+                        ;constant(lval)
+  0E60   0204 0F3F      	LI R4,cc87+129
+  0E64   064A           	DECT SP
+  0E66   C684           	MOV R4,*SP
+                        ;zcall()
+  0E68   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E6C   05CA           	INCT SP
+                        ;    puts("   T  Statistics\n");
+                        ;constant(lval)
+  0E6E   0204 0F4B      	LI R4,cc87+141
+  0E72   064A           	DECT SP
+  0E74   C684           	MOV R4,*SP
+                        ;zcall()
+  0E76   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E7A   05CA           	INCT SP
+                        ;    puts("   Q  Quit\n\n");
+                        ;constant(lval)
+  0E7C   0204 0F5D      	LI R4,cc87+159
+  0E80   064A           	DECT SP
+  0E82   C684           	MOV R4,*SP
+                        ;zcall()
+  0E84   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E88   05CA           	INCT SP
+                        ;    trmrev();
+                        ;zcall()
+  0E8A   2DA0 0000      	CALL @trmrev
+                        ;modstk(newsp,save)
+                        ;    puts(" E Edit  O Open  N New  S Save  A SaveAs  V View  T Stats  Q Quit");
+                        ;constant(lval)
+  0E8E   0204 0F6A      	LI R4,cc87+172
+  0E92   064A           	DECT SP
+  0E94   C684           	MOV R4,*SP
+                        ;zcall()
+  0E96   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0E9A   05CA           	INCT SP
+                        ;    trmesc("[K");
+                        ;constant(lval)
+  0E9C   0204 0FAC      	LI R4,cc87+238
+  0EA0   064A           	DECT SP
+  0EA2   C684           	MOV R4,*SP
+                        ;zcall()
+  0EA4   2DA0 0000      	CALL @trmesc
+                        ;modstk(newsp,save)
+  0EA8   05CA           	INCT SP
+                        ;    trmnorm();
+                        ;zcall()
+  0EAA   2DA0 0000      	CALL @trmnorm
+                        ;modstk(newsp,save)
+                        ;    puts("\n Command: ");
+                        ;constant(lval)
+  0EAE   0204 0FAF      	LI R4,cc87+241
+  0EB2   064A           	DECT SP
+  0EB4   C684           	MOV R4,*SP
+                        ;zcall()
+  0EB6   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0EBA   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0EBC   2DC0           	RET
+  0EBE   2046 494C      cc87:	BYTE 32,70,73,76,69,69,68,73,84,32,45,32
+  0EC2   4545 4449      
+  0EC6   5420 2D20      
+  0ECA   5354 4550      	BYTE 83,84,69,80,32,55,0,91,75,0,13,13
+  0ECE   2037 005B      
+  0ED2   4B00 0D0D      
+  0ED6   0020 4375      	BYTE 0,32,67,117,114,114,101,110,116,32,102,105
+  0EDA   7272 656E      
+  0EDE   7420 6669      
+  0EE2   6C65 3A20      	BYTE 108,101,58,32,0,32,32,91,78,69,87,93
+  0EE6   0020 205B      
+  0EEA   4E45 575D      
+  0EEE   0020 205B      	BYTE 0,32,32,91,77,79,68,93,0,40,110,111
+  0EF2   4D4F 445D      
+  0EF6   0028 6E6F      
+  0EFA   6E65 2900      	BYTE 110,101,41,0,13,13,0,32,32,32,69,32
+  0EFE   0D0D 0020      
+  0F02   2020 4520      
+  0F06   2045 6469      	BYTE 32,69,100,105,116,13,0,32,32,32,79,32
+  0F0A   740D 0020      
+  0F0E   2020 4F20      
+  0F12   204F 7065      	BYTE 32,79,112,101,110,13,0,32,32,32,78,32
+  0F16   6E0D 0020      
+  0F1A   2020 4E20      
+  0F1E   204E 6577      	BYTE 32,78,101,119,13,0,32,32,32,83,32,32
+  0F22   0D00 2020      
+  0F26   2053 2020      
+  0F2A   5361 7665      	BYTE 83,97,118,101,13,0,32,32,32,65,32,32
+  0F2E   0D00 2020      
+  0F32   2041 2020      
+  0F36   5361 7665      	BYTE 83,97,118,101,32,65,115,13,0,32,32,32
+  0F3A   2041 730D      
+  0F3E   0020 2020      
+  0F42   5620 2056      	BYTE 86,32,32,86,105,101,119,13,0,32,32,32
+  0F46   6965 770D      
+  0F4A   0020 2020      
+  0F4E   5420 2053      	BYTE 84,32,32,83,116,97,116,105,115,116,105,99
+  0F52   7461 7469      
+  0F56   7374 6963      
+  0F5A   730D 0020      	BYTE 115,13,0,32,32,32,81,32,32,81,117,105
+  0F5E   2020 5120      
+  0F62   2051 7569      
+  0F66   740D 0D00      	BYTE 116,13,13,0,32,69,32,69,100,105,116,32
+  0F6A   2045 2045      
+  0F6E   6469 7420      
+  0F72   204F 204F      	BYTE 32,79,32,79,112,101,110,32,32,78,32,78
+  0F76   7065 6E20      
+  0F7A   204E 204E      
+  0F7E   6577 2020      	BYTE 101,119,32,32,83,32,83,97,118,101,32,32
+  0F82   5320 5361      
+  0F86   7665 2020      
+  0F8A   4120 5361      	BYTE 65,32,83,97,118,101,65,115,32,32,86,32
+  0F8E   7665 4173      
+  0F92   2020 5620      
+  0F96   5669 6577      	BYTE 86,105,101,119,32,32,84,32,83,116,97,116
+  0F9A   2020 5420      
+  0F9E   5374 6174      
+  0FA2   7320 2051      	BYTE 115,32,32,81,32,81,117,105,116,0,91,75
+  0FA6   2051 7569      
+  0FAA   7400 5B4B      
+  0FAE   000D 2043      	BYTE 0,13,32,67,111,109,109,97,110,100,58,32
+  0FB2   6F6D 6D61      
+  0FB6   6E64 3A20      
+  0FBA   00             	BYTE 0
+  0FBB   00             	EVEN
+                        ;/* Persistent editor-menu lifetime. */
+                        ;editmenu()
+  0FBC                  	EVEN
+                        editmenu:
+                        ;{
+                        ;    int c;
+                        ;    int done;
+                        ;    ebnone();
+                        ;modstk(newsp,save)
+  0FBC   022A FFFC      	AI SP,-4
+                        ;zcall()
+  0FC0   2DA0 0000      	CALL @ebnone
+                        ;modstk(newsp,save)
+                        ;    if(fsname[0] != 0) {
+                        ;getmem(sym)
+  0FC4   C120 0000      	MOV @fsname,R4
+                        ;indirect ccgchar
+  0FC8   D114           	MOVB *R4,R4
+  0FCA   0884           	SRA R4,8
+  0FCC   C104           	MOV R4,R4
+  0FCE   1602           	JNE $+6
+  0FD0   0460 1012      	B @cc93
+                        ;        trmclear();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0FD4   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;        puts("Opening ");
+                        ;constant(lval)
+  0FD8   0204 1246      	LI R4,cc92+0
+  0FDC   064A           	DECT SP
+  0FDE   C684           	MOV R4,*SP
+                        ;zcall()
+  0FE0   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0FE4   05CA           	INCT SP
+                        ;        puts(fsname);
+                        ;getmem(sym)
+  0FE6   C120 0000      	MOV @fsname,R4
+  0FEA   064A           	DECT SP
+  0FEC   C684           	MOV R4,*SP
+                        ;zcall()
+  0FEE   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0FF2   05CA           	INCT SP
+                        ;        puts(" ...\n");
+                        ;constant(lval)
+  0FF4   0204 124F      	LI R4,cc92+9
+  0FF8   064A           	DECT SP
+  0FFA   C684           	MOV R4,*SP
+                        ;zcall()
+  0FFC   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  1000   05CA           	INCT SP
+                        ;        if(ebload() == 0)
+                        ;zcall()
+  1002   2DA0 0000      	CALL @ebload
+                        ;modstk(newsp,save)
+  1006   C104           	MOV R4,R4
+  1008   1302           	JEQ $+6
+  100A   0460 1012      	B @cc94
+                        ;            pausekey();
+                        ;zcall()
+  100E   2DA0 0000      	CALL @pausekey
+                        ;modstk(newsp,save)
+                        ;    }
+                        cc94:
+                        ;modstk(newsp,save)
+                        ;    done = 0;
+                        cc93:
+  1012   04C4           	CLR R4
+                        ;puttos()
+  1014   C684           	MOV R4,*SP
+                        ;    while(done == 0) {
+                        cc95:
+                        ;getloc(sym, off)
+  1016   C11A           	MOV *SP,R4 ;optimised load
+  1018   C104           	MOV R4,R4
+  101A   1302           	JEQ $+6
+  101C   0460 123C      	B @cc96
+                        ;        drawmenu();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  1020   2DA0 0D68      	CALL @drawmenu
+                        ;modstk(newsp,save)
+                        ;        c = trmkey();
+                        ;zcall()
+  1024   2DA0 0000      	CALL @trmkey
+                        ;modstk(newsp,save)
+                        ;put2tos()
+  1028   CA84 0002      	MOV R4,@2(SP)
+                        ;        if(c == 'E' || c == 'e' || c == '1')
+                        ;getloc(sym, off)
+  102C   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  1030   C0C4           	MOV R4,R3 ;optimised push/pop
+  1032   0204 0045      	LI R4,69
+                        ;_cceq
+  1036   8103           	C R3,R4 ;optimised
+  1038   1602           	JNE $+6
+  103A   0460 1068      	B @cc98
+                        ;getloc(sym, off)
+  103E   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  1042   C0C4           	MOV R4,R3 ;optimised push/pop
+  1044   0204 0065      	LI R4,101
+                        ;_cceq
+  1048   8103           	C R3,R4 ;optimised
+  104A   1602           	JNE $+6
+  104C   0460 1068      	B @cc98
+                        ;getloc(sym, off)
+  1050   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  1054   C0C4           	MOV R4,R3 ;optimised push/pop
+  1056   0204 0031      	LI R4,49
+                        ;_cceq
+  105A   8103           	C R3,R4 ;optimised
+  105C   1602           	JNE $+6
+  105E   0460 1068      	B @cc98
+  1062   04C4           	CLR R4
+                        ;jump(label)
+  1064   0460 106C      	B @cc99
+                        cc98:
+  1068   0204 0001      	LI R4,1
+                        cc99:
+  106C   C104           	MOV R4,R4
+  106E   1602           	JNE $+6
+  1070   0460 107C      	B @cc97
+                        ;            editone();
+                        ;zcall()
+  1074   2DA0 0480      	CALL @editone
+                        ;modstk(newsp,save)
+                        ;        else if(c == 'O' || c == 'o')
+                        ;jump(label)
+  1078   0460 1238      	B @cc100
+                        cc97:
+                        ;getloc(sym, off)
+  107C   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  1080   C0C4           	MOV R4,R3 ;optimised push/pop
+  1082   0204 004F      	LI R4,79
+                        ;_cceq
+  1086   8103           	C R3,R4 ;optimised
+  1088   1602           	JNE $+6
+  108A   0460 10A6      	B @cc102
+                        ;getloc(sym, off)
+  108E   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  1092   C0C4           	MOV R4,R3 ;optimised push/pop
+  1094   0204 006F      	LI R4,111
+                        ;_cceq
+  1098   8103           	C R3,R4 ;optimised
+  109A   1602           	JNE $+6
+  109C   0460 10A6      	B @cc102
+  10A0   04C4           	CLR R4
+                        ;jump(label)
+  10A2   0460 10AA      	B @cc103
+                        cc102:
+  10A6   0204 0001      	LI R4,1
+                        cc103:
+  10AA   C104           	MOV R4,R4
+  10AC   1602           	JNE $+6
+  10AE   0460 10BA      	B @cc101
+                        ;            openone();
+                        ;zcall()
+  10B2   2DA0 05FA      	CALL @openone
+                        ;modstk(newsp,save)
+                        ;        else if(c == 'N' || c == 'n')
+                        ;jump(label)
+  10B6   0460 1238      	B @cc104
+                        cc101:
+                        ;getloc(sym, off)
+  10BA   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  10BE   C0C4           	MOV R4,R3 ;optimised push/pop
+  10C0   0204 004E      	LI R4,78
+                        ;_cceq
+  10C4   8103           	C R3,R4 ;optimised
+  10C6   1602           	JNE $+6
+  10C8   0460 10E4      	B @cc106
+                        ;getloc(sym, off)
+  10CC   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  10D0   C0C4           	MOV R4,R3 ;optimised push/pop
+  10D2   0204 006E      	LI R4,110
+                        ;_cceq
+  10D6   8103           	C R3,R4 ;optimised
+  10D8   1602           	JNE $+6
+  10DA   0460 10E4      	B @cc106
+  10DE   04C4           	CLR R4
+                        ;jump(label)
+  10E0   0460 10E8      	B @cc107
+                        cc106:
+  10E4   0204 0001      	LI R4,1
+                        cc107:
+  10E8   C104           	MOV R4,R4
+  10EA   1602           	JNE $+6
+  10EC   0460 10F8      	B @cc105
+                        ;            newone();
+                        ;zcall()
+  10F0   2DA0 0730      	CALL @newone
+                        ;modstk(newsp,save)
+                        ;        else if(c == 'S' || c == 's')
+                        ;jump(label)
+  10F4   0460 1238      	B @cc108
+                        cc105:
+                        ;getloc(sym, off)
+  10F8   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  10FC   C0C4           	MOV R4,R3 ;optimised push/pop
+  10FE   0204 0053      	LI R4,83
+                        ;_cceq
+  1102   8103           	C R3,R4 ;optimised
+  1104   1602           	JNE $+6
+  1106   0460 1122      	B @cc110
+                        ;getloc(sym, off)
+  110A   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  110E   C0C4           	MOV R4,R3 ;optimised push/pop
+  1110   0204 0073      	LI R4,115
+                        ;_cceq
+  1114   8103           	C R3,R4 ;optimised
+  1116   1602           	JNE $+6
+  1118   0460 1122      	B @cc110
+  111C   04C4           	CLR R4
+                        ;jump(label)
+  111E   0460 1126      	B @cc111
+                        cc110:
+  1122   0204 0001      	LI R4,1
+                        cc111:
+  1126   C104           	MOV R4,R4
+  1128   1602           	JNE $+6
+  112A   0460 1136      	B @cc109
+                        ;            saveone();
+                        ;zcall()
+  112E   2DA0 07FA      	CALL @saveone
+                        ;modstk(newsp,save)
+                        ;        else if(c == 'A' || c == 'a')
+                        ;jump(label)
+  1132   0460 1238      	B @cc112
+                        cc109:
+                        ;getloc(sym, off)
+  1136   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  113A   C0C4           	MOV R4,R3 ;optimised push/pop
+  113C   0204 0041      	LI R4,65
+                        ;_cceq
+  1140   8103           	C R3,R4 ;optimised
+  1142   1602           	JNE $+6
+  1144   0460 1160      	B @cc114
+                        ;getloc(sym, off)
+  1148   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  114C   C0C4           	MOV R4,R3 ;optimised push/pop
+  114E   0204 0061      	LI R4,97
+                        ;_cceq
+  1152   8103           	C R3,R4 ;optimised
+  1154   1602           	JNE $+6
+  1156   0460 1160      	B @cc114
+  115A   04C4           	CLR R4
+                        ;jump(label)
+  115C   0460 1164      	B @cc115
+                        cc114:
+  1160   0204 0001      	LI R4,1
+                        cc115:
+  1164   C104           	MOV R4,R4
+  1166   1602           	JNE $+6
+  1168   0460 1174      	B @cc113
+                        ;            asone();
+                        ;zcall()
+  116C   2DA0 08DE      	CALL @asone
+                        ;modstk(newsp,save)
+                        ;        else if(c == 'V' || c == 'v')
+                        ;jump(label)
+  1170   0460 1238      	B @cc116
+                        cc113:
+                        ;getloc(sym, off)
+  1174   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  1178   C0C4           	MOV R4,R3 ;optimised push/pop
+  117A   0204 0056      	LI R4,86
+                        ;_cceq
+  117E   8103           	C R3,R4 ;optimised
+  1180   1602           	JNE $+6
+  1182   0460 119E      	B @cc118
+                        ;getloc(sym, off)
+  1186   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  118A   C0C4           	MOV R4,R3 ;optimised push/pop
+  118C   0204 0076      	LI R4,118
+                        ;_cceq
+  1190   8103           	C R3,R4 ;optimised
+  1192   1602           	JNE $+6
+  1194   0460 119E      	B @cc118
+  1198   04C4           	CLR R4
+                        ;jump(label)
+  119A   0460 11A2      	B @cc119
+                        cc118:
+  119E   0204 0001      	LI R4,1
+                        cc119:
+  11A2   C104           	MOV R4,R4
+  11A4   1602           	JNE $+6
+  11A6   0460 11B2      	B @cc117
+                        ;            viewone();
+                        ;zcall()
+  11AA   2DA0 0498      	CALL @viewone
+                        ;modstk(newsp,save)
+                        ;        else if(c == 'T' || c == 't')
+                        ;jump(label)
+  11AE   0460 1238      	B @cc120
+                        cc117:
+                        ;getloc(sym, off)
+  11B2   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  11B6   C0C4           	MOV R4,R3 ;optimised push/pop
+  11B8   0204 0054      	LI R4,84
+                        ;_cceq
+  11BC   8103           	C R3,R4 ;optimised
+  11BE   1602           	JNE $+6
+  11C0   0460 11DC      	B @cc122
+                        ;getloc(sym, off)
+  11C4   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  11C8   C0C4           	MOV R4,R3 ;optimised push/pop
+  11CA   0204 0074      	LI R4,116
+                        ;_cceq
+  11CE   8103           	C R3,R4 ;optimised
+  11D0   1602           	JNE $+6
+  11D2   0460 11DC      	B @cc122
+  11D6   04C4           	CLR R4
+                        ;jump(label)
+  11D8   0460 11E0      	B @cc123
+                        cc122:
+  11DC   0204 0001      	LI R4,1
+                        cc123:
+  11E0   C104           	MOV R4,R4
+  11E2   1602           	JNE $+6
+  11E4   0460 11F0      	B @cc121
+                        ;            statone();
+                        ;zcall()
+  11E8   2DA0 0A84      	CALL @statone
+                        ;modstk(newsp,save)
+                        ;        else if(c == 'Q' || c == 'q') {
+                        ;jump(label)
+  11EC   0460 1238      	B @cc124
+                        cc121:
+                        ;getloc(sym, off)
+  11F0   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  11F4   C0C4           	MOV R4,R3 ;optimised push/pop
+  11F6   0204 0051      	LI R4,81
+                        ;_cceq
+  11FA   8103           	C R3,R4 ;optimised
+  11FC   1602           	JNE $+6
+  11FE   0460 121A      	B @cc126
+                        ;getloc(sym, off)
+  1202   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  1206   C0C4           	MOV R4,R3 ;optimised push/pop
+  1208   0204 0071      	LI R4,113
+                        ;_cceq
+  120C   8103           	C R3,R4 ;optimised
+  120E   1602           	JNE $+6
+  1210   0460 121A      	B @cc126
+  1214   04C4           	CLR R4
+                        ;jump(label)
+  1216   0460 121E      	B @cc127
+                        cc126:
+  121A   0204 0001      	LI R4,1
+                        cc127:
+  121E   C104           	MOV R4,R4
+  1220   1602           	JNE $+6
+  1222   0460 1238      	B @cc125
+                        ;            if(docguard())
+                        ;modstk(newsp,save)
+                        ;zcall()
+  1226   2DA0 0082      	CALL @docguard
+                        ;modstk(newsp,save)
+  122A   C104           	MOV R4,R4
+  122C   1602           	JNE $+6
+  122E   0460 1238      	B @cc128
+                        ;                done = 1;
+  1232   0204 0001      	LI R4,1
+                        ;puttos()
+  1236   C684           	MOV R4,*SP
+                        ;        }
+                        cc128:
+                        ;modstk(newsp,save)
+                        ;    }
+                        cc125:
+                        cc124:
+                        cc120:
+                        cc116:
+                        cc112:
+                        cc108:
+                        cc104:
+                        cc100:
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  1238   0460 1016      	B @cc95
+                        cc96:
+                        ;    trmclear();
+                        ;zcall()
+  123C   2DA0 0000      	CALL @trmclear
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+  1240   022A 0004      	AI SP,4
+                        ;modstk(newsp,save)
+  1244   2DC0           	RET
+  1246   4F70 656E      cc92:	BYTE 79,112,101,110,105,110,103,32,0,32,46,46
+  124A   696E 6720      
+  124E   0020 2E2E      
+  1252   2E0D 00        	BYTE 46,13,0
+  1255   00             	EVEN
+                        	EXT trmrev
+                        	EXT runrpt
+                        	EXT fsname
+                        	ENT pausekey
+                        	ENT editmenu
+                        	EXT ebdirty
+                        	EXT fssave
+                        	ENT drawmenu
+                        	EXT fsopen
+                        	ENT saveone
+                        	EXT ebloadn
+                        	EXT fsclose
+                        	EXT trmclear
+                        	ENT openone
+                        	EXT trmnorm
+                        	ENT asone
+                        	EXT puts
+                        	EXT fsequal
+                        	EXT runword
+                        	ENT newone
+                        	EXT ebvalid
+                        	EXT editctl
+                        	EXT fsrewind
+                        	ENT editone
+                        	EXT fsexist
+                        	EXT ebload
+                        	ENT docguard
+                        	EXT ebnewn
+                        	EXT fssavas
+                        	ENT nodoc
+                        	EXT ebnone
+                        	EXT fsreset
+                        	ENT overask
+                        	ENT opretry
+                        	EXT fsprobe
+                        	EXT viewctl
+                        	ENT viewone
+                        	EXT nmprompt
+                        	EXT trmesc
+                        	EXT runchar
+                        	ENT statone
+                        	EXT trmkey
+  1256                  	EVEN
+  1256                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R5                0005   R6                0006   R7                0007   
+R8                0008   R9                0009   RET               2DC0'  SL                0009   
+SP                000A   WHEX              2E80'  WP                000D   WRITE             2F00'  
+asone             08DE'  cc1               0014'  cc10              0152'  cc100             1238'  
+cc101             10BA'  cc102             10A6'  cc103             10AA'  cc104             1238'  
+cc105             10F8'  cc106             10E4'  cc107             10E8'  cc108             1238'  
+cc109             1136'  cc11              026A'  cc110             1122'  cc111             1126'  
+cc112             1238'  cc113             1174'  cc114             1160'  cc115             1164'  
+cc116             1238'  cc117             11B2'  cc118             119E'  cc119             11A2'  
+cc12              01E4'  cc120             1238'  cc121             11F0'  cc122             11DC'  
+cc123             11E0'  cc124             1238'  cc125             1238'  cc126             121A'  
+cc127             121E'  cc128             1238'  cc13              017E'  cc14              0182'  
+cc15              01CC'  cc16              021E'  cc17              020A'  cc18              020E'  
+cc19              0266'  cc2               0054'  cc20              0254'  cc21              0258'  
+cc22              0416'  cc23              0386'  cc24              0412'  cc25              03C6'  
+cc26              03B2'  cc27              03B6'  cc28              040E'  cc29              03FC'  
+cc3               026E'  cc30              0400'  cc32              0492'  cc34              04AA'  
+cc35              05AA'  cc36              050A'  cc37              05A6'  cc38              055A'  
+cc39              0546'  cc4               0098'  cc40              054A'  cc41              05A2'  
+cc42              0590'  cc43              0594'  cc44              06EA'  cc45              0602'  
+cc46              0678'  cc47              0634'  cc48              0656'  cc49              0674'  
+cc5               00CE'  cc50              0674'  cc51              068A'  cc52              06E4'  
+cc53              07C8'  cc54              075C'  cc55              07A0'  cc56              07B2'  
+cc57              0888'  cc58              080C'  cc59              0874'  cc6               00BC'  
+cc60              0882'  cc61              0A10'  cc62              08F8'  cc63              0920'  
+cc64              094C'  cc65              0982'  cc66              0982'  cc67              09F8'  
+cc68              0A06'  cc69              0C72'  cc7               00BE'  cc70              0A9A'  
+cc71              0AC0'  cc72              0C2A'  cc73              0B16'  cc74              0C2A'  
+cc75              0BA6'  cc76              0B42'  cc77              0B46'  cc78              0B9E'  
+cc79              0BE0'  cc8               00F0'  cc80              0BCC'  cc81              0BD0'  
+cc82              0C26'  cc83              0C16'  cc84              0C1A'  cc85              0C42'  
+cc86              0C5A'  cc87              0EBE'  cc88              0DFE'  cc89              0DE0'  
+cc9               00FE'  cc90              0DFA'  cc91              0E0C'  cc92              1246'  
+cc93              1012'  cc94              1012'  cc95              1016'  cc96              123C'  
+cc97              107C'  cc98              1068'  cc99              106C'  docguard          0082'  
+drawmenu          0D68'  ebdirty           0000*  ebload            0000*  ebloadn           0000*  
+ebnewn            0000*  ebnone            0000*  ebvalid           0000*  editctl           0000*  
+editmenu          0FBC'  editone           0480'  fsclose           0000*  fsequal           0000*  
+fsexist           0000*  fsname            0000*  fsopen            0000*  fsprobe           0000*  
+fsreset           0000*  fsrewind          0000*  fssavas           0000*  fssave            0000*  
+newone            0730'  nmprompt          0000*  nodoc             003C'  openone           05FA'  
+opretry           04B0'  overask           032C'  pausekey          0000'  puts              0000*  
+runchar           0000*  runrpt            0000*  runword           0000*  saveone           07FA'  
+statone           0A84'  trmclear          0000*  trmesc            0000*  trmkey            0000*  
+trmnorm           0000*  trmrev            0000*  viewctl           0000*  viewone           0498'  
+

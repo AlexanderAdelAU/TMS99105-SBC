@@ -1,0 +1,570 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0005                  R5	EQU 5
+  0006                  R6	EQU 6
+  0007                  R7	EQU 7
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM TERMIO
+                        ;/*
+                        ;** TERMIO.C -- resident ANSI/VT100 terminal services for Tera Term.
+                        ;**
+                        ;** Step 3 adds cursor positioning and direct/no-echo keyboard input.  These
+                        ;** routines stay resident because every display/editor overlay will share
+                        ;** them.  External identifiers remain eight characters or fewer for the
+                        ;** Small-C/Plus toolchain.
+                        ;*/
+                        ;extern putchar();
+                        ;extern puts();
+                        ;extern rxwait();
+                        ;extern int rxchar;
+                        ;/* Emit ESC followed by the supplied ANSI control sequence. */
+                        ;trmesc(s)
+  0000                  	EVEN
+                        trmesc:
+                        ;char *s;
+                        ;{
+                        ;modstk(newsp,save)
+                        ;    putchar(27);
+                        ;modstk(newsp,save)
+  0000   0204 001B      	LI R4,27
+  0004   064A           	DECT SP
+  0006   C684           	MOV R4,*SP
+                        ;zcall()
+  0008   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  000C   05CA           	INCT SP
+                        ;    puts(s);
+                        ;getloc(sym, off)
+  000E   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  0012   064A           	DECT SP
+  0014   C684           	MOV R4,*SP
+                        ;zcall()
+  0016   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  001A   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  001C   2DC0           	RET
+                        ;/*
+                        ;** Clear the display using the sequence proven by ED2 on VT100/Tera Term:
+                        ;** HOME first, then erase from HOME to end of display.  This avoids the
+                        ;** repeated-screen/scrollback behaviour seen with CSI 2 J on this setup.
+                        ;*/
+                        ;trmclear()
+  001E                  	EVEN
+                        trmclear:
+                        ;{
+                        ;    trmesc("[H");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  001E   0204 003C      	LI R4,cc2+0
+  0022   064A           	DECT SP
+  0024   C684           	MOV R4,*SP
+                        ;zcall()
+  0026   2DA0 0000      	CALL @trmesc
+                        ;modstk(newsp,save)
+  002A   05CA           	INCT SP
+                        ;    trmesc("[J");
+                        ;constant(lval)
+  002C   0204 003F      	LI R4,cc2+3
+  0030   064A           	DECT SP
+  0032   C684           	MOV R4,*SP
+                        ;zcall()
+  0034   2DA0 0000      	CALL @trmesc
+                        ;modstk(newsp,save)
+  0038   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  003A   2DC0           	RET
+  003C   5B48 005B      cc2:	BYTE 91,72,0,91,74,0
+  0040   4A00           
+                        ;/* Reverse video is useful for simple title and status bars. */
+                        ;trmrev()
+  0042                  	EVEN
+                        trmrev:
+                        ;{
+                        ;    trmesc("[7m");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0042   0204 0052      	LI R4,cc3+0
+  0046   064A           	DECT SP
+  0048   C684           	MOV R4,*SP
+                        ;zcall()
+  004A   2DA0 0000      	CALL @trmesc
+                        ;modstk(newsp,save)
+  004E   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0050   2DC0           	RET
+  0052   5B37 6D00      cc3:	BYTE 91,55,109,0
+                        ;/* Restore normal terminal attributes. */
+                        ;trmnorm()
+  0056                  	EVEN
+                        trmnorm:
+                        ;{
+                        ;    trmesc("[0m");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0056   0204 0066      	LI R4,cc4+0
+  005A   064A           	DECT SP
+  005C   C684           	MOV R4,*SP
+                        ;zcall()
+  005E   2DA0 0000      	CALL @trmesc
+                        ;modstk(newsp,save)
+  0062   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0064   2DC0           	RET
+  0066   5B30 6D00      cc4:	BYTE 91,48,109,0
+                        ;/* Hide/show the hardware cursor while a screen-oriented view is active. */
+                        ;trmhide()
+  006A                  	EVEN
+                        trmhide:
+                        ;{
+                        ;    trmesc("[?25l");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  006A   0204 007A      	LI R4,cc5+0
+  006E   064A           	DECT SP
+  0070   C684           	MOV R4,*SP
+                        ;zcall()
+  0072   2DA0 0000      	CALL @trmesc
+                        ;modstk(newsp,save)
+  0076   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0078   2DC0           	RET
+  007A   5B3F 3235      cc5:	BYTE 91,63,50,53,108,0
+  007E   6C00           
+                        ;trmshow()
+  0080                  	EVEN
+                        trmshow:
+                        ;{
+                        ;    trmesc("[?25h");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0080   0204 0090      	LI R4,cc6+0
+  0084   064A           	DECT SP
+  0086   C684           	MOV R4,*SP
+                        ;zcall()
+  0088   2DA0 0000      	CALL @trmesc
+                        ;modstk(newsp,save)
+  008C   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  008E   2DC0           	RET
+  0090   5B3F 3235      cc6:	BYTE 91,63,50,53,104,0
+  0094   6800           
+                        ;/* Audible/visible terminal bell for a rejected edit (for example full buffer). */
+                        ;trmbell()
+  0096                  	EVEN
+                        trmbell:
+                        ;{
+                        ;    putchar(7);
+                        ;modstk(newsp,save)
+  0096   0204 0007      	LI R4,7
+  009A   064A           	DECT SP
+  009C   C684           	MOV R4,*SP
+                        ;zcall()
+  009E   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  00A2   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  00A4   2DC0           	RET
+                        ;/* Print a positive decimal integer without pulling printf into TERMIO. */
+                        ;trmnum(n)
+  00A6                  	EVEN
+                        trmnum:
+                        ;int n;
+                        ;{
+                        ;    if(n < 0) {
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  00A6   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;lt0(label)
+  00AA   C104           	MOV R4,R4
+  00AC   1102           	JLT $+6
+  00AE   0460 00CA      	B @cc9
+                        ;        putchar('-');
+                        ;modstk(newsp,save)
+  00B2   0204 002D      	LI R4,45
+  00B6   064A           	DECT SP
+  00B8   C684           	MOV R4,*SP
+                        ;zcall()
+  00BA   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  00BE   05CA           	INCT SP
+                        ;        n = -n;
+                        ;getloc(sym, off)
+  00C0   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;neg()
+  00C4   0504           	NEG R4
+                        ;put2tos()
+  00C6   CA84 0002      	MOV R4,@2(SP)
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;    if(n >= 10)
+                        cc9:
+                        ;getloc(sym, off)
+  00CA   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  00CE   C0C4           	MOV R4,R3 ;optimised push/pop
+  00D0   0204 000A      	LI R4,10
+                        ;_ccge
+  00D4   8103           	C R3,R4 ;optimised
+  00D6   1503           	JGT $+8
+  00D8   1302           	JEQ $+6
+  00DA   0460 00F6      	B @cc10
+                        ;        trmnum(n / 10);
+                        ;getloc(sym, off)
+  00DE   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  00E2   C0C4           	MOV R4,R3 ;optimised push/pop
+  00E4   0204 000A      	LI R4,10
+  00E8   06A0 0000      	BL @_ccdiv##
+  00EC   064A           	DECT SP
+  00EE   C684           	MOV R4,*SP
+                        ;zcall()
+  00F0   2DA0 00A6      	CALL @trmnum
+                        ;modstk(newsp,save)
+  00F4   05CA           	INCT SP
+                        ;    putchar('0' + (n % 10));
+                        cc10:
+                        ;getloc(sym, off)
+  00F6   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  00FA   C0C4           	MOV R4,R3 ;optimised push/pop
+  00FC   0204 000A      	LI R4,10
+  0100   06A0 0000      	BL @_ccdiv##
+                        ;swap()
+  0104   C003           	MOV R3,R0;;
+  0106   C0C4           	MOV R4,R3
+  0108   C100           	MOV R0,R4
+                        ;const2(val)
+  010A   0203 0030      	LI R3,48
+                        ;	zadd()
+  010E   A103           	A R3,R4
+  0110   064A           	DECT SP
+  0112   C684           	MOV R4,*SP
+                        ;zcall()
+  0114   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  0118   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  011A   2DC0           	RET
+                        ;/*
+                        ;** ANSI cursor position: rows/columns are one-origin values.
+                        ;** ED2 emits fixed two-digit coordinates (ESC[03;01H), so do the same here.
+                        ;** The editor is deliberately fixed at 80x24 for now; values above 99 are not
+                        ;** needed at this milestone.
+                        ;*/
+                        ;trmpos(row, col)
+  011C                  	EVEN
+                        trmpos:
+                        ;int row, col;
+                        ;{
+                        ;    putchar(27);
+                        ;modstk(newsp,save)
+  011C   0204 001B      	LI R4,27
+  0120   064A           	DECT SP
+  0122   C684           	MOV R4,*SP
+                        ;zcall()
+  0124   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  0128   05CA           	INCT SP
+                        ;    putchar('[');
+  012A   0204 005B      	LI R4,91
+  012E   064A           	DECT SP
+  0130   C684           	MOV R4,*SP
+                        ;zcall()
+  0132   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  0136   05CA           	INCT SP
+                        ;    putchar('0' + ((row / 10) % 10));
+                        ;getloc(sym, off)
+  0138   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  013C   C0C4           	MOV R4,R3 ;optimised push/pop
+  013E   0204 000A      	LI R4,10
+  0142   06A0 0000      	BL @_ccdiv##
+  0146   C0C4           	MOV R4,R3 ;optimised push/pop
+  0148   0204 000A      	LI R4,10
+  014C   06A0 0000      	BL @_ccdiv##
+                        ;swap()
+  0150   C003           	MOV R3,R0;;
+  0152   C0C4           	MOV R4,R3
+  0154   C100           	MOV R0,R4
+                        ;const2(val)
+  0156   0203 0030      	LI R3,48
+                        ;	zadd()
+  015A   A103           	A R3,R4
+  015C   064A           	DECT SP
+  015E   C684           	MOV R4,*SP
+                        ;zcall()
+  0160   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  0164   05CA           	INCT SP
+                        ;    putchar('0' + (row % 10));
+                        ;getloc(sym, off)
+  0166   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  016A   C0C4           	MOV R4,R3 ;optimised push/pop
+  016C   0204 000A      	LI R4,10
+  0170   06A0 0000      	BL @_ccdiv##
+                        ;swap()
+  0174   C003           	MOV R3,R0;;
+  0176   C0C4           	MOV R4,R3
+  0178   C100           	MOV R0,R4
+                        ;const2(val)
+  017A   0203 0030      	LI R3,48
+                        ;	zadd()
+  017E   A103           	A R3,R4
+  0180   064A           	DECT SP
+  0182   C684           	MOV R4,*SP
+                        ;zcall()
+  0184   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  0188   05CA           	INCT SP
+                        ;    putchar(';');
+  018A   0204 003B      	LI R4,59
+  018E   064A           	DECT SP
+  0190   C684           	MOV R4,*SP
+                        ;zcall()
+  0192   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  0196   05CA           	INCT SP
+                        ;    putchar('0' + ((col / 10) % 10));
+                        ;getloc(sym, off)
+  0198   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  019C   C0C4           	MOV R4,R3 ;optimised push/pop
+  019E   0204 000A      	LI R4,10
+  01A2   06A0 0000      	BL @_ccdiv##
+  01A6   C0C4           	MOV R4,R3 ;optimised push/pop
+  01A8   0204 000A      	LI R4,10
+  01AC   06A0 0000      	BL @_ccdiv##
+                        ;swap()
+  01B0   C003           	MOV R3,R0;;
+  01B2   C0C4           	MOV R4,R3
+  01B4   C100           	MOV R0,R4
+                        ;const2(val)
+  01B6   0203 0030      	LI R3,48
+                        ;	zadd()
+  01BA   A103           	A R3,R4
+  01BC   064A           	DECT SP
+  01BE   C684           	MOV R4,*SP
+                        ;zcall()
+  01C0   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  01C4   05CA           	INCT SP
+                        ;    putchar('0' + (col % 10));
+                        ;getloc(sym, off)
+  01C6   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  01CA   C0C4           	MOV R4,R3 ;optimised push/pop
+  01CC   0204 000A      	LI R4,10
+  01D0   06A0 0000      	BL @_ccdiv##
+                        ;swap()
+  01D4   C003           	MOV R3,R0;;
+  01D6   C0C4           	MOV R4,R3
+  01D8   C100           	MOV R0,R4
+                        ;const2(val)
+  01DA   0203 0030      	LI R3,48
+                        ;	zadd()
+  01DE   A103           	A R3,R4
+  01E0   064A           	DECT SP
+  01E2   C684           	MOV R4,*SP
+                        ;zcall()
+  01E4   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  01E8   05CA           	INCT SP
+                        ;    putchar('H');
+  01EA   0204 0048      	LI R4,72
+  01EE   064A           	DECT SP
+  01F0   C684           	MOV R4,*SP
+                        ;zcall()
+  01F2   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  01F6   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  01F8   2DC0           	RET
+                        ;/* Erase from column 1 to end of line; callers position at column 1 first. */
+                        ;trmclrln()
+  01FA                  	EVEN
+                        trmclrln:
+                        ;{
+                        ;    trmesc("[K");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  01FA   0204 020A      	LI R4,cc12+0
+  01FE   064A           	DECT SP
+  0200   C684           	MOV R4,*SP
+                        ;zcall()
+  0202   2DA0 0000      	CALL @trmesc
+                        ;modstk(newsp,save)
+  0206   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0208   2DC0           	RET
+  020A   5B4B 00        cc12:	BYTE 91,75,0
+  020D   00             	EVEN
+                        ;/*
+                        ;** Blocking, no-echo console input from the resident INT4 RX queue.
+                        ;**
+                        ;** FileEdit Step 7.1 installs a temporary INT4 hook while /E or /V is
+                        ;** active.  The ISR drains TMS9902 receive bytes immediately into a 64-byte
+                        ;** ring, so full-screen redraws no longer leave ESC-sequence tails behind.
+                        ;*/
+                        ;trmkey()
+  020E                  	EVEN
+                        trmkey:
+                        ;{
+                        ;    rxwait();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  020E   2DA0 0000      	CALL @rxwait
+                        ;modstk(newsp,save)
+                        ;    return rxchar;
+                        ;getmem(sym)
+  0212   C120 0000      	MOV @rxchar,R4
+                        ;modstk(newsp,save)
+  0216   2DC0           	RET
+                        ;}
+                        ;/* Retained as an alias for later terminal code; currently identical. */
+                        ;trmraw()
+  0218                  	EVEN
+                        trmraw:
+                        ;{
+                        ;    return trmkey();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0218   2DA0 020E      	CALL @trmkey
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  021C   2DC0           	RET
+                        ;}
+                        ;/* Draw a 79-column rule; leave column 80 unused to avoid auto-wrap. */
+                        ;trmrule(row)
+  021E                  	EVEN
+                        trmrule:
+                        ;int row;
+                        ;{
+                        ;    int n;
+                        ;    trmpos(row, 1);
+                        ;modstk(newsp,save)
+  021E   064A           	DECT SP
+                        ;getloc(sym, off)
+  0220   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0224   064A           	DECT SP
+  0226   C684           	MOV R4,*SP
+  0228   0204 0001      	LI R4,1
+  022C   064A           	DECT SP
+  022E   C684           	MOV R4,*SP
+                        ;zcall()
+  0230   2DA0 011C      	CALL @trmpos
+                        ;modstk(newsp,save)
+  0234   022A 0004      	AI SP,4
+                        ;    trmclrln();
+                        ;zcall()
+  0238   2DA0 01FA      	CALL @trmclrln
+                        ;modstk(newsp,save)
+                        ;    n = 0;
+  023C   04C4           	CLR R4
+                        ;puttos()
+  023E   C684           	MOV R4,*SP
+                        ;    while(n < 79) {
+                        cc16:
+                        ;getloc(sym, off)
+  0240   C11A           	MOV *SP,R4 ;optimised load
+  0242   C0C4           	MOV R4,R3 ;optimised push/pop
+  0244   0204 004F      	LI R4,79
+                        ;_cclt
+  0248   8103           	C R3,R4 ;optimised
+  024A   1102           	JLT $+6
+  024C   0460 0268      	B @cc17
+                        ;        putchar('-');
+                        ;modstk(newsp,save)
+  0250   0204 002D      	LI R4,45
+  0254   064A           	DECT SP
+  0256   C684           	MOV R4,*SP
+                        ;zcall()
+  0258   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  025C   05CA           	INCT SP
+                        ;        n = n + 1;
+                        ;getloc(sym, off)
+  025E   C11A           	MOV *SP,R4 ;optimised load
+                        ;inc()
+  0260   0584           	INC R4
+                        ;puttos()
+  0262   C684           	MOV R4,*SP
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0264   0460 0240      	B @cc16
+                        cc17:
+                        ;}
+                        ;modstk(newsp,save)
+  0268   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  026A   2DC0           	RET
+                        	ENT trmraw
+                        	ENT trmrev
+                        	ENT trmnum
+                        	ENT trmpos
+                        	ENT trmhide
+                        	EXT rxwait
+                        	ENT trmclear
+                        	ENT trmnorm
+                        	ENT trmshow
+                        	EXT puts
+                        	ENT trmrule
+                        	ENT trmclrln
+                        	EXT rxchar
+                        	EXT putchar
+                        	ENT trmesc
+                        	ENT trmkey
+                        	ENT trmbell
+  026C                  	EVEN
+  026C                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R5                0005   R6                0006   R7                0007   
+R8                0008   R9                0009   RET               2DC0'  SL                0009   
+SP                000A   WHEX              2E80'  WP                000D   WRITE             2F00'  
+_ccdiv            0000*  cc10              00F6'  cc12              020A'  cc16              0240'  
+cc17              0268'  cc2               003C'  cc3               0052'  cc4               0066'  
+cc5               007A'  cc6               0090'  cc9               00CA'  putchar           0000*  
+puts              0000*  rxchar            0000*  rxwait            0000*  trmbell           0096'  
+trmclear          001E'  trmclrln          01FA'  trmesc            0000'  trmhide           006A'  
+trmkey            020E'  trmnorm           0056'  trmnum            00A6'  trmpos            011C'  
+trmraw            0218'  trmrev            0042'  trmrule           021E'  trmshow           0080'  
+

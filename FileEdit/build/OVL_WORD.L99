@@ -1,0 +1,492 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0005                  R5	EQU 5
+  0006                  R6	EQU 6
+  0007                  R7	EQU 7
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM OVL_WORD
+                        ;/*
+                        ;** OVL_WORD.C -- FILESTAT word and line analysis overlay.
+                        ;**
+                        ;** This module runs at >8000.  Results needed after it returns are written to
+                        ;** resident FILEDATA storage.
+                        ;*/
+                        ;#asm
+  8000                          AORG    08000H
+                        ;extern fsgetc();
+                        ;extern noteword();
+                        ;extern int nline;
+                        ;extern int nword;
+                        ;isword(c)
+  8000                  	EVEN
+                        isword:
+                        ;int c;
+                        ;{
+                        ;modstk(newsp,save)
+                        ;    if(c >= 'A' && c <= 'Z')
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  8000   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  8004   C0C4           	MOV R4,R3 ;optimised push/pop
+  8006   0204 0041      	LI R4,65
+                        ;_ccge
+  800A   8103           	C R3,R4 ;optimised
+  800C   1503           	JGT $+8
+  800E   1302           	JEQ $+6
+  8010   0460 8030      	B @cc3
+                        ;getloc(sym, off)
+  8014   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  8018   C0C4           	MOV R4,R3 ;optimised push/pop
+  801A   0204 005A      	LI R4,90
+                        ;_ccle
+  801E   8103           	C R3,R4 ;optimised
+  8020   1103           	JLT $+8
+  8022   1302           	JEQ $+6
+  8024   0460 8030      	B @cc3
+  8028   0204 0001      	LI R4,1
+                        ;jump(label)
+  802C   0460 8032      	B @cc4
+                        cc3:
+  8030   04C4           	CLR R4
+                        cc4:
+  8032   C104           	MOV R4,R4
+  8034   1602           	JNE $+6
+  8036   0460 8040      	B @cc2
+                        ;        return 1;
+  803A   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  803E   2DC0           	RET
+                        ;    if(c >= 'a' && c <= 'z')
+                        cc2:
+                        ;getloc(sym, off)
+  8040   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  8044   C0C4           	MOV R4,R3 ;optimised push/pop
+  8046   0204 0061      	LI R4,97
+                        ;_ccge
+  804A   8103           	C R3,R4 ;optimised
+  804C   1503           	JGT $+8
+  804E   1302           	JEQ $+6
+  8050   0460 8070      	B @cc6
+                        ;getloc(sym, off)
+  8054   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  8058   C0C4           	MOV R4,R3 ;optimised push/pop
+  805A   0204 007A      	LI R4,122
+                        ;_ccle
+  805E   8103           	C R3,R4 ;optimised
+  8060   1103           	JLT $+8
+  8062   1302           	JEQ $+6
+  8064   0460 8070      	B @cc6
+  8068   0204 0001      	LI R4,1
+                        ;jump(label)
+  806C   0460 8072      	B @cc7
+                        cc6:
+  8070   04C4           	CLR R4
+                        cc7:
+  8072   C104           	MOV R4,R4
+  8074   1602           	JNE $+6
+  8076   0460 8080      	B @cc5
+                        ;        return 1;
+  807A   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  807E   2DC0           	RET
+                        ;    if(c >= '0' && c <= '9')
+                        cc5:
+                        ;getloc(sym, off)
+  8080   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  8084   C0C4           	MOV R4,R3 ;optimised push/pop
+  8086   0204 0030      	LI R4,48
+                        ;_ccge
+  808A   8103           	C R3,R4 ;optimised
+  808C   1503           	JGT $+8
+  808E   1302           	JEQ $+6
+  8090   0460 80B0      	B @cc9
+                        ;getloc(sym, off)
+  8094   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  8098   C0C4           	MOV R4,R3 ;optimised push/pop
+  809A   0204 0039      	LI R4,57
+                        ;_ccle
+  809E   8103           	C R3,R4 ;optimised
+  80A0   1103           	JLT $+8
+  80A2   1302           	JEQ $+6
+  80A4   0460 80B0      	B @cc9
+  80A8   0204 0001      	LI R4,1
+                        ;jump(label)
+  80AC   0460 80B2      	B @cc10
+                        cc9:
+  80B0   04C4           	CLR R4
+                        cc10:
+  80B2   C104           	MOV R4,R4
+  80B4   1602           	JNE $+6
+  80B6   0460 80C0      	B @cc8
+                        ;        return 1;
+  80BA   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  80BE   2DC0           	RET
+                        ;    if(c == '_')
+                        cc8:
+                        ;getloc(sym, off)
+  80C0   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  80C4   C0C4           	MOV R4,R3 ;optimised push/pop
+  80C6   0204 005F      	LI R4,95
+                        ;_cceq
+  80CA   8103           	C R3,R4 ;optimised
+  80CC   1302           	JEQ $+6
+  80CE   0460 80D8      	B @cc11
+                        ;        return 1;
+  80D2   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  80D6   2DC0           	RET
+                        ;    return 0;
+                        cc11:
+  80D8   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  80DA   2DC0           	RET
+                        ;}
+                        ;wordscan()
+  80DC                  	EVEN
+                        wordscan:
+                        ;{
+                        ;    char word[32];
+                        ;    int c;
+                        ;    int inword;
+                        ;    int len;
+                        ;    int saw;
+                        ;    int lastnl;
+                        ;    inword = 0;
+                        ;modstk(newsp,save)
+  80DC   022A FFD6      	AI SP,-42
+                        ;getloc(sym, off)
+  80E0   0204 0006      	LI R4,6
+  80E4   A10A           	A SP,R4
+  80E6   C0C4           	MOV R4,R3 ;optimised push/pop
+  80E8   04C4           	CLR R4
+                        ;putstk - int
+  80EA   C4C4           	MOV R4,*R3
+                        ;    len = 0;
+                        ;getloc(sym, off)
+  80EC   0204 0004      	LI R4,4
+  80F0   A10A           	A SP,R4
+  80F2   C0C4           	MOV R4,R3 ;optimised push/pop
+  80F4   04C4           	CLR R4
+                        ;putstk - int
+  80F6   C4C4           	MOV R4,*R3
+                        ;    saw = 0;
+  80F8   04C4           	CLR R4
+                        ;put2tos()
+  80FA   CA84 0002      	MOV R4,@2(SP)
+                        ;    lastnl = 1;
+  80FE   0204 0001      	LI R4,1
+                        ;puttos()
+  8102   C684           	MOV R4,*SP
+                        ;    c = fsgetc();
+                        ;getloc(sym, off)
+  8104   0204 0008      	LI R4,8
+  8108   A10A           	A SP,R4
+  810A   064A           	DECT SP
+  810C   C684           	MOV R4,*SP
+                        ;zcall()
+  810E   2DA0 0000      	CALL @fsgetc
+                        ;modstk(newsp,save)
+  8112   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  8114   C4C4           	MOV R4,*R3
+                        ;    while(c != -1) {
+                        cc13:
+                        ;getloc(sym, off)
+  8116   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  811A   C0C4           	MOV R4,R3 ;optimised push/pop
+  811C   0704           	SETO R4
+                        ;_ccne
+  811E   8103           	C R3,R4 ;optimised
+  8120   1602           	JNE $+6
+  8122   0460 8236      	B @cc14
+                        ;        saw = 1;
+                        ;modstk(newsp,save)
+  8126   0204 0001      	LI R4,1
+                        ;put2tos()
+  812A   CA84 0002      	MOV R4,@2(SP)
+                        ;        if(c == '\n') {
+                        ;getloc(sym, off)
+  812E   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  8132   C0C4           	MOV R4,R3 ;optimised push/pop
+  8134   0204 000D      	LI R4,13
+                        ;_cceq
+  8138   8103           	C R3,R4 ;optimised
+  813A   1302           	JEQ $+6
+  813C   0460 8154      	B @cc15
+                        ;            nline = nline + 1;
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  8140   C120 0000      	MOV @nline,R4
+                        ;inc()
+  8144   0584           	INC R4
+                        ;putmem(sym)
+  8146   C804 0000      	MOV R4,@nline
+                        ;            lastnl = 1;
+  814A   0204 0001      	LI R4,1
+                        ;puttos()
+  814E   C684           	MOV R4,*SP
+                        ;        }
+                        ;modstk(newsp,save)
+                        ;        else
+                        ;jump(label)
+  8150   0460 8158      	B @cc16
+                        cc15:
+                        ;            lastnl = 0;
+  8154   04C4           	CLR R4
+                        ;puttos()
+  8156   C684           	MOV R4,*SP
+                        cc16:
+                        ;        if(isword(c)) {
+                        ;getloc(sym, off)
+  8158   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  815C   064A           	DECT SP
+  815E   C684           	MOV R4,*SP
+                        ;zcall()
+  8160   2DA0 8000      	CALL @isword
+                        ;modstk(newsp,save)
+  8164   05CA           	INCT SP
+  8166   C104           	MOV R4,R4
+  8168   1602           	JNE $+6
+  816A   0460 81E2      	B @cc17
+                        ;            if(inword == 0) {
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  816E   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  8172   C104           	MOV R4,R4
+  8174   1302           	JEQ $+6
+  8176   0460 819E      	B @cc18
+                        ;                inword = 1;
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  817A   0204 0006      	LI R4,6
+  817E   A10A           	A SP,R4
+  8180   C0C4           	MOV R4,R3 ;optimised push/pop
+  8182   0204 0001      	LI R4,1
+                        ;putstk - int
+  8186   C4C4           	MOV R4,*R3
+                        ;                len = 0;
+                        ;getloc(sym, off)
+  8188   0204 0004      	LI R4,4
+  818C   A10A           	A SP,R4
+  818E   C0C4           	MOV R4,R3 ;optimised push/pop
+  8190   04C4           	CLR R4
+                        ;putstk - int
+  8192   C4C4           	MOV R4,*R3
+                        ;                nword = nword + 1;
+                        ;getmem(sym)
+  8194   C120 0000      	MOV @nword,R4
+                        ;inc()
+  8198   0584           	INC R4
+                        ;putmem(sym)
+  819A   C804 0000      	MOV R4,@nword
+                        ;            }
+                        ;modstk(newsp,save)
+                        ;            if(len < 31)
+                        cc18:
+                        ;getloc(sym, off)
+  819E   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  81A2   C0C4           	MOV R4,R3 ;optimised push/pop
+  81A4   0204 001F      	LI R4,31
+                        ;_cclt
+  81A8   8103           	C R3,R4 ;optimised
+  81AA   1102           	JLT $+6
+  81AC   0460 81CC      	B @cc19
+                        ;                word[len] = c;
+                        ;getloc(sym, off)
+                        ;Char offset
+  81B0   0204 000B      	LI R4,11
+  81B4   A10A           	A SP,R4
+  81B6   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  81B8   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  81BC   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  81BE   A103           	A R3,R4
+  81C0   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  81C2   C12A 0008      	MOV @8(SP),R4 ;optimised load/expr
+  81C6   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;putstk - char
+  81C8   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;            len = len + 1;
+                        cc19:
+                        ;getloc(sym, off)
+  81CC   0204 0004      	LI R4,4
+  81D0   A10A           	A SP,R4
+  81D2   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  81D4   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;inc()
+  81D8   0584           	INC R4
+  81DA   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;putstk - int
+  81DC   C4C4           	MOV R4,*R3
+                        ;        }
+                        ;modstk(newsp,save)
+                        ;        else if(inword) {
+                        ;jump(label)
+  81DE   0460 8220      	B @cc20
+                        cc17:
+                        ;getloc(sym, off)
+  81E2   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  81E6   C104           	MOV R4,R4
+  81E8   1602           	JNE $+6
+  81EA   0460 8220      	B @cc21
+                        ;            noteword(word, len);
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+                        ;Char offset
+  81EE   0204 000B      	LI R4,11
+  81F2   A10A           	A SP,R4
+  81F4   064A           	DECT SP
+  81F6   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  81F8   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  81FC   064A           	DECT SP
+  81FE   C684           	MOV R4,*SP
+                        ;zcall()
+  8200   2DA0 0000      	CALL @noteword
+                        ;modstk(newsp,save)
+  8204   022A 0004      	AI SP,4
+                        ;            inword = 0;
+                        ;getloc(sym, off)
+  8208   0204 0006      	LI R4,6
+  820C   A10A           	A SP,R4
+  820E   C0C4           	MOV R4,R3 ;optimised push/pop
+  8210   04C4           	CLR R4
+                        ;putstk - int
+  8212   C4C4           	MOV R4,*R3
+                        ;            len = 0;
+                        ;getloc(sym, off)
+  8214   0204 0004      	LI R4,4
+  8218   A10A           	A SP,R4
+  821A   C0C4           	MOV R4,R3 ;optimised push/pop
+  821C   04C4           	CLR R4
+                        ;putstk - int
+  821E   C4C4           	MOV R4,*R3
+                        ;        }
+                        ;modstk(newsp,save)
+                        ;        c = fsgetc();
+                        cc21:
+                        cc20:
+                        ;getloc(sym, off)
+  8220   0204 0008      	LI R4,8
+  8224   A10A           	A SP,R4
+  8226   064A           	DECT SP
+  8228   C684           	MOV R4,*SP
+                        ;zcall()
+  822A   2DA0 0000      	CALL @fsgetc
+                        ;modstk(newsp,save)
+  822E   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  8230   C4C4           	MOV R4,*R3
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  8232   0460 8116      	B @cc13
+                        cc14:
+                        ;    if(inword)
+                        ;getloc(sym, off)
+  8236   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  823A   C104           	MOV R4,R4
+  823C   1602           	JNE $+6
+  823E   0460 825C      	B @cc22
+                        ;        noteword(word, len);
+                        ;getloc(sym, off)
+                        ;Char offset
+  8242   0204 000B      	LI R4,11
+  8246   A10A           	A SP,R4
+  8248   064A           	DECT SP
+  824A   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  824C   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  8250   064A           	DECT SP
+  8252   C684           	MOV R4,*SP
+                        ;zcall()
+  8254   2DA0 0000      	CALL @noteword
+                        ;modstk(newsp,save)
+  8258   022A 0004      	AI SP,4
+                        ;    /* Count a final line that has no terminating newline. */
+                        ;    if(saw && lastnl == 0)
+                        cc22:
+                        ;getloc(sym, off)
+  825C   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  8260   C104           	MOV R4,R4
+  8262   1602           	JNE $+6
+  8264   0460 827E      	B @cc24
+                        ;getloc(sym, off)
+  8268   C11A           	MOV *SP,R4 ;optimised load
+  826A   C0C4           	MOV R4,R3 ;optimised push/pop
+  826C   04C4           	CLR R4
+                        ;_cceq
+  826E   8103           	C R3,R4 ;optimised
+  8270   1302           	JEQ $+6
+  8272   0460 827E      	B @cc24
+  8276   0204 0001      	LI R4,1
+                        ;jump(label)
+  827A   0460 8280      	B @cc25
+                        cc24:
+  827E   04C4           	CLR R4
+                        cc25:
+  8280   C104           	MOV R4,R4
+  8282   1602           	JNE $+6
+  8284   0460 8292      	B @cc23
+                        ;        nline = nline + 1;
+                        ;getmem(sym)
+  8288   C120 0000      	MOV @nline,R4
+                        ;inc()
+  828C   0584           	INC R4
+                        ;putmem(sym)
+  828E   C804 0000      	MOV R4,@nline
+                        ;}
+                        cc23:
+                        ;modstk(newsp,save)
+  8292   022A 002A      	AI SP,42
+                        ;modstk(newsp,save)
+  8296   2DC0           	RET
+                        	EXT fsgetc
+                        	ENT wordscan
+                        	EXT noteword
+                        	ENT isword
+                        	EXT nline
+                        	EXT nword
+  8298                  	EVEN
+  8298                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R5                0005   R6                0006   R7                0007   
+R8                0008   R9                0009   RET               2DC0'  SL                0009   
+SP                000A   WHEX              2E80'  WP                000D   WRITE             2F00'  
+cc10              80B2'  cc11              80D8'  cc13              8116'  cc14              8236'  
+cc15              8154'  cc16              8158'  cc17              81E2'  cc18              819E'  
+cc19              81CC'  cc2               8040'  cc20              8220'  cc21              8220'  
+cc22              825C'  cc23              8292'  cc24              827E'  cc25              8280'  
+cc3               8030'  cc4               8032'  cc5               8080'  cc6               8070'  
+cc7               8072'  cc8               80C0'  cc9               80B0'  fsgetc            0000*  
+isword            8000'  nline             0000*  noteword          0000*  nword             0000*  
+wordscan          80DC'  
+

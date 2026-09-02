@@ -1,0 +1,552 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R5	EQU 5
+R6	EQU 6
+R7	EQU 7
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM NAMEIO
+;/*
+;** NAMEIO.C -- resident filename prompt for Step 6.2.
+;**
+;** Filename entry is deliberately small and terminal-safe: printable non-space
+;** characters append, Backspace/Delete erase the last character, Ctrl-U clears,
+;** Enter accepts and Esc cancels.  The SBC file system uses short filenames, so
+;** input is capped at 14 characters (drive prefix plus 8.3 name).  Alphabetic
+;** input is normalized to uppercase because the SBC directory search compares FCB
+;** bytes literally.
+;*/
+;extern puts();
+;extern trmclear();
+;extern trmrev();
+;extern trmnorm();
+;extern trmpos();
+;extern trmclrln();
+;extern trmkey();
+;extern trmbell();
+;extern trmshow();
+;extern char *fsname;
+;nmprompt(label, buf)
+	EVEN
+nmprompt:
+;char *label;
+;char *buf;
+;{
+;modstk(newsp,save)
+;    int c;
+;    int len;
+;    len = 0;
+;modstk(newsp,save)
+	AI SP,-4
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    buf[0] = 0;
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;    trmshow();
+;zcall()
+	CALL @trmshow
+;modstk(newsp,save)
+;    trmclear();
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    trmrev();
+;zcall()
+	CALL @trmrev
+;modstk(newsp,save)
+;    puts(" FILESTAT TEXT EDITOR - FILENAME ");
+;constant(lval)
+	LI R4,cc1+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    trmclrln();
+;zcall()
+	CALL @trmclrln
+;modstk(newsp,save)
+;    trmnorm();
+;zcall()
+	CALL @trmnorm
+;modstk(newsp,save)
+;    puts("\n\n");
+;constant(lval)
+	LI R4,cc1+34
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    if(fsname[0] != 0) {
+;getmem(sym)
+	MOV @fsname,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R4
+	JNE $+6
+	B @cc2
+;        puts(" Current file: ");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc1+37
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts(fsname);
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts("\n\n");
+;constant(lval)
+	LI R4,cc1+53
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    }
+;modstk(newsp,save)
+;    else
+;jump(label)
+	B @cc3
+cc2:
+;        puts("\n\n");
+;constant(lval)
+	LI R4,cc1+56
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+cc3:
+;    puts(" Max 14 characters.  Enter accepts, Esc cancels, Ctrl-U clears.\n\n");
+;constant(lval)
+	LI R4,cc1+59
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;    while(1) {
+cc4:
+;        trmpos(8, 1);
+;modstk(newsp,save)
+	LI R4,8
+	DECT SP
+	MOV R4,*SP
+	LI R4,1
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmpos
+;modstk(newsp,save)
+	AI SP,4
+;        trmclrln();
+;zcall()
+	CALL @trmclrln
+;modstk(newsp,save)
+;        puts(label);
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts(buf);
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        c = trmkey();
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;        if(c == 27)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,27
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc6
+;            return 0;
+	CLR R4
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;        if(c == 13 || c == 10) {
+cc6:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc8
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc8
+	CLR R4
+;jump(label)
+	B @cc9
+cc8:
+	LI R4,1
+cc9:
+	MOV R4,R4
+	JNE $+6
+	B @cc7
+;            if(len > 0)
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;gt0(label)
+	MOV R4,R4
+	JGT $+6
+	B @cc10
+;                return 1;
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;            trmbell();
+cc10:
+;zcall()
+	CALL @trmbell
+;modstk(newsp,save)
+;        }
+;modstk(newsp,save)
+;        else if(c == 8 || c == 127) {
+;jump(label)
+	B @cc11
+cc7:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,8
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc13
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,127
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc13
+	CLR R4
+;jump(label)
+	B @cc14
+cc13:
+	LI R4,1
+cc14:
+	MOV R4,R4
+	JNE $+6
+	B @cc12
+;            if(len > 0) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;gt0(label)
+	MOV R4,R4
+	JGT $+6
+	B @cc15
+;                len = len - 1;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;	dec()
+	DEC R4
+;puttos()
+	MOV R4,*SP
+;                buf[len] = 0;
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;            }
+;modstk(newsp,save)
+;            else
+;jump(label)
+	B @cc16
+cc15:
+;                trmbell();
+;zcall()
+	CALL @trmbell
+;modstk(newsp,save)
+cc16:
+;        }
+;modstk(newsp,save)
+;        else if(c == 21) {
+;jump(label)
+	B @cc17
+cc12:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,21
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc18
+;            len = 0;
+;modstk(newsp,save)
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;            buf[0] = 0;
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;        }
+;modstk(newsp,save)
+;        else if(c >= 33 && c < 127) {
+;jump(label)
+	B @cc19
+cc18:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,33
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc21
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,127
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc21
+	LI R4,1
+;jump(label)
+	B @cc22
+cc21:
+	CLR R4
+cc22:
+	MOV R4,R4
+	JNE $+6
+	B @cc20
+;            if(len < 14) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,14
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc23
+;                if(c >= 'a' && c <= 'z')
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,97
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc25
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,122
+;_ccle
+	C R3,R4 ;optimised
+	JLT $+8
+	JEQ $+6
+	B @cc25
+	LI R4,1
+;jump(label)
+	B @cc26
+cc25:
+	CLR R4
+cc26:
+	MOV R4,R4
+	JNE $+6
+	B @cc24
+;                    c = c - 'a' + 'A';
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;const2(val)
+	LI R3,-97
+;	zadd()
+	A R3,R4
+;const2(val)
+	LI R3,65
+;	zadd()
+	A R3,R4
+;put2tos()
+	MOV R4,@2(SP)
+;                buf[len] = c;
+cc24:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;                len = len + 1;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;puttos()
+	MOV R4,*SP
+;                buf[len] = 0;
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;            }
+;modstk(newsp,save)
+;            else
+;jump(label)
+	B @cc27
+cc23:
+;                trmbell();
+;zcall()
+	CALL @trmbell
+;modstk(newsp,save)
+cc27:
+;        }
+;modstk(newsp,save)
+;        else
+;jump(label)
+	B @cc28
+cc20:
+;            trmbell();
+;zcall()
+	CALL @trmbell
+;modstk(newsp,save)
+cc28:
+cc19:
+cc17:
+cc11:
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc4
+cc5:
+;}
+;modstk(newsp,save)
+	AI SP,4
+;modstk(newsp,save)
+	RET
+cc1:	BYTE 32,70,73,76,69,83,84,65,84,32,84,69
+	BYTE 88,84,32,69,68,73,84,79,82,32,45,32
+	BYTE 70,73,76,69,78,65,77,69,32,0,13,13
+	BYTE 0,32,67,117,114,114,101,110,116,32,102,105
+	BYTE 108,101,58,32,0,13,13,0,13,13,0,32
+	BYTE 77,97,120,32,49,52,32,99,104,97,114,97
+	BYTE 99,116,101,114,115,46,32,32,69,110,116,101
+	BYTE 114,32,97,99,99,101,112,116,115,44,32,69
+	BYTE 115,99,32,99,97,110,99,101,108,115,44,32
+	BYTE 67,116,114,108,45,85,32,99,108,101,97,114
+	BYTE 115,46,13,13,0
+	EVEN
+	EXT trmrev
+	EXT trmpos
+	EXT fsname
+	EXT trmclear
+	EXT trmnorm
+	EXT trmshow
+	EXT puts
+	EXT trmclrln
+	ENT nmprompt
+	EXT trmkey
+	EXT trmbell
+	EVEN
+	END
+
+; --- End of Compilation ---

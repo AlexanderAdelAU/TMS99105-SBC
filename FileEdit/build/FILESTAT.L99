@@ -1,0 +1,1190 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0005                  R5	EQU 5
+  0006                  R6	EQU 6
+  0007                  R7	EQU 7
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000   02AD           	STWP WP 
+  0002   0460 0000      	B @_main## ; This calls iolib99 entry point
+                        ;/*
+                        ;** FILESTAT.C -- FileEdit resident program driver (Step 7.1 INT4 RX queue test).
+                        ;**
+                        ;** The original analyser and /L path are preserved.  /V is the read-only
+                        ;** full-screen viewer.  /E now starts a persistent editor shell with Open,
+                        ;** New, Save and Save As; it may be entered with or without an initial file.
+                        ;*/
+                        ;extern puts();
+                        ;extern ovlinit();
+                        ;extern fsset();
+                        ;extern fsreset();
+                        ;extern fsopen();
+                        ;extern fsclose();
+                        ;extern fsrewind();
+                        ;extern fslist();
+                        ;extern runword();
+                        ;extern runchar();
+                        ;extern runrpt();
+                        ;extern viewctl();
+                        ;extern editmenu();
+                        ;extern ebload();
+                        ;extern rxinit();
+                        ;extern rxfini();
+                        ;extern rxtest();
+                        ;extern putnum();
+                        ;extern int rxticks;
+                        ;extern char *fsname;
+                        ;extern int dolst;
+                        ;islist(p)
+  0006                  	EVEN
+                        islist:
+                        ;char *p;
+                        ;{
+                        ;modstk(newsp,save)
+                        ;    if(p[0] != '/' && p[0] != '-')
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0006   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  000A   D114           	MOVB *R4,R4
+  000C   0884           	SRA R4,8
+  000E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0010   0204 002F      	LI R4,47
+                        ;_ccne
+  0014   8103           	C R3,R4 ;optimised
+  0016   1602           	JNE $+6
+  0018   0460 003A      	B @cc3
+                        ;getloc(sym, off)
+  001C   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0020   D114           	MOVB *R4,R4
+  0022   0884           	SRA R4,8
+  0024   C0C4           	MOV R4,R3 ;optimised push/pop
+  0026   0204 002D      	LI R4,45
+                        ;_ccne
+  002A   8103           	C R3,R4 ;optimised
+  002C   1602           	JNE $+6
+  002E   0460 003A      	B @cc3
+  0032   0204 0001      	LI R4,1
+                        ;jump(label)
+  0036   0460 003C      	B @cc4
+                        cc3:
+  003A   04C4           	CLR R4
+                        cc4:
+  003C   C104           	MOV R4,R4
+  003E   1602           	JNE $+6
+  0040   0460 0048      	B @cc2
+                        ;        return 0;
+  0044   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0046   2DC0           	RET
+                        ;    if(p[1] != 'L' && p[1] != 'l')
+                        cc2:
+                        ;getloc(sym, off)
+  0048   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inc()
+  004C   0584           	INC R4
+                        ;indirect ccgchar
+  004E   D114           	MOVB *R4,R4
+  0050   0884           	SRA R4,8
+  0052   C0C4           	MOV R4,R3 ;optimised push/pop
+  0054   0204 004C      	LI R4,76
+                        ;_ccne
+  0058   8103           	C R3,R4 ;optimised
+  005A   1602           	JNE $+6
+  005C   0460 0080      	B @cc6
+                        ;getloc(sym, off)
+  0060   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inc()
+  0064   0584           	INC R4
+                        ;indirect ccgchar
+  0066   D114           	MOVB *R4,R4
+  0068   0884           	SRA R4,8
+  006A   C0C4           	MOV R4,R3 ;optimised push/pop
+  006C   0204 006C      	LI R4,108
+                        ;_ccne
+  0070   8103           	C R3,R4 ;optimised
+  0072   1602           	JNE $+6
+  0074   0460 0080      	B @cc6
+  0078   0204 0001      	LI R4,1
+                        ;jump(label)
+  007C   0460 0082      	B @cc7
+                        cc6:
+  0080   04C4           	CLR R4
+                        cc7:
+  0082   C104           	MOV R4,R4
+  0084   1602           	JNE $+6
+  0086   0460 008E      	B @cc5
+                        ;        return 0;
+  008A   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  008C   2DC0           	RET
+                        ;    if(p[2] != 0)
+                        cc5:
+                        ;getloc(sym, off)
+  008E   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inct()
+  0092   05C4           	INCT R4
+                        ;indirect ccgchar
+  0094   D114           	MOVB *R4,R4
+  0096   0884           	SRA R4,8
+  0098   C104           	MOV R4,R4
+  009A   1602           	JNE $+6
+  009C   0460 00A4      	B @cc8
+                        ;        return 0;
+  00A0   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  00A2   2DC0           	RET
+                        ;    return 1;
+                        cc8:
+  00A4   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  00A8   2DC0           	RET
+                        ;}
+                        ;isview(p)
+  00AA                  	EVEN
+                        isview:
+                        ;char *p;
+                        ;{
+                        ;    if(p[0] != '/' && p[0] != '-')
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  00AA   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  00AE   D114           	MOVB *R4,R4
+  00B0   0884           	SRA R4,8
+  00B2   C0C4           	MOV R4,R3 ;optimised push/pop
+  00B4   0204 002F      	LI R4,47
+                        ;_ccne
+  00B8   8103           	C R3,R4 ;optimised
+  00BA   1602           	JNE $+6
+  00BC   0460 00DE      	B @cc11
+                        ;getloc(sym, off)
+  00C0   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  00C4   D114           	MOVB *R4,R4
+  00C6   0884           	SRA R4,8
+  00C8   C0C4           	MOV R4,R3 ;optimised push/pop
+  00CA   0204 002D      	LI R4,45
+                        ;_ccne
+  00CE   8103           	C R3,R4 ;optimised
+  00D0   1602           	JNE $+6
+  00D2   0460 00DE      	B @cc11
+  00D6   0204 0001      	LI R4,1
+                        ;jump(label)
+  00DA   0460 00E0      	B @cc12
+                        cc11:
+  00DE   04C4           	CLR R4
+                        cc12:
+  00E0   C104           	MOV R4,R4
+  00E2   1602           	JNE $+6
+  00E4   0460 00EC      	B @cc10
+                        ;        return 0;
+  00E8   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  00EA   2DC0           	RET
+                        ;    if(p[1] != 'V' && p[1] != 'v')
+                        cc10:
+                        ;getloc(sym, off)
+  00EC   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inc()
+  00F0   0584           	INC R4
+                        ;indirect ccgchar
+  00F2   D114           	MOVB *R4,R4
+  00F4   0884           	SRA R4,8
+  00F6   C0C4           	MOV R4,R3 ;optimised push/pop
+  00F8   0204 0056      	LI R4,86
+                        ;_ccne
+  00FC   8103           	C R3,R4 ;optimised
+  00FE   1602           	JNE $+6
+  0100   0460 0124      	B @cc14
+                        ;getloc(sym, off)
+  0104   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inc()
+  0108   0584           	INC R4
+                        ;indirect ccgchar
+  010A   D114           	MOVB *R4,R4
+  010C   0884           	SRA R4,8
+  010E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0110   0204 0076      	LI R4,118
+                        ;_ccne
+  0114   8103           	C R3,R4 ;optimised
+  0116   1602           	JNE $+6
+  0118   0460 0124      	B @cc14
+  011C   0204 0001      	LI R4,1
+                        ;jump(label)
+  0120   0460 0126      	B @cc15
+                        cc14:
+  0124   04C4           	CLR R4
+                        cc15:
+  0126   C104           	MOV R4,R4
+  0128   1602           	JNE $+6
+  012A   0460 0132      	B @cc13
+                        ;        return 0;
+  012E   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0130   2DC0           	RET
+                        ;    if(p[2] != 0)
+                        cc13:
+                        ;getloc(sym, off)
+  0132   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inct()
+  0136   05C4           	INCT R4
+                        ;indirect ccgchar
+  0138   D114           	MOVB *R4,R4
+  013A   0884           	SRA R4,8
+  013C   C104           	MOV R4,R4
+  013E   1602           	JNE $+6
+  0140   0460 0148      	B @cc16
+                        ;        return 0;
+  0144   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0146   2DC0           	RET
+                        ;    return 1;
+                        cc16:
+  0148   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  014C   2DC0           	RET
+                        ;}
+                        ;isedit(p)
+  014E                  	EVEN
+                        isedit:
+                        ;char *p;
+                        ;{
+                        ;    if(p[0] != '/' && p[0] != '-')
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  014E   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0152   D114           	MOVB *R4,R4
+  0154   0884           	SRA R4,8
+  0156   C0C4           	MOV R4,R3 ;optimised push/pop
+  0158   0204 002F      	LI R4,47
+                        ;_ccne
+  015C   8103           	C R3,R4 ;optimised
+  015E   1602           	JNE $+6
+  0160   0460 0182      	B @cc19
+                        ;getloc(sym, off)
+  0164   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  0168   D114           	MOVB *R4,R4
+  016A   0884           	SRA R4,8
+  016C   C0C4           	MOV R4,R3 ;optimised push/pop
+  016E   0204 002D      	LI R4,45
+                        ;_ccne
+  0172   8103           	C R3,R4 ;optimised
+  0174   1602           	JNE $+6
+  0176   0460 0182      	B @cc19
+  017A   0204 0001      	LI R4,1
+                        ;jump(label)
+  017E   0460 0184      	B @cc20
+                        cc19:
+  0182   04C4           	CLR R4
+                        cc20:
+  0184   C104           	MOV R4,R4
+  0186   1602           	JNE $+6
+  0188   0460 0190      	B @cc18
+                        ;        return 0;
+  018C   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  018E   2DC0           	RET
+                        ;    if(p[1] != 'E' && p[1] != 'e')
+                        cc18:
+                        ;getloc(sym, off)
+  0190   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inc()
+  0194   0584           	INC R4
+                        ;indirect ccgchar
+  0196   D114           	MOVB *R4,R4
+  0198   0884           	SRA R4,8
+  019A   C0C4           	MOV R4,R3 ;optimised push/pop
+  019C   0204 0045      	LI R4,69
+                        ;_ccne
+  01A0   8103           	C R3,R4 ;optimised
+  01A2   1602           	JNE $+6
+  01A4   0460 01C8      	B @cc22
+                        ;getloc(sym, off)
+  01A8   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inc()
+  01AC   0584           	INC R4
+                        ;indirect ccgchar
+  01AE   D114           	MOVB *R4,R4
+  01B0   0884           	SRA R4,8
+  01B2   C0C4           	MOV R4,R3 ;optimised push/pop
+  01B4   0204 0065      	LI R4,101
+                        ;_ccne
+  01B8   8103           	C R3,R4 ;optimised
+  01BA   1602           	JNE $+6
+  01BC   0460 01C8      	B @cc22
+  01C0   0204 0001      	LI R4,1
+                        ;jump(label)
+  01C4   0460 01CA      	B @cc23
+                        cc22:
+  01C8   04C4           	CLR R4
+                        cc23:
+  01CA   C104           	MOV R4,R4
+  01CC   1602           	JNE $+6
+  01CE   0460 01D6      	B @cc21
+                        ;        return 0;
+  01D2   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  01D4   2DC0           	RET
+                        ;    if(p[2] != 0)
+                        cc21:
+                        ;getloc(sym, off)
+  01D6   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inct()
+  01DA   05C4           	INCT R4
+                        ;indirect ccgchar
+  01DC   D114           	MOVB *R4,R4
+  01DE   0884           	SRA R4,8
+  01E0   C104           	MOV R4,R4
+  01E2   1602           	JNE $+6
+  01E4   0460 01EC      	B @cc24
+                        ;        return 0;
+  01E8   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  01EA   2DC0           	RET
+                        ;    return 1;
+                        cc24:
+  01EC   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  01F0   2DC0           	RET
+                        ;}
+                        ;isint(p)
+  01F2                  	EVEN
+                        isint:
+                        ;char *p;
+                        ;{
+                        ;    if(p[0] != '/' && p[0] != '-')
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  01F2   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  01F6   D114           	MOVB *R4,R4
+  01F8   0884           	SRA R4,8
+  01FA   C0C4           	MOV R4,R3 ;optimised push/pop
+  01FC   0204 002F      	LI R4,47
+                        ;_ccne
+  0200   8103           	C R3,R4 ;optimised
+  0202   1602           	JNE $+6
+  0204   0460 0226      	B @cc27
+                        ;getloc(sym, off)
+  0208   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;indirect ccgchar
+  020C   D114           	MOVB *R4,R4
+  020E   0884           	SRA R4,8
+  0210   C0C4           	MOV R4,R3 ;optimised push/pop
+  0212   0204 002D      	LI R4,45
+                        ;_ccne
+  0216   8103           	C R3,R4 ;optimised
+  0218   1602           	JNE $+6
+  021A   0460 0226      	B @cc27
+  021E   0204 0001      	LI R4,1
+                        ;jump(label)
+  0222   0460 0228      	B @cc28
+                        cc27:
+  0226   04C4           	CLR R4
+                        cc28:
+  0228   C104           	MOV R4,R4
+  022A   1602           	JNE $+6
+  022C   0460 0234      	B @cc26
+                        ;        return 0;
+  0230   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0232   2DC0           	RET
+                        ;    if(p[1] != 'I' && p[1] != 'i')
+                        cc26:
+                        ;getloc(sym, off)
+  0234   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inc()
+  0238   0584           	INC R4
+                        ;indirect ccgchar
+  023A   D114           	MOVB *R4,R4
+  023C   0884           	SRA R4,8
+  023E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0240   0204 0049      	LI R4,73
+                        ;_ccne
+  0244   8103           	C R3,R4 ;optimised
+  0246   1602           	JNE $+6
+  0248   0460 026C      	B @cc30
+                        ;getloc(sym, off)
+  024C   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inc()
+  0250   0584           	INC R4
+                        ;indirect ccgchar
+  0252   D114           	MOVB *R4,R4
+  0254   0884           	SRA R4,8
+  0256   C0C4           	MOV R4,R3 ;optimised push/pop
+  0258   0204 0069      	LI R4,105
+                        ;_ccne
+  025C   8103           	C R3,R4 ;optimised
+  025E   1602           	JNE $+6
+  0260   0460 026C      	B @cc30
+  0264   0204 0001      	LI R4,1
+                        ;jump(label)
+  0268   0460 026E      	B @cc31
+                        cc30:
+  026C   04C4           	CLR R4
+                        cc31:
+  026E   C104           	MOV R4,R4
+  0270   1602           	JNE $+6
+  0272   0460 027A      	B @cc29
+                        ;        return 0;
+  0276   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0278   2DC0           	RET
+                        ;    if(p[2] != 0)
+                        cc29:
+                        ;getloc(sym, off)
+  027A   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inct()
+  027E   05C4           	INCT R4
+                        ;indirect ccgchar
+  0280   D114           	MOVB *R4,R4
+  0282   0884           	SRA R4,8
+  0284   C104           	MOV R4,R4
+  0286   1602           	JNE $+6
+  0288   0460 0290      	B @cc32
+                        ;        return 0;
+  028C   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  028E   2DC0           	RET
+                        ;    return 1;
+                        cc32:
+  0290   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0294   2DC0           	RET
+                        ;}
+                        ;usage()
+  0296                  	EVEN
+                        usage:
+                        ;{
+                        ;    puts("FILEEDIT - overlay text editor with FILESTAT analysis\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0296   0204 02FA      	LI R4,cc33+0
+  029A   064A           	DECT SP
+  029C   C684           	MOV R4,*SP
+                        ;zcall()
+  029E   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  02A2   05CA           	INCT SP
+                        ;    puts("Usage: FILEEDIT filename [/L | /V | /E]\n");
+                        ;constant(lval)
+  02A4   0204 0331      	LI R4,cc33+55
+  02A8   064A           	DECT SP
+  02AA   C684           	MOV R4,*SP
+                        ;zcall()
+  02AC   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  02B0   05CA           	INCT SP
+                        ;    puts("       FILEEDIT /E\n");
+                        ;constant(lval)
+  02B2   0204 035A      	LI R4,cc33+96
+  02B6   064A           	DECT SP
+  02B8   C684           	MOV R4,*SP
+                        ;zcall()
+  02BA   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  02BE   05CA           	INCT SP
+                        ;    puts("       FILEEDIT /I   INT4 timer-hook diagnostic\n");
+                        ;constant(lval)
+  02C0   0204 036E      	LI R4,cc33+116
+  02C4   064A           	DECT SP
+  02C6   C684           	MOV R4,*SP
+                        ;zcall()
+  02C8   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  02CC   05CA           	INCT SP
+                        ;    puts("  /L or -L lists the file before analysis.\n");
+                        ;constant(lval)
+  02CE   0204 039F      	LI R4,cc33+165
+  02D2   064A           	DECT SP
+  02D4   C684           	MOV R4,*SP
+                        ;zcall()
+  02D6   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  02DA   05CA           	INCT SP
+                        ;    puts("  /V or -V opens the file in the Tera Term viewer.\n");
+                        ;constant(lval)
+  02DC   0204 03CB      	LI R4,cc33+209
+  02E0   064A           	DECT SP
+  02E2   C684           	MOV R4,*SP
+                        ;zcall()
+  02E4   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  02E8   05CA           	INCT SP
+                        ;    puts("  /E or -E starts the interactive editor; filename is optional.\n");
+                        ;constant(lval)
+  02EA   0204 03FF      	LI R4,cc33+261
+  02EE   064A           	DECT SP
+  02F0   C684           	MOV R4,*SP
+                        ;zcall()
+  02F2   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  02F6   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  02F8   2DC0           	RET
+  02FA   4649 4C45      cc33:	BYTE 70,73,76,69,69,68,73,84,32,45,32,111
+  02FE   4544 4954      
+  0302   202D 206F      
+  0306   7665 726C      	BYTE 118,101,114,108,97,121,32,116,101,120,116,32
+  030A   6179 2074      
+  030E   6578 7420      
+  0312   6564 6974      	BYTE 101,100,105,116,111,114,32,119,105,116,104,32
+  0316   6F72 2077      
+  031A   6974 6820      
+  031E   4649 4C45      	BYTE 70,73,76,69,83,84,65,84,32,97,110,97
+  0322   5354 4154      
+  0326   2061 6E61      
+  032A   6C79 7369      	BYTE 108,121,115,105,115,13,0,85,115,97,103,101
+  032E   730D 0055      
+  0332   7361 6765      
+  0336   3A20 4649      	BYTE 58,32,70,73,76,69,69,68,73,84,32,102
+  033A   4C45 4544      
+  033E   4954 2066      
+  0342   696C 656E      	BYTE 105,108,101,110,97,109,101,32,91,47,76,32
+  0346   616D 6520      
+  034A   5B2F 4C20      
+  034E   7C20 2F56      	BYTE 124,32,47,86,32,124,32,47,69,93,13,0
+  0352   207C 202F      
+  0356   455D 0D00      
+  035A   2020 2020      	BYTE 32,32,32,32,32,32,32,70,73,76,69,69
+  035E   2020 2046      
+  0362   494C 4545      
+  0366   4449 5420      	BYTE 68,73,84,32,47,69,13,0,32,32,32,32
+  036A   2F45 0D00      
+  036E   2020 2020      
+  0372   2020 2046      	BYTE 32,32,32,70,73,76,69,69,68,73,84,32
+  0376   494C 4545      
+  037A   4449 5420      
+  037E   2F49 2020      	BYTE 47,73,32,32,32,73,78,84,52,32,116,105
+  0382   2049 4E54      
+  0386   3420 7469      
+  038A   6D65 722D      	BYTE 109,101,114,45,104,111,111,107,32,100,105,97
+  038E   686F 6F6B      
+  0392   2064 6961      
+  0396   676E 6F73      	BYTE 103,110,111,115,116,105,99,13,0,32,32,47
+  039A   7469 630D      
+  039E   0020 202F      
+  03A2   4C20 6F72      	BYTE 76,32,111,114,32,45,76,32,108,105,115,116
+  03A6   202D 4C20      
+  03AA   6C69 7374      
+  03AE   7320 7468      	BYTE 115,32,116,104,101,32,102,105,108,101,32,98
+  03B2   6520 6669      
+  03B6   6C65 2062      
+  03BA   6566 6F72      	BYTE 101,102,111,114,101,32,97,110,97,108,121,115
+  03BE   6520 616E      
+  03C2   616C 7973      
+  03C6   6973 2E0D      	BYTE 105,115,46,13,0,32,32,47,86,32,111,114
+  03CA   0020 202F      
+  03CE   5620 6F72      
+  03D2   202D 5620      	BYTE 32,45,86,32,111,112,101,110,115,32,116,104
+  03D6   6F70 656E      
+  03DA   7320 7468      
+  03DE   6520 6669      	BYTE 101,32,102,105,108,101,32,105,110,32,116,104
+  03E2   6C65 2069      
+  03E6   6E20 7468      
+  03EA   6520 5465      	BYTE 101,32,84,101,114,97,32,84,101,114,109,32
+  03EE   7261 2054      
+  03F2   6572 6D20      
+  03F6   7669 6577      	BYTE 118,105,101,119,101,114,46,13,0,32,32,47
+  03FA   6572 2E0D      
+  03FE   0020 202F      
+  0402   4520 6F72      	BYTE 69,32,111,114,32,45,69,32,115,116,97,114
+  0406   202D 4520      
+  040A   7374 6172      
+  040E   7473 2074      	BYTE 116,115,32,116,104,101,32,105,110,116,101,114
+  0412   6865 2069      
+  0416   6E74 6572      
+  041A   6163 7469      	BYTE 97,99,116,105,118,101,32,101,100,105,116,111
+  041E   7665 2065      
+  0422   6469 746F      
+  0426   723B 2066      	BYTE 114,59,32,102,105,108,101,110,97,109,101,32
+  042A   696C 656E      
+  042E   616D 6520      
+  0432   6973 206F      	BYTE 105,115,32,111,112,116,105,111,110,97,108,46
+  0436   7074 696F      
+  043A   6E61 6C2E      
+  043E   0D00           	BYTE 13,0
+                        ;main(argc, argv)
+  0440                  	EVEN
+                        main:
+                        ;int argc;
+                        ;char **argv;
+                        ;{
+                        ;    int doview;
+                        ;    int doedit;
+                        ;    ovlinit();
+                        ;modstk(newsp,save)
+  0440   022A FFFC      	AI SP,-4
+                        ;zcall()
+  0444   2DA0 0000      	CALL @ovlinit
+                        ;modstk(newsp,save)
+                        ;    fsset("");
+                        ;constant(lval)
+  0448   0204 06D2      	LI R4,cc34+0
+  044C   064A           	DECT SP
+  044E   C684           	MOV R4,*SP
+                        ;zcall()
+  0450   2DA0 0000      	CALL @fsset
+                        ;modstk(newsp,save)
+  0454   05CA           	INCT SP
+                        ;    /* Step 7.1.3: isolated known-good TMS9902 timer/INT4 hook test. */
+                        ;    if(argc == 2 && isint(argv[1])) {
+                        ;getloc(sym, off)
+  0456   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  045A   C0C4           	MOV R4,R3 ;optimised push/pop
+  045C   0204 0002      	LI R4,2
+                        ;_cceq
+  0460   8103           	C R3,R4 ;optimised
+  0462   1302           	JEQ $+6
+  0464   0460 048A      	B @cc36
+                        ;getloc(sym, off)
+  0468   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;inct()
+  046C   05C4           	INCT R4
+                        ;indirect ccgint
+  046E   C114           	MOV *R4,R4
+  0470   064A           	DECT SP
+  0472   C684           	MOV R4,*SP
+                        ;zcall()
+  0474   2DA0 01F2      	CALL @isint
+                        ;modstk(newsp,save)
+  0478   05CA           	INCT SP
+  047A   C104           	MOV R4,R4
+  047C   1602           	JNE $+6
+  047E   0460 048A      	B @cc36
+  0482   0204 0001      	LI R4,1
+                        ;jump(label)
+  0486   0460 048C      	B @cc37
+                        cc36:
+  048A   04C4           	CLR R4
+                        cc37:
+  048C   C104           	MOV R4,R4
+  048E   1602           	JNE $+6
+  0490   0460 04E4      	B @cc35
+                        ;        puts("FILEEDIT INT4 timer-hook test...\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0494   0204 06D3      	LI R4,cc34+1
+  0498   064A           	DECT SP
+  049A   C684           	MOV R4,*SP
+                        ;zcall()
+  049C   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04A0   05CA           	INCT SP
+                        ;        puts("Waiting for 8 TMS9902 timer interrupts.\n");
+                        ;constant(lval)
+  04A2   0204 06F5      	LI R4,cc34+35
+  04A6   064A           	DECT SP
+  04A8   C684           	MOV R4,*SP
+                        ;zcall()
+  04AA   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04AE   05CA           	INCT SP
+                        ;        rxtest();
+                        ;zcall()
+  04B0   2DA0 0000      	CALL @rxtest
+                        ;modstk(newsp,save)
+                        ;        puts("PASS - INT4 hook received ");
+                        ;constant(lval)
+  04B4   0204 071E      	LI R4,cc34+76
+  04B8   064A           	DECT SP
+  04BA   C684           	MOV R4,*SP
+                        ;zcall()
+  04BC   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04C0   05CA           	INCT SP
+                        ;        putnum(rxticks);
+                        ;getmem(sym)
+  04C2   C120 0000      	MOV @rxticks,R4
+  04C6   064A           	DECT SP
+  04C8   C684           	MOV R4,*SP
+                        ;zcall()
+  04CA   2DA0 0000      	CALL @putnum
+                        ;modstk(newsp,save)
+  04CE   05CA           	INCT SP
+                        ;        puts(" timer interrupts.\n");
+                        ;constant(lval)
+  04D0   0204 0739      	LI R4,cc34+103
+  04D4   064A           	DECT SP
+  04D6   C684           	MOV R4,*SP
+                        ;zcall()
+  04D8   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  04DC   05CA           	INCT SP
+                        ;        return;
+                        ;modstk(newsp,save)
+  04DE   022A 0004      	AI SP,4
+  04E2   2DC0           	RET
+                        ;    }
+                        ;    /* Step 6 may start directly at the editor with no initial document. */
+                        ;    if(argc == 2 && isedit(argv[1])) {
+                        cc35:
+                        ;getloc(sym, off)
+  04E4   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  04E8   C0C4           	MOV R4,R3 ;optimised push/pop
+  04EA   0204 0002      	LI R4,2
+                        ;_cceq
+  04EE   8103           	C R3,R4 ;optimised
+  04F0   1302           	JEQ $+6
+  04F2   0460 0518      	B @cc39
+                        ;getloc(sym, off)
+  04F6   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;inct()
+  04FA   05C4           	INCT R4
+                        ;indirect ccgint
+  04FC   C114           	MOV *R4,R4
+  04FE   064A           	DECT SP
+  0500   C684           	MOV R4,*SP
+                        ;zcall()
+  0502   2DA0 014E      	CALL @isedit
+                        ;modstk(newsp,save)
+  0506   05CA           	INCT SP
+  0508   C104           	MOV R4,R4
+  050A   1602           	JNE $+6
+  050C   0460 0518      	B @cc39
+  0510   0204 0001      	LI R4,1
+                        ;jump(label)
+  0514   0460 051A      	B @cc40
+                        cc39:
+  0518   04C4           	CLR R4
+                        cc40:
+  051A   C104           	MOV R4,R4
+  051C   1602           	JNE $+6
+  051E   0460 0534      	B @cc38
+                        ;        rxinit();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0522   2DA0 0000      	CALL @rxinit
+                        ;modstk(newsp,save)
+                        ;        editmenu();
+                        ;zcall()
+  0526   2DA0 0000      	CALL @editmenu
+                        ;modstk(newsp,save)
+                        ;        rxfini();
+                        ;zcall()
+  052A   2DA0 0000      	CALL @rxfini
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  052E   022A 0004      	AI SP,4
+  0532   2DC0           	RET
+                        ;    }
+                        ;    if(argc < 2) {
+                        cc38:
+                        ;getloc(sym, off)
+  0534   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  0538   C0C4           	MOV R4,R3 ;optimised push/pop
+  053A   0204 0002      	LI R4,2
+                        ;_cclt
+  053E   8103           	C R3,R4 ;optimised
+  0540   1102           	JLT $+6
+  0542   0460 0550      	B @cc41
+                        ;        usage();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0546   2DA0 0296      	CALL @usage
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  054A   022A 0004      	AI SP,4
+  054E   2DC0           	RET
+                        ;    }
+                        ;    fsset(argv[1]);
+                        cc41:
+                        ;getloc(sym, off)
+  0550   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;inct()
+  0554   05C4           	INCT R4
+                        ;indirect ccgint
+  0556   C114           	MOV *R4,R4
+  0558   064A           	DECT SP
+  055A   C684           	MOV R4,*SP
+                        ;zcall()
+  055C   2DA0 0000      	CALL @fsset
+                        ;modstk(newsp,save)
+  0560   05CA           	INCT SP
+                        ;    dolst = 0;
+  0562   04C4           	CLR R4
+                        ;putmem(sym)
+  0564   C804 0000      	MOV R4,@dolst
+                        ;    doview = 0;
+  0568   04C4           	CLR R4
+                        ;put2tos()
+  056A   CA84 0002      	MOV R4,@2(SP)
+                        ;    doedit = 0;
+  056E   04C4           	CLR R4
+                        ;puttos()
+  0570   C684           	MOV R4,*SP
+                        ;    if(argc > 2) {
+                        ;getloc(sym, off)
+  0572   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  0576   C0C4           	MOV R4,R3 ;optimised push/pop
+  0578   0204 0002      	LI R4,2
+                        ;_ccgt
+  057C   8103           	C R3,R4 ;optimised
+  057E   1502           	JGT $+6
+  0580   0460 060A      	B @cc42
+                        ;        if(islist(argv[2]))
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0584   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;const2(val)
+  0588   0203 0004      	LI R3,4
+                        ;	zadd()
+  058C   A103           	A R3,R4
+                        ;indirect ccgint
+  058E   C114           	MOV *R4,R4
+  0590   064A           	DECT SP
+  0592   C684           	MOV R4,*SP
+                        ;zcall()
+  0594   2DA0 0006      	CALL @islist
+                        ;modstk(newsp,save)
+  0598   05CA           	INCT SP
+  059A   C104           	MOV R4,R4
+  059C   1602           	JNE $+6
+  059E   0460 05AE      	B @cc43
+                        ;            dolst = 1;
+  05A2   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  05A6   C804 0000      	MOV R4,@dolst
+                        ;        else if(isview(argv[2]))
+                        ;jump(label)
+  05AA   0460 060A      	B @cc44
+                        cc43:
+                        ;getloc(sym, off)
+  05AE   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;const2(val)
+  05B2   0203 0004      	LI R3,4
+                        ;	zadd()
+  05B6   A103           	A R3,R4
+                        ;indirect ccgint
+  05B8   C114           	MOV *R4,R4
+  05BA   064A           	DECT SP
+  05BC   C684           	MOV R4,*SP
+                        ;zcall()
+  05BE   2DA0 00AA      	CALL @isview
+                        ;modstk(newsp,save)
+  05C2   05CA           	INCT SP
+  05C4   C104           	MOV R4,R4
+  05C6   1602           	JNE $+6
+  05C8   0460 05D8      	B @cc45
+                        ;            doview = 1;
+  05CC   0204 0001      	LI R4,1
+                        ;put2tos()
+  05D0   CA84 0002      	MOV R4,@2(SP)
+                        ;        else if(isedit(argv[2]))
+                        ;jump(label)
+  05D4   0460 060A      	B @cc46
+                        cc45:
+                        ;getloc(sym, off)
+  05D8   C12A 0006      	MOV @6(SP),R4 ;optimised load
+                        ;const2(val)
+  05DC   0203 0004      	LI R3,4
+                        ;	zadd()
+  05E0   A103           	A R3,R4
+                        ;indirect ccgint
+  05E2   C114           	MOV *R4,R4
+  05E4   064A           	DECT SP
+  05E6   C684           	MOV R4,*SP
+                        ;zcall()
+  05E8   2DA0 014E      	CALL @isedit
+                        ;modstk(newsp,save)
+  05EC   05CA           	INCT SP
+  05EE   C104           	MOV R4,R4
+  05F0   1602           	JNE $+6
+  05F2   0460 0600      	B @cc47
+                        ;            doedit = 1;
+  05F6   0204 0001      	LI R4,1
+                        ;puttos()
+  05FA   C684           	MOV R4,*SP
+                        ;        else {
+                        ;jump(label)
+  05FC   0460 060A      	B @cc48
+                        cc47:
+                        ;            usage();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0600   2DA0 0296      	CALL @usage
+                        ;modstk(newsp,save)
+                        ;            return;
+                        ;modstk(newsp,save)
+  0604   022A 0004      	AI SP,4
+  0608   2DC0           	RET
+                        ;        }
+                        cc48:
+                        cc46:
+                        cc44:
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;    if(argc > 3) {
+                        cc42:
+                        ;getloc(sym, off)
+  060A   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  060E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0610   0204 0003      	LI R4,3
+                        ;_ccgt
+  0614   8103           	C R3,R4 ;optimised
+  0616   1502           	JGT $+6
+  0618   0460 0626      	B @cc49
+                        ;        usage();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  061C   2DA0 0296      	CALL @usage
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  0620   022A 0004      	AI SP,4
+  0624   2DC0           	RET
+                        ;    }
+                        ;    if(doedit) {
+                        cc49:
+                        ;getloc(sym, off)
+  0626   C11A           	MOV *SP,R4 ;optimised load
+  0628   C104           	MOV R4,R4
+  062A   1602           	JNE $+6
+  062C   0460 0642      	B @cc50
+                        ;        rxinit();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0630   2DA0 0000      	CALL @rxinit
+                        ;modstk(newsp,save)
+                        ;        editmenu();
+                        ;zcall()
+  0634   2DA0 0000      	CALL @editmenu
+                        ;modstk(newsp,save)
+                        ;        rxfini();
+                        ;zcall()
+  0638   2DA0 0000      	CALL @rxfini
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  063C   022A 0004      	AI SP,4
+  0640   2DC0           	RET
+                        ;    }
+                        ;    fsreset();
+                        cc50:
+                        ;zcall()
+  0642   2DA0 0000      	CALL @fsreset
+                        ;modstk(newsp,save)
+                        ;    if(doview) {
+                        ;getloc(sym, off)
+  0646   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  064A   C104           	MOV R4,R4
+  064C   1602           	JNE $+6
+  064E   0460 0676      	B @cc51
+                        ;        if(ebload() == 0)
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0652   2DA0 0000      	CALL @ebload
+                        ;modstk(newsp,save)
+  0656   C104           	MOV R4,R4
+  0658   1302           	JEQ $+6
+  065A   0460 0664      	B @cc52
+                        ;            return;
+                        ;modstk(newsp,save)
+  065E   022A 0004      	AI SP,4
+  0662   2DC0           	RET
+                        ;        rxinit();
+                        cc52:
+                        ;zcall()
+  0664   2DA0 0000      	CALL @rxinit
+                        ;modstk(newsp,save)
+                        ;        viewctl();
+                        ;zcall()
+  0668   2DA0 0000      	CALL @viewctl
+                        ;modstk(newsp,save)
+                        ;        rxfini();
+                        ;zcall()
+  066C   2DA0 0000      	CALL @rxfini
+                        ;modstk(newsp,save)
+                        ;        return;
+                        ;modstk(newsp,save)
+  0670   022A 0004      	AI SP,4
+  0674   2DC0           	RET
+                        ;    }
+                        ;    if(fsopen() == 0)
+                        cc51:
+                        ;zcall()
+  0676   2DA0 0000      	CALL @fsopen
+                        ;modstk(newsp,save)
+  067A   C104           	MOV R4,R4
+  067C   1302           	JEQ $+6
+  067E   0460 0688      	B @cc53
+                        ;        return;
+                        ;modstk(newsp,save)
+  0682   022A 0004      	AI SP,4
+  0686   2DC0           	RET
+                        ;    if(dolst) {
+                        cc53:
+                        ;getmem(sym)
+  0688   C120 0000      	MOV @dolst,R4
+  068C   C104           	MOV R4,R4
+  068E   1602           	JNE $+6
+  0690   0460 06AA      	B @cc54
+                        ;        fslist();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  0694   2DA0 0000      	CALL @fslist
+                        ;modstk(newsp,save)
+                        ;        if(fsrewind() == 0)
+                        ;zcall()
+  0698   2DA0 0000      	CALL @fsrewind
+                        ;modstk(newsp,save)
+  069C   C104           	MOV R4,R4
+  069E   1302           	JEQ $+6
+  06A0   0460 06AA      	B @cc55
+                        ;            return;
+                        ;modstk(newsp,save)
+  06A4   022A 0004      	AI SP,4
+  06A8   2DC0           	RET
+                        ;    }
+                        cc55:
+                        ;modstk(newsp,save)
+                        ;    runword();
+                        cc54:
+                        ;zcall()
+  06AA   2DA0 0000      	CALL @runword
+                        ;modstk(newsp,save)
+                        ;    if(fsrewind() == 0)
+                        ;zcall()
+  06AE   2DA0 0000      	CALL @fsrewind
+                        ;modstk(newsp,save)
+  06B2   C104           	MOV R4,R4
+  06B4   1302           	JEQ $+6
+  06B6   0460 06C0      	B @cc56
+                        ;        return;
+                        ;modstk(newsp,save)
+  06BA   022A 0004      	AI SP,4
+  06BE   2DC0           	RET
+                        ;    runchar();
+                        cc56:
+                        ;zcall()
+  06C0   2DA0 0000      	CALL @runchar
+                        ;modstk(newsp,save)
+                        ;    fsclose();
+                        ;zcall()
+  06C4   2DA0 0000      	CALL @fsclose
+                        ;modstk(newsp,save)
+                        ;    runrpt();
+                        ;zcall()
+  06C8   2DA0 0000      	CALL @runrpt
+                        ;modstk(newsp,save)
+                        ;}
+                        ;modstk(newsp,save)
+  06CC   022A 0004      	AI SP,4
+                        ;modstk(newsp,save)
+  06D0   2DC0           	RET
+  06D2   0046 494C      cc34:	BYTE 0,70,73,76,69,69,68,73,84,32,73,78
+  06D6   4545 4449      
+  06DA   5420 494E      
+  06DE   5434 2074      	BYTE 84,52,32,116,105,109,101,114,45,104,111,111
+  06E2   696D 6572      
+  06E6   2D68 6F6F      
+  06EA   6B20 7465      	BYTE 107,32,116,101,115,116,46,46,46,13,0,87
+  06EE   7374 2E2E      
+  06F2   2E0D 0057      
+  06F6   6169 7469      	BYTE 97,105,116,105,110,103,32,102,111,114,32,56
+  06FA   6E67 2066      
+  06FE   6F72 2038      
+  0702   2054 4D53      	BYTE 32,84,77,83,57,57,48,50,32,116,105,109
+  0706   3939 3032      
+  070A   2074 696D      
+  070E   6572 2069      	BYTE 101,114,32,105,110,116,101,114,114,117,112,116
+  0712   6E74 6572      
+  0716   7275 7074      
+  071A   732E 0D00      	BYTE 115,46,13,0,80,65,83,83,32,45,32,73
+  071E   5041 5353      
+  0722   202D 2049      
+  0726   4E54 3420      	BYTE 78,84,52,32,104,111,111,107,32,114,101,99
+  072A   686F 6F6B      
+  072E   2072 6563      
+  0732   6569 7665      	BYTE 101,105,118,101,100,32,0,32,116,105,109,101
+  0736   6420 0020      
+  073A   7469 6D65      
+  073E   7220 696E      	BYTE 114,32,105,110,116,101,114,114,117,112,116,115
+  0742   7465 7272      
+  0746   7570 7473      
+  074A   2E0D 00        	BYTE 46,13,0
+  074D   00             	EVEN
+                        	EXT rxinit
+                        	EXT runrpt
+                        	EXT fsname
+                        	ENT main
+                        	EXT editmenu
+                        	EXT fslist
+                        	EXT rxtest
+                        	ENT isedit
+                        	EXT fsopen
+                        	EXT fsclose
+                        	ENT islist
+                        	EXT puts
+                        	EXT runword
+                        	EXT dolst
+                        	EXT rxticks
+                        	ENT isview
+                        	EXT fsrewind
+                        	EXT fsset
+                        	EXT ebload
+                        	ENT isint
+                        	EXT fsreset
+                        	EXT ovlinit
+                        	EXT viewctl
+                        	ENT usage
+                        	EXT rxfini
+                        	EXT runchar
+                        	EXT putnum
+  074E                  	EVEN
+  074E                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R5                0005   R6                0006   R7                0007   
+R8                0008   R9                0009   RET               2DC0'  SL                0009   
+SP                000A   WHEX              2E80'  WP                000D   WRITE             2F00'  
+_main             0000*  cc10              00EC'  cc11              00DE'  cc12              00E0'  
+cc13              0132'  cc14              0124'  cc15              0126'  cc16              0148'  
+cc18              0190'  cc19              0182'  cc2               0048'  cc20              0184'  
+cc21              01D6'  cc22              01C8'  cc23              01CA'  cc24              01EC'  
+cc26              0234'  cc27              0226'  cc28              0228'  cc29              027A'  
+cc3               003A'  cc30              026C'  cc31              026E'  cc32              0290'  
+cc33              02FA'  cc34              06D2'  cc35              04E4'  cc36              048A'  
+cc37              048C'  cc38              0534'  cc39              0518'  cc4               003C'  
+cc40              051A'  cc41              0550'  cc42              060A'  cc43              05AE'  
+cc44              060A'  cc45              05D8'  cc46              060A'  cc47              0600'  
+cc48              060A'  cc49              0626'  cc5               008E'  cc50              0642'  
+cc51              0676'  cc52              0664'  cc53              0688'  cc54              06AA'  
+cc55              06AA'  cc56              06C0'  cc6               0080'  cc7               0082'  
+cc8               00A4'  dolst             0000*  ebload            0000*  editmenu          0000*  
+fsclose           0000*  fslist            0000*  fsname            0000*  fsopen            0000*  
+fsreset           0000*  fsrewind          0000*  fsset             0000*  isedit            014E'  
+isint             01F2'  islist            0006'  isview            00AA'  main              0440'  
+ovlinit           0000*  putnum            0000*  puts              0000*  runchar           0000*  
+runrpt            0000*  runword           0000*  rxfini            0000*  rxinit            0000*  
+rxtest            0000*  rxticks           0000*  usage             0296'  viewctl           0000*  
+

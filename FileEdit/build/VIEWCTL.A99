@@ -1,0 +1,858 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R5	EQU 5
+R6	EQU 6
+R7	EQU 7
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM VIEWCTL
+;/*
+;** VIEWCTL.C -- resident read-only viewer controller (Step 4).
+;**
+;** Step 4 no longer rewinds/re-reads the disk file on each redraw.  EDITBUF
+;** loads the file once into >9000-BFFF; this controller navigates that stable
+;** memory image while OVL_VIEW continues to render one frame at >8000.
+;*/
+;extern ebseek();
+;extern runview();
+;extern trmkey();
+;extern trmshow();
+;extern trmhide();
+;extern trmclear();
+;extern int eblines;
+;/* Persistent viewer state consumed by OVL_VIEW. */
+;int vtop;
+vtop:	BSS 2
+;int vtotal;
+vtotal:	BSS 2
+;int vmode;
+vmode:	BSS 2
+;int vleft;
+vleft:	BSS 2
+;vclamp(top, total)
+	EVEN
+vclamp:
+;int top, total;
+;{
+;modstk(newsp,save)
+;    int max;
+;    max = total - 19;
+;modstk(newsp,save)
+	DECT SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;const2(val)
+	LI R3,-19
+;	zadd()
+	A R3,R4
+;puttos()
+	MOV R4,*SP
+;    if(max < 1)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc2
+;        max = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;    if(top < 1)
+cc2:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc3
+;        top = 1;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+;    if(top > max)
+cc3:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc4
+;        top = max;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;    return top;
+cc4:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;modstk(newsp,save)
+	INCT SP
+	RET
+;}
+;/*
+;** Decode one Tera Term key while executing resident code.
+;** Return: 1 up, 2 down, 3 page up, 4 page down, 5 home, 9 quit, 0 ignore.
+;*/
+;vkey()
+	EVEN
+vkey:
+;{
+;    int c;
+;    int d;
+;    c = trmkey();
+;modstk(newsp,save)
+	AI SP,-4
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;    if(c == 'Q' || c == 'q')
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,81
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc7
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,113
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc7
+	CLR R4
+;jump(label)
+	B @cc8
+cc7:
+	LI R4,1
+cc8:
+	MOV R4,R4
+	JNE $+6
+	B @cc6
+;        return 9;
+	LI R4,9
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(c == 'U' || c == 'u')
+cc6:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,85
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc10
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,117
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc10
+	CLR R4
+;jump(label)
+	B @cc11
+cc10:
+	LI R4,1
+cc11:
+	MOV R4,R4
+	JNE $+6
+	B @cc9
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(c == 'D' || c == 'd')
+cc9:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,68
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc13
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,100
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc13
+	CLR R4
+;jump(label)
+	B @cc14
+cc13:
+	LI R4,1
+cc14:
+	MOV R4,R4
+	JNE $+6
+	B @cc12
+;        return 2;
+	LI R4,2
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(c == 'P' || c == 'p')
+cc12:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,80
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc16
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,112
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc16
+	CLR R4
+;jump(label)
+	B @cc17
+cc16:
+	LI R4,1
+cc17:
+	MOV R4,R4
+	JNE $+6
+	B @cc15
+;        return 3;
+	LI R4,3
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(c == 'N' || c == 'n')
+cc15:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,78
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc19
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,110
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc19
+	CLR R4
+;jump(label)
+	B @cc20
+cc19:
+	LI R4,1
+cc20:
+	MOV R4,R4
+	JNE $+6
+	B @cc18
+;        return 4;
+	LI R4,4
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(c == 'H' || c == 'h')
+cc18:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,72
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc22
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,104
+;_cceq
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc22
+	CLR R4
+;jump(label)
+	B @cc23
+cc22:
+	LI R4,1
+cc23:
+	MOV R4,R4
+	JNE $+6
+	B @cc21
+;        return 5;
+	LI R4,5
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(c != 27)
+cc21:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,27
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc24
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    c = trmkey();
+cc24:
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;    if(c == 'O') {
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,79
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc25
+;        d = trmkey();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;        if(d == 'A')
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,65
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc26
+;            return 1;
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;        if(d == 'B')
+cc26:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,66
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc27
+;            return 2;
+	LI R4,2
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;        if(d == 'H')
+cc27:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,72
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc28
+;            return 5;
+	LI R4,5
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;        return 0;
+cc28:
+	CLR R4
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+;    if(c != '[')
+cc25:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,91
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc29
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    c = trmkey();
+cc29:
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;    if(c == 'A')
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,65
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc30
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(c == 'B')
+cc30:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,66
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc31
+;        return 2;
+	LI R4,2
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(c == 'H')
+cc31:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,72
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc32
+;        return 5;
+	LI R4,5
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    if(c == '1') {
+cc32:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,49
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc33
+;        d = trmkey();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;        if(d == '~')
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,126
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc34
+;            return 5;
+	LI R4,5
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+cc34:
+;modstk(newsp,save)
+;    if(c == '5') {
+cc33:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,53
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc35
+;        d = trmkey();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;        if(d == '~')
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,126
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc36
+;            return 3;
+	LI R4,3
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+cc36:
+;modstk(newsp,save)
+;    if(c == '6') {
+cc35:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,54
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc37
+;        d = trmkey();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;puttos()
+	MOV R4,*SP
+;        if(d == '~')
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,126
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc38
+;            return 4;
+	LI R4,4
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    }
+cc38:
+;modstk(newsp,save)
+;    return 0;
+cc37:
+	CLR R4
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;}
+;/* Resident lifetime controller for the read-only memory-buffer viewer. */
+;viewctl()
+	EVEN
+viewctl:
+;{
+;    int key;
+;    int done;
+;    vtotal = eblines;
+;modstk(newsp,save)
+	AI SP,-4
+;getmem(sym)
+	MOV @eblines,R4
+;putmem(sym)
+	MOV R4,@vtotal
+;    vtop = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@vtop
+;    vleft = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@vleft
+;    vmode = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@vmode
+;    done = 0;
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    trmclear();
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;    trmhide();
+;zcall()
+	CALL @trmhide
+;modstk(newsp,save)
+;    while(done == 0) {
+cc40:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R4
+	JEQ $+6
+	B @cc41
+;        ebseek(vtop);
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @vtop,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @ebseek
+;modstk(newsp,save)
+	INCT SP
+;        runview();
+;zcall()
+	CALL @runview
+;modstk(newsp,save)
+;        key = vkey();
+;zcall()
+	CALL @vkey
+;modstk(newsp,save)
+;put2tos()
+	MOV R4,@2(SP)
+;        if(key == 1)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc42
+;            vtop = vclamp(vtop - 1, vtotal);
+;getmem(sym)
+	MOV @vtop,R4
+;	dec()
+	DEC R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @vtotal,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @vclamp
+;modstk(newsp,save)
+	AI SP,4
+;putmem(sym)
+	MOV R4,@vtop
+;        else if(key == 2)
+;jump(label)
+	B @cc43
+cc42:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,2
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc44
+;            vtop = vclamp(vtop + 1, vtotal);
+;getmem(sym)
+	MOV @vtop,R4
+;inc()
+	INC R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @vtotal,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @vclamp
+;modstk(newsp,save)
+	AI SP,4
+;putmem(sym)
+	MOV R4,@vtop
+;        else if(key == 3)
+;jump(label)
+	B @cc45
+cc44:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,3
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc46
+;            vtop = vclamp(vtop - 20, vtotal);
+;getmem(sym)
+	MOV @vtop,R4
+;const2(val)
+	LI R3,-20
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @vtotal,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @vclamp
+;modstk(newsp,save)
+	AI SP,4
+;putmem(sym)
+	MOV R4,@vtop
+;        else if(key == 4)
+;jump(label)
+	B @cc47
+cc46:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,4
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc48
+;            vtop = vclamp(vtop + 20, vtotal);
+;getmem(sym)
+	MOV @vtop,R4
+;const2(val)
+	LI R3,20
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @vtotal,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @vclamp
+;modstk(newsp,save)
+	AI SP,4
+;putmem(sym)
+	MOV R4,@vtop
+;        else if(key == 5)
+;jump(label)
+	B @cc49
+cc48:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,5
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc50
+;            vtop = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@vtop
+;        else if(key == 9)
+;jump(label)
+	B @cc51
+cc50:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,9
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc52
+;            done = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;    }
+cc52:
+cc51:
+cc49:
+cc47:
+cc45:
+cc43:
+;modstk(newsp,save)
+;jump(label)
+	B @cc40
+cc41:
+;    trmshow();
+;zcall()
+	CALL @trmshow
+;modstk(newsp,save)
+;    trmclear();
+;zcall()
+	CALL @trmclear
+;modstk(newsp,save)
+;}
+;modstk(newsp,save)
+	AI SP,4
+;modstk(newsp,save)
+	RET
+	EXT trmhide
+	ENT vtotal
+	EXT trmclear
+	EXT eblines
+	EXT runview
+	EXT trmshow
+	ENT vkey
+	ENT vtop
+	ENT vclamp
+	EXT ebseek
+	ENT viewctl
+	ENT vleft
+	ENT vmode
+	EXT trmkey
+	EVEN
+	END
+
+; --- End of Compilation ---

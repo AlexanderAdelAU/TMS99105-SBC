@@ -1,0 +1,1402 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R5	EQU 5
+R6	EQU 6
+R7	EQU 7
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM EDITBUF
+;/*
+;** EDITBUF.C -- resident editor-buffer services (Step 6).
+;**
+;** The text arena remains >9000-BFFF and is still invisible to the user.  Step
+;** 6 adds persistent document lifecycle: safe load-by-name, New and a validity
+;** flag so Open failures never destroy the document already in memory.
+;*/
+;extern fopen();
+;extern fclose();
+;extern fgetc();
+;extern puts();
+;extern fsset();
+;extern char *fsname;
+;extern int fsexist;
+;char *ebbase;
+ebbase:	BSS 2
+;int eblen;
+eblen:	BSS 2
+;int eblines;
+eblines:	BSS 2
+;int ebcap;
+ebcap:	BSS 2
+;int vidx;
+vidx:	BSS 2
+;int ebdirty;
+ebdirty:	BSS 2
+;int ebsaved;
+ebsaved:	BSS 2
+;int ebvalid;
+ebvalid:	BSS 2
+;/* Initialise an empty, valid editor arena. */
+;ebnew()
+	EVEN
+ebnew:
+;{
+;modstk(newsp,save)
+;    ebbase = 0x9000;
+;modstk(newsp,save)
+	LI R4,36864
+;putmem(sym)
+	MOV R4,@ebbase
+;    ebcap = 12287;
+	LI R4,12287
+;putmem(sym)
+	MOV R4,@ebcap
+;    eblen = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@eblen
+;    eblines = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@eblines
+;    vidx = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@vidx
+;    ebdirty = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@ebdirty
+;    ebsaved = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@ebsaved
+;    ebvalid = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@ebvalid
+;    ebbase[0] = 0;
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/* Initialise the arena when no document is currently open. */
+;ebnone()
+	EVEN
+ebnone:
+;{
+;    ebbase = 0x9000;
+;modstk(newsp,save)
+	LI R4,36864
+;putmem(sym)
+	MOV R4,@ebbase
+;    ebcap = 12287;
+	LI R4,12287
+;putmem(sym)
+	MOV R4,@ebcap
+;    eblen = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@eblen
+;    eblines = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@eblines
+;    vidx = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@vidx
+;    ebdirty = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@ebdirty
+;    ebsaved = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@ebsaved
+;    ebvalid = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@ebvalid
+;    fsexist = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@fsexist
+;    ebbase[0] = 0;
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/* Start a new, empty named document.  Nothing is written to disk here. */
+;ebnewn(name)
+	EVEN
+ebnewn:
+;char *name;
+;{
+;    ebnew();
+;modstk(newsp,save)
+;zcall()
+	CALL @ebnew
+;modstk(newsp,save)
+;    fsset(name);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsset
+;modstk(newsp,save)
+	INCT SP
+;    fsexist = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@fsexist
+;    return 1;
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;}
+;/*
+;** Load name into the persistent arena without risking the current document.
+;**
+;** First pass: open/count only.  If the file is missing or too large, return
+;** with the existing RAM document untouched.  Second pass: open successfully,
+;** then reset/fill the arena and commit fsname only after the load completes.
+;*/
+;ebloadn(name)
+	EVEN
+ebloadn:
+;char *name;
+;{
+;    int in;
+;    int c;
+;    int n;
+;    int last;
+;    in = fopen(name, "r");
+;modstk(newsp,save)
+	AI SP,-8
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc4+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fopen
+;modstk(newsp,save)
+	AI SP,4
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    if(in == 0) {
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R4
+	JEQ $+6
+	B @cc5
+;        puts("FILESTAT: cannot open ");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc4+2
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts(name);
+;getloc(sym, off)
+	MOV @10(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        puts("\n");
+;constant(lval)
+	LI R4,cc4+25
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	AI SP,8
+	RET
+;    }
+;    n = 0;
+cc5:
+	CLR R4
+;put2tos()
+	MOV R4,@2(SP)
+;    c = fgetc(in);
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fgetc
+;modstk(newsp,save)
+	INCT SP
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    while(c != -1) {
+cc6:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	SETO R4
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc7
+;        if(c != 10) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc8
+;            n = n + 1;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;put2tos()
+	MOV R4,@2(SP)
+;            if(n > 12287) {
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,12287
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc9
+;                fclose(in);
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fclose
+;modstk(newsp,save)
+	INCT SP
+;                puts("FILESTAT: file is too large for this editor\n");
+;constant(lval)
+	LI R4,cc4+27
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;                return 0;
+	CLR R4
+;modstk(newsp,save)
+	AI SP,8
+	RET
+;            }
+;        }
+cc9:
+;modstk(newsp,save)
+;        c = fgetc(in);
+cc8:
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fgetc
+;modstk(newsp,save)
+	INCT SP
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc6
+cc7:
+;    fclose(in);
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fclose
+;modstk(newsp,save)
+	INCT SP
+;    in = fopen(name, "r");
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @12(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;constant(lval)
+	LI R4,cc4+72
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fopen
+;modstk(newsp,save)
+	AI SP,4
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    if(in == 0) {
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R4
+	JEQ $+6
+	B @cc10
+;        puts("FILESTAT: file could not be reopened\n");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc4+74
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	AI SP,8
+	RET
+;    }
+;    ebnew();
+cc10:
+;zcall()
+	CALL @ebnew
+;modstk(newsp,save)
+;    last = -1;
+	SETO R4
+;puttos()
+	MOV R4,*SP
+;    c = fgetc(in);
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fgetc
+;modstk(newsp,save)
+	INCT SP
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    while(c != -1) {
+cc11:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	SETO R4
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc12
+;        if(c != 10) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc13
+;            ebbase[eblen] = c;
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;	zadd()
+	A R3,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;            eblen = eblen + 1;
+;getmem(sym)
+	MOV @eblen,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@eblen
+;            if(c == 13)
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc14
+;                eblines = eblines + 1;
+;getmem(sym)
+	MOV @eblines,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@eblines
+;            last = c;
+cc14:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+;puttos()
+	MOV R4,*SP
+;        }
+;modstk(newsp,save)
+;        c = fgetc(in);
+cc13:
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	DECT SP
+	MOV R4,*SP
+;getloc(sym, off)
+	MOV @8(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fgetc
+;modstk(newsp,save)
+	INCT SP
+	MOV *SP+,R3
+;putstk - int
+	MOV R4,*R3
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc11
+cc12:
+;    fclose(in);
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fclose
+;modstk(newsp,save)
+	INCT SP
+;    if(last != -1 && last != 13)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	SETO R4
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc16
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc16
+	LI R4,1
+;jump(label)
+	B @cc17
+cc16:
+	CLR R4
+cc17:
+	MOV R4,R4
+	JNE $+6
+	B @cc15
+;        eblines = eblines + 1;
+;getmem(sym)
+	MOV @eblines,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@eblines
+;    ebbase[eblen] = 0;
+cc15:
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;	zadd()
+	A R3,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;    vidx = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@vidx
+;    ebdirty = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@ebdirty
+;    ebsaved = 0;
+	CLR R4
+;putmem(sym)
+	MOV R4,@ebsaved
+;    ebvalid = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@ebvalid
+;    fsset(name);
+;getloc(sym, off)
+	MOV @10(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @fsset
+;modstk(newsp,save)
+	INCT SP
+;    fsexist = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@fsexist
+;    return 1;
+	LI R4,1
+;modstk(newsp,save)
+	AI SP,8
+	RET
+;}
+cc4:	BYTE 114,0,70,73,76,69,83,84,65,84,58,32
+	BYTE 99,97,110,110,111,116,32,111,112,101,110,32
+	BYTE 0,13,0,70,73,76,69,83,84,65,84,58
+	BYTE 32,102,105,108,101,32,105,115,32,116,111,111
+	BYTE 32,108,97,114,103,101,32,102,111,114,32,116
+	BYTE 104,105,115,32,101,100,105,116,111,114,13,0
+	BYTE 114,0,70,73,76,69,83,84,65,84,58,32
+	BYTE 102,105,108,101,32,99,111,117,108,100,32,110
+	BYTE 111,116,32,98,101,32,114,101,111,112,101,110
+	BYTE 101,100,13,0
+;/* Compatibility wrapper: load the current resident filename. */
+;ebload()
+	EVEN
+ebload:
+;{
+;    return ebloadn(fsname);
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @fsname,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @ebloadn
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+;}
+;/* Return the physical file-line count used by the read-only viewer. */
+;ebtotln()
+	EVEN
+ebtotln:
+;{
+;    if(eblines == 0)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @eblines,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc20
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;    return eblines;
+cc20:
+;getmem(sym)
+	MOV @eblines,R4
+;modstk(newsp,save)
+	RET
+;}
+;/*
+;** Return the editor cursor-line count.
+;** A terminal CR exposes one final empty editable line, just as a modern
+;** screen editor does.  The read-only FILESTAT line count remains unchanged.
+;*/
+;ebedln()
+	EVEN
+ebedln:
+;{
+;    if(eblen == 0)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @eblen,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc22
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;    if(ebbase[eblen - 1] == 13)
+cc22:
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getmem(sym)
+	MOV @eblen,R4
+;	dec()
+	DEC R4
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc23
+;        return eblines + 1;
+;getmem(sym)
+	MOV @eblines,R4
+;inc()
+	INC R4
+;modstk(newsp,save)
+	RET
+;    if(eblines == 0)
+cc23:
+;getmem(sym)
+	MOV @eblines,R4
+	MOV R4,R4
+	JEQ $+6
+	B @cc24
+;        return 1;
+	LI R4,1
+;modstk(newsp,save)
+	RET
+;    return eblines;
+cc24:
+;getmem(sym)
+	MOV @eblines,R4
+;modstk(newsp,save)
+	RET
+;}
+;/* Position the shared renderer index at the first byte of logical line n. */
+;ebseek(n)
+	EVEN
+ebseek:
+;int n;
+;{
+;    int i;
+;    int line;
+;    if(n < 1)
+;modstk(newsp,save)
+	AI SP,-4
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc26
+;        n = 1;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	LI R4,1
+;putstk - int
+	MOV R4,*R3
+;    i = 0;
+cc26:
+	CLR R4
+;put2tos()
+	MOV R4,@2(SP)
+;    line = 1;
+	LI R4,1
+;puttos()
+	MOV R4,*SP
+;    while(i < eblen && line < n) {
+cc27:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc29
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc29
+	LI R4,1
+;jump(label)
+	B @cc30
+cc29:
+	CLR R4
+cc30:
+	MOV R4,R4
+	JNE $+6
+	B @cc28
+;        if(ebbase[i] == 13)
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_cceq
+	C R3,R4 ;optimised
+	JEQ $+6
+	B @cc31
+;            line = line + 1;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;puttos()
+	MOV R4,*SP
+;        i = i + 1;
+cc31:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;put2tos()
+	MOV R4,@2(SP)
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc27
+cc28:
+;    vidx = i;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;putmem(sym)
+	MOV R4,@vidx
+;    return i;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;}
+;/* Return the logical character length of line n, excluding its CR. */
+;ebllen(n)
+	EVEN
+ebllen:
+;int n;
+;{
+;    int i;
+;    int len;
+;    ebseek(n);
+;modstk(newsp,save)
+	AI SP,-4
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @ebseek
+;modstk(newsp,save)
+	INCT SP
+;    i = vidx;
+;getmem(sym)
+	MOV @vidx,R4
+;put2tos()
+	MOV R4,@2(SP)
+;    len = 0;
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    while(i < eblen && ebbase[i] != 13) {
+cc33:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc35
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc35
+	LI R4,1
+;jump(label)
+	B @cc36
+cc35:
+	CLR R4
+cc36:
+	MOV R4,R4
+	JNE $+6
+	B @cc34
+;        len = len + 1;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;puttos()
+	MOV R4,*SP
+;        i = i + 1;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;inc()
+	INC R4
+;put2tos()
+	MOV R4,@2(SP)
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc33
+cc34:
+;    return len;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;}
+;/* Return the buffer index corresponding to a line/character column. */
+;ebindex(line, col)
+	EVEN
+ebindex:
+;int line, col;
+;{
+;    int i;
+;    ebseek(line);
+;modstk(newsp,save)
+	DECT SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @ebseek
+;modstk(newsp,save)
+	INCT SP
+;    i = vidx;
+;getmem(sym)
+	MOV @vidx,R4
+;puttos()
+	MOV R4,*SP
+;    while(col > 0 && i < eblen && ebbase[i] != 13) {
+cc38:
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc40
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc40
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV R4,R3 ;optimised push/pop
+	LI R4,13
+;_ccne
+	C R3,R4 ;optimised
+	JNE $+6
+	B @cc40
+	LI R4,1
+;jump(label)
+	B @cc41
+cc40:
+	CLR R4
+cc41:
+	MOV R4,R4
+	JNE $+6
+	B @cc39
+;        i = i + 1;
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;puttos()
+	MOV R4,*SP
+;        col = col - 1;
+;getloc(sym, off)
+	LI R4,4
+	A SP,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load/expr
+;	dec()
+	DEC R4
+	MOV R5,R3 ;optimised expr restore
+;putstk - int
+	MOV R4,*R3
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc38
+cc39:
+;    return i;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;modstk(newsp,save)
+	INCT SP
+	RET
+;}
+;/* Insert one byte at buffer index pos.  Return 1, or 0 when full. */
+;ebins(pos, c)
+	EVEN
+ebins:
+;int pos, c;
+;{
+;    int i;
+;    if(pos < 0)
+;modstk(newsp,save)
+	DECT SP
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;lt0(label)
+	MOV R4,R4
+	JLT $+6
+	B @cc43
+;        pos = 0;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - int
+	MOV R4,*R3
+;    if(pos > eblen)
+cc43:
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc44
+;        pos = eblen;
+;getloc(sym, off)
+	LI R4,6
+	A SP,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;putstk - int
+	MOV R4,*R3
+;    if(eblen >= ebcap)
+cc44:
+;getmem(sym)
+	MOV @eblen,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @ebcap,R4
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc45
+;        return 0;
+	CLR R4
+;modstk(newsp,save)
+	INCT SP
+	RET
+;    i = eblen;
+cc45:
+;getmem(sym)
+	MOV @eblen,R4
+;puttos()
+	MOV R4,*SP
+;    while(i > pos) {
+cc46:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;_ccgt
+	C R3,R4 ;optimised
+	JGT $+6
+	B @cc47
+;        ebbase[i] = ebbase[i - 1];
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load/expr
+;	dec()
+	DEC R4
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;        i = i - 1;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;	dec()
+	DEC R4
+;puttos()
+	MOV R4,*SP
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc46
+cc47:
+;    ebbase[pos] = c;
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load/expr
+	MOV R5,R3 ;optimised expr restore
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;    eblen = eblen + 1;
+;getmem(sym)
+	MOV @eblen,R4
+;inc()
+	INC R4
+;putmem(sym)
+	MOV R4,@eblen
+;    ebbase[eblen] = 0;
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;	zadd()
+	A R3,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;    ebdirty = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@ebdirty
+;    return 1;
+	LI R4,1
+;modstk(newsp,save)
+	INCT SP
+	RET
+;}
+;/* Delete one byte at buffer index pos.  Return deleted byte or -1. */
+;ebdel(pos)
+	EVEN
+ebdel:
+;int pos;
+;{
+;    int c;
+;    int i;
+;    if(pos < 0 || pos >= eblen)
+;modstk(newsp,save)
+	AI SP,-4
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;_cclt
+	BL @_cclt##
+	MOV R4,R4
+	JEQ $+6
+	B @cc50
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;_ccge
+	BL @_ccge##
+	MOV R4,R4
+	JEQ $+6
+	B @cc50
+	CLR R4
+;jump(label)
+	B @cc51
+cc50:
+	LI R4,1
+cc51:
+	MOV R4,R4
+	JNE $+6
+	B @cc49
+;        return -1;
+	SETO R4
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;    c = ebbase[pos];
+cc49:
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+;put2tos()
+	MOV R4,@2(SP)
+;    i = pos;
+;getloc(sym, off)
+	MOV @6(SP),R4 ;optimised load
+;puttos()
+	MOV R4,*SP
+;    while(i < eblen - 1) {
+cc52:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R5 ;optimised expr save
+;getmem(sym)
+	MOV @eblen,R4
+;	dec()
+	DEC R4
+	MOV R5,R3 ;optimised expr restore
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc53
+;        ebbase[i] = ebbase[i + 1];
+;modstk(newsp,save)
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load/expr
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R5 ;optimised expr save
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load/expr
+;inc()
+	INC R4
+;scale(type,tag)
+	MOV R5,R3 ;optimised expr restore
+;	zadd()
+	A R3,R4
+;indirect ccgchar
+	MOVB *R4,R4
+	SRA R4,8
+	MOV *SP+,R3
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;        i = i + 1;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;puttos()
+	MOV R4,*SP
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc52
+cc53:
+;    eblen = eblen - 1;
+;getmem(sym)
+	MOV @eblen,R4
+;	dec()
+	DEC R4
+;putmem(sym)
+	MOV R4,@eblen
+;    ebbase[eblen] = 0;
+;getmem(sym)
+	MOV @ebbase,R4
+	MOV R4,R3 ;optimised push/pop
+	MOV @eblen,R4
+;	zadd()
+	A R3,R4
+	MOV R4,R3 ;optimised push/pop
+	CLR R4
+;putstk - char
+	MOVB @2*R4+1(WP),*R3
+;    ebdirty = 1;
+	LI R4,1
+;putmem(sym)
+	MOV R4,@ebdirty
+;    return c;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;modstk(newsp,save)
+	AI SP,4
+	RET
+;}
+	ENT ebcap
+	EXT fsname
+	ENT ebdel
+	ENT ebdirty
+	ENT eblen
+	ENT ebindex
+	ENT ebins
+	ENT ebnew
+	ENT ebloadn
+	EXT fgetc
+	ENT eblines
+	ENT vidx
+	ENT ebbase
+	EXT puts
+	ENT ebsaved
+	ENT ebedln
+	ENT ebvalid
+	EXT fopen
+	EXT fsexist
+	EXT fsset
+	ENT ebload
+	ENT ebllen
+	ENT ebnewn
+	ENT ebseek
+	ENT ebnone
+	ENT ebtotln
+	EXT fclose
+	EVEN
+	END
+
+; --- End of Compilation ---

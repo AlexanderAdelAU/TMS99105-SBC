@@ -1,0 +1,276 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0005                  R5	EQU 5
+  0006                  R6	EQU 6
+  0007                  R7	EQU 7
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM OVL_CHAR
+                        ;/* OVL_CHAR.C -- FILESTAT character-class analysis overlay. */
+                        ;#asm
+  8000                          AORG    08000H
+                        ;extern fsgetc();
+                        ;extern int nchar;
+                        ;extern int nalpha;
+                        ;extern int ndigit;
+                        ;extern int nspace;
+                        ;extern int npunct;
+                        ;charscan()
+  8000                  	EVEN
+                        charscan:
+                        ;{
+                        ;modstk(newsp,save)
+                        ;    int c;
+                        ;    c = fsgetc();
+                        ;modstk(newsp,save)
+  8000   064A           	DECT SP
+                        ;zcall()
+  8002   2DA0 0000      	CALL @fsgetc
+                        ;modstk(newsp,save)
+                        ;puttos()
+  8006   C684           	MOV R4,*SP
+                        ;    while(c != -1) {
+                        cc2:
+                        ;getloc(sym, off)
+  8008   C11A           	MOV *SP,R4 ;optimised load
+  800A   C0C4           	MOV R4,R3 ;optimised push/pop
+  800C   0704           	SETO R4
+                        ;_ccne
+  800E   8103           	C R3,R4 ;optimised
+  8010   1602           	JNE $+6
+  8012   0460 8154      	B @cc3
+                        ;        nchar = nchar + 1;
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  8016   C120 0000      	MOV @nchar,R4
+                        ;inc()
+  801A   0584           	INC R4
+                        ;putmem(sym)
+  801C   C804 0000      	MOV R4,@nchar
+                        ;        if((c >= 'A' && c <= 'Z') ||
+                        ;getloc(sym, off)
+  8020   C11A           	MOV *SP,R4 ;optimised load
+  8022   C0C4           	MOV R4,R3 ;optimised push/pop
+  8024   0204 0041      	LI R4,65
+                        ;_ccge
+  8028   8103           	C R3,R4 ;optimised
+  802A   1503           	JGT $+8
+  802C   1302           	JEQ $+6
+  802E   0460 804C      	B @cc5
+                        ;getloc(sym, off)
+  8032   C11A           	MOV *SP,R4 ;optimised load
+  8034   C0C4           	MOV R4,R3 ;optimised push/pop
+  8036   0204 005A      	LI R4,90
+                        ;_ccle
+  803A   8103           	C R3,R4 ;optimised
+  803C   1103           	JLT $+8
+  803E   1302           	JEQ $+6
+  8040   0460 804C      	B @cc5
+  8044   0204 0001      	LI R4,1
+                        ;jump(label)
+  8048   0460 804E      	B @cc6
+                        cc5:
+  804C   04C4           	CLR R4
+                        cc6:
+  804E   C104           	MOV R4,R4
+  8050   1302           	JEQ $+6
+  8052   0460 8092      	B @cc7
+                        ;           (c >= 'a' && c <= 'z'))
+                        ;getloc(sym, off)
+  8056   C11A           	MOV *SP,R4 ;optimised load
+  8058   C0C4           	MOV R4,R3 ;optimised push/pop
+  805A   0204 0061      	LI R4,97
+                        ;_ccge
+  805E   8103           	C R3,R4 ;optimised
+  8060   1503           	JGT $+8
+  8062   1302           	JEQ $+6
+  8064   0460 8082      	B @cc8
+                        ;getloc(sym, off)
+  8068   C11A           	MOV *SP,R4 ;optimised load
+  806A   C0C4           	MOV R4,R3 ;optimised push/pop
+  806C   0204 007A      	LI R4,122
+                        ;_ccle
+  8070   8103           	C R3,R4 ;optimised
+  8072   1103           	JLT $+8
+  8074   1302           	JEQ $+6
+  8076   0460 8082      	B @cc8
+  807A   0204 0001      	LI R4,1
+                        ;jump(label)
+  807E   0460 8084      	B @cc9
+                        cc8:
+  8082   04C4           	CLR R4
+                        cc9:
+  8084   C104           	MOV R4,R4
+  8086   1302           	JEQ $+6
+  8088   0460 8092      	B @cc7
+  808C   04C4           	CLR R4
+                        ;jump(label)
+  808E   0460 8096      	B @cc10
+                        cc7:
+  8092   0204 0001      	LI R4,1
+                        cc10:
+  8096   C104           	MOV R4,R4
+  8098   1602           	JNE $+6
+  809A   0460 80AC      	B @cc4
+                        ;            nalpha = nalpha + 1;
+                        ;getmem(sym)
+  809E   C120 0000      	MOV @nalpha,R4
+                        ;inc()
+  80A2   0584           	INC R4
+                        ;putmem(sym)
+  80A4   C804 0000      	MOV R4,@nalpha
+                        ;        else if(c >= '0' && c <= '9')
+                        ;jump(label)
+  80A8   0460 814A      	B @cc11
+                        cc4:
+                        ;getloc(sym, off)
+  80AC   C11A           	MOV *SP,R4 ;optimised load
+  80AE   C0C4           	MOV R4,R3 ;optimised push/pop
+  80B0   0204 0030      	LI R4,48
+                        ;_ccge
+  80B4   8103           	C R3,R4 ;optimised
+  80B6   1503           	JGT $+8
+  80B8   1302           	JEQ $+6
+  80BA   0460 80D8      	B @cc13
+                        ;getloc(sym, off)
+  80BE   C11A           	MOV *SP,R4 ;optimised load
+  80C0   C0C4           	MOV R4,R3 ;optimised push/pop
+  80C2   0204 0039      	LI R4,57
+                        ;_ccle
+  80C6   8103           	C R3,R4 ;optimised
+  80C8   1103           	JLT $+8
+  80CA   1302           	JEQ $+6
+  80CC   0460 80D8      	B @cc13
+  80D0   0204 0001      	LI R4,1
+                        ;jump(label)
+  80D4   0460 80DA      	B @cc14
+                        cc13:
+  80D8   04C4           	CLR R4
+                        cc14:
+  80DA   C104           	MOV R4,R4
+  80DC   1602           	JNE $+6
+  80DE   0460 80F0      	B @cc12
+                        ;            ndigit = ndigit + 1;
+                        ;getmem(sym)
+  80E2   C120 0000      	MOV @ndigit,R4
+                        ;inc()
+  80E6   0584           	INC R4
+                        ;putmem(sym)
+  80E8   C804 0000      	MOV R4,@ndigit
+                        ;        else if(c == ' ' || c == '\t' || c == '\n')
+                        ;jump(label)
+  80EC   0460 814A      	B @cc15
+                        cc12:
+                        ;getloc(sym, off)
+  80F0   C11A           	MOV *SP,R4 ;optimised load
+  80F2   C0C4           	MOV R4,R3 ;optimised push/pop
+  80F4   0204 0020      	LI R4,32
+                        ;_cceq
+  80F8   8103           	C R3,R4 ;optimised
+  80FA   1602           	JNE $+6
+  80FC   0460 8126      	B @cc17
+                        ;getloc(sym, off)
+  8100   C11A           	MOV *SP,R4 ;optimised load
+  8102   C0C4           	MOV R4,R3 ;optimised push/pop
+  8104   0204 0009      	LI R4,9
+                        ;_cceq
+  8108   8103           	C R3,R4 ;optimised
+  810A   1602           	JNE $+6
+  810C   0460 8126      	B @cc17
+                        ;getloc(sym, off)
+  8110   C11A           	MOV *SP,R4 ;optimised load
+  8112   C0C4           	MOV R4,R3 ;optimised push/pop
+  8114   0204 000D      	LI R4,13
+                        ;_cceq
+  8118   8103           	C R3,R4 ;optimised
+  811A   1602           	JNE $+6
+  811C   0460 8126      	B @cc17
+  8120   04C4           	CLR R4
+                        ;jump(label)
+  8122   0460 812A      	B @cc18
+                        cc17:
+  8126   0204 0001      	LI R4,1
+                        cc18:
+  812A   C104           	MOV R4,R4
+  812C   1602           	JNE $+6
+  812E   0460 8140      	B @cc16
+                        ;            nspace = nspace + 1;
+                        ;getmem(sym)
+  8132   C120 0000      	MOV @nspace,R4
+                        ;inc()
+  8136   0584           	INC R4
+                        ;putmem(sym)
+  8138   C804 0000      	MOV R4,@nspace
+                        ;        else
+                        ;jump(label)
+  813C   0460 814A      	B @cc19
+                        cc16:
+                        ;            npunct = npunct + 1;
+                        ;getmem(sym)
+  8140   C120 0000      	MOV @npunct,R4
+                        ;inc()
+  8144   0584           	INC R4
+                        ;putmem(sym)
+  8146   C804 0000      	MOV R4,@npunct
+                        cc19:
+                        cc15:
+                        cc11:
+                        ;        c = fsgetc();
+                        ;zcall()
+  814A   2DA0 0000      	CALL @fsgetc
+                        ;modstk(newsp,save)
+                        ;puttos()
+  814E   C684           	MOV R4,*SP
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  8150   0460 8008      	B @cc2
+                        cc3:
+                        ;}
+                        ;modstk(newsp,save)
+  8154   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  8156   2DC0           	RET
+                        	EXT fsgetc
+                        	EXT nalpha
+                        	EXT ndigit
+                        	EXT nchar
+                        	ENT charscan
+                        	EXT nspace
+                        	EXT npunct
+  8158                  	EVEN
+  8158                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R5                0005   R6                0006   R7                0007   
+R8                0008   R9                0009   RET               2DC0'  SL                0009   
+SP                000A   WHEX              2E80'  WP                000D   WRITE             2F00'  
+cc10              8096'  cc11              814A'  cc12              80F0'  cc13              80D8'  
+cc14              80DA'  cc15              814A'  cc16              8140'  cc17              8126'  
+cc18              812A'  cc19              814A'  cc2               8008'  cc3               8154'  
+cc4               80AC'  cc5               804C'  cc6               804E'  cc7               8092'  
+cc8               8082'  cc9               8084'  charscan          8000'  fsgetc            0000*  
+nalpha            0000*  nchar             0000*  ndigit            0000*  npunct            0000*  
+nspace            0000*  
+

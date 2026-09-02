@@ -1,0 +1,69 @@
+;*******************************************************************
+; OVLAPI.A99 -- FILESTAT resident overlay entry adapters.
+;
+; FILESTAT-specific glue only.  The shared OVLMGR.A99 is not modified.
+;
+; Small-C/Plus and the shared overlay framework use XOP6 CALL / XOP7 RET.
+; Each wrapper follows the proven sequence:
+;
+;       LI   R1,overlay_id
+;       CALL @OVLMGR
+;       CALL @overlay_entry
+;       RET
+;
+; ovlinit must be called once before FILESTAT performs normal application
+; work.  It calls the shared manager's proven OVLMGR_INIT entry unchanged.
+;*******************************************************************
+
+        DXOP    CALL,6
+        DXOP    RET,7
+
+R1      EQU     1
+
+        INCL    "OVLDEFS.INC"
+        INCL    "OVLADDR.INC"
+
+        EXT     OVLMGR
+        EXT     OVLMGR_INIT
+
+ovlinit:
+        CALL    @OVLMGR_INIT
+        RET
+
+runword:
+        LI      R1,OVL_WORD
+        CALL    @OVLMGR
+        CALL    @O_WORD
+        RET
+
+runchar:
+        LI      R1,OVL_CHAR
+        CALL    @OVLMGR
+        CALL    @O_CHAR
+        RET
+
+runrpt:
+        LI      R1,OVL_RPT
+        CALL    @OVLMGR
+        CALL    @O_RPT
+        RET
+
+runview:
+        LI      R1,OVL_VIEW
+        CALL    @OVLMGR
+        CALL    @O_VIEW
+        RET
+
+runedit:
+        LI      R1,OVL_EDIT
+        CALL    @OVLMGR
+        CALL    @O_EDIT
+        RET
+
+        ENT     ovlinit
+        ENT     runword
+        ENT     runchar
+        ENT     runrpt
+        ENT     runview
+        ENT     runedit
+        END

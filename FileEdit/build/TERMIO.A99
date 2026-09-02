@@ -1,0 +1,554 @@
+;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+;          Original Z80  Version 21st April 1990       
+;
+R0	EQU 0
+R1	EQU 1
+R2	EQU 2
+R3	EQU 3
+R4	EQU 4
+R5	EQU 5
+R6	EQU 6
+R7	EQU 7
+R8	EQU 8
+SL	EQU 9
+R9	EQU 9
+SP	EQU 10
+WP	EQU 13
+R11	EQU 11
+	DXOP CALL,6
+	DXOP RET,7
+	DXOP WHEX,10
+	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+	DXOP	MESG,14
+	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+
+;-------- START MODULE -----------
+	NAM TERMIO
+;/*
+;** TERMIO.C -- resident ANSI/VT100 terminal services for Tera Term.
+;**
+;** Step 3 adds cursor positioning and direct/no-echo keyboard input.  These
+;** routines stay resident because every display/editor overlay will share
+;** them.  External identifiers remain eight characters or fewer for the
+;** Small-C/Plus toolchain.
+;*/
+;extern putchar();
+;extern puts();
+;extern rxwait();
+;extern int rxchar;
+;/* Emit ESC followed by the supplied ANSI control sequence. */
+;trmesc(s)
+	EVEN
+trmesc:
+;char *s;
+;{
+;modstk(newsp,save)
+;    putchar(27);
+;modstk(newsp,save)
+	LI R4,27
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    puts(s);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @puts
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/*
+;** Clear the display using the sequence proven by ED2 on VT100/Tera Term:
+;** HOME first, then erase from HOME to end of display.  This avoids the
+;** repeated-screen/scrollback behaviour seen with CSI 2 J on this setup.
+;*/
+;trmclear()
+	EVEN
+trmclear:
+;{
+;    trmesc("[H");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc2+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;    trmesc("[J");
+;constant(lval)
+	LI R4,cc2+3
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc2:	BYTE 91,72,0,91,74,0
+;/* Reverse video is useful for simple title and status bars. */
+;trmrev()
+	EVEN
+trmrev:
+;{
+;    trmesc("[7m");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc3+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc3:	BYTE 91,55,109,0
+;/* Restore normal terminal attributes. */
+;trmnorm()
+	EVEN
+trmnorm:
+;{
+;    trmesc("[0m");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc4+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc4:	BYTE 91,48,109,0
+;/* Hide/show the hardware cursor while a screen-oriented view is active. */
+;trmhide()
+	EVEN
+trmhide:
+;{
+;    trmesc("[?25l");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc5+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc5:	BYTE 91,63,50,53,108,0
+;trmshow()
+	EVEN
+trmshow:
+;{
+;    trmesc("[?25h");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc6+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc6:	BYTE 91,63,50,53,104,0
+;/* Audible/visible terminal bell for a rejected edit (for example full buffer). */
+;trmbell()
+	EVEN
+trmbell:
+;{
+;    putchar(7);
+;modstk(newsp,save)
+	LI R4,7
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/* Print a positive decimal integer without pulling printf into TERMIO. */
+;trmnum(n)
+	EVEN
+trmnum:
+;int n;
+;{
+;    if(n < 0) {
+;modstk(newsp,save)
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;lt0(label)
+	MOV R4,R4
+	JLT $+6
+	B @cc9
+;        putchar('-');
+;modstk(newsp,save)
+	LI R4,45
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;        n = -n;
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+;neg()
+	NEG R4
+;put2tos()
+	MOV R4,@2(SP)
+;    }
+;modstk(newsp,save)
+;    if(n >= 10)
+cc9:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+;_ccge
+	C R3,R4 ;optimised
+	JGT $+8
+	JEQ $+6
+	B @cc10
+;        trmnum(n / 10);
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+	BL @_ccdiv##
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmnum
+;modstk(newsp,save)
+	INCT SP
+;    putchar('0' + (n % 10));
+cc10:
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+	BL @_ccdiv##
+;swap()
+	MOV R3,R0;;
+	MOV R4,R3
+	MOV R0,R4
+;const2(val)
+	LI R3,48
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/*
+;** ANSI cursor position: rows/columns are one-origin values.
+;** ED2 emits fixed two-digit coordinates (ESC[03;01H), so do the same here.
+;** The editor is deliberately fixed at 80x24 for now; values above 99 are not
+;** needed at this milestone.
+;*/
+;trmpos(row, col)
+	EVEN
+trmpos:
+;int row, col;
+;{
+;    putchar(27);
+;modstk(newsp,save)
+	LI R4,27
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    putchar('[');
+	LI R4,91
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    putchar('0' + ((row / 10) % 10));
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+	BL @_ccdiv##
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+	BL @_ccdiv##
+;swap()
+	MOV R3,R0;;
+	MOV R4,R3
+	MOV R0,R4
+;const2(val)
+	LI R3,48
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    putchar('0' + (row % 10));
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+	BL @_ccdiv##
+;swap()
+	MOV R3,R0;;
+	MOV R4,R3
+	MOV R0,R4
+;const2(val)
+	LI R3,48
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    putchar(';');
+	LI R4,59
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    putchar('0' + ((col / 10) % 10));
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+	BL @_ccdiv##
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+	BL @_ccdiv##
+;swap()
+	MOV R3,R0;;
+	MOV R4,R3
+	MOV R0,R4
+;const2(val)
+	LI R3,48
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    putchar('0' + (col % 10));
+;getloc(sym, off)
+	MOV @2(SP),R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,10
+	BL @_ccdiv##
+;swap()
+	MOV R3,R0;;
+	MOV R4,R3
+	MOV R0,R4
+;const2(val)
+	LI R3,48
+;	zadd()
+	A R3,R4
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;    putchar('H');
+	LI R4,72
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;/* Erase from column 1 to end of line; callers position at column 1 first. */
+;trmclrln()
+	EVEN
+trmclrln:
+;{
+;    trmesc("[K");
+;modstk(newsp,save)
+;constant(lval)
+	LI R4,cc12+0
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmesc
+;modstk(newsp,save)
+	INCT SP
+;}
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+cc12:	BYTE 91,75,0
+	EVEN
+;/*
+;** Blocking, no-echo console input from the resident INT4 RX queue.
+;**
+;** FileEdit Step 7.1 installs a temporary INT4 hook while /E or /V is
+;** active.  The ISR drains TMS9902 receive bytes immediately into a 64-byte
+;** ring, so full-screen redraws no longer leave ESC-sequence tails behind.
+;*/
+;trmkey()
+	EVEN
+trmkey:
+;{
+;    rxwait();
+;modstk(newsp,save)
+;zcall()
+	CALL @rxwait
+;modstk(newsp,save)
+;    return rxchar;
+;getmem(sym)
+	MOV @rxchar,R4
+;modstk(newsp,save)
+	RET
+;}
+;/* Retained as an alias for later terminal code; currently identical. */
+;trmraw()
+	EVEN
+trmraw:
+;{
+;    return trmkey();
+;modstk(newsp,save)
+;zcall()
+	CALL @trmkey
+;modstk(newsp,save)
+;modstk(newsp,save)
+	RET
+;}
+;/* Draw a 79-column rule; leave column 80 unused to avoid auto-wrap. */
+;trmrule(row)
+	EVEN
+trmrule:
+;int row;
+;{
+;    int n;
+;    trmpos(row, 1);
+;modstk(newsp,save)
+	DECT SP
+;getloc(sym, off)
+	MOV @4(SP),R4 ;optimised load
+	DECT SP
+	MOV R4,*SP
+	LI R4,1
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @trmpos
+;modstk(newsp,save)
+	AI SP,4
+;    trmclrln();
+;zcall()
+	CALL @trmclrln
+;modstk(newsp,save)
+;    n = 0;
+	CLR R4
+;puttos()
+	MOV R4,*SP
+;    while(n < 79) {
+cc16:
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+	MOV R4,R3 ;optimised push/pop
+	LI R4,79
+;_cclt
+	C R3,R4 ;optimised
+	JLT $+6
+	B @cc17
+;        putchar('-');
+;modstk(newsp,save)
+	LI R4,45
+	DECT SP
+	MOV R4,*SP
+;zcall()
+	CALL @putchar
+;modstk(newsp,save)
+	INCT SP
+;        n = n + 1;
+;getloc(sym, off)
+	MOV *SP,R4 ;optimised load
+;inc()
+	INC R4
+;puttos()
+	MOV R4,*SP
+;    }
+;modstk(newsp,save)
+;jump(label)
+	B @cc16
+cc17:
+;}
+;modstk(newsp,save)
+	INCT SP
+;modstk(newsp,save)
+	RET
+	ENT trmraw
+	ENT trmrev
+	ENT trmnum
+	ENT trmpos
+	ENT trmhide
+	EXT rxwait
+	ENT trmclear
+	ENT trmnorm
+	ENT trmshow
+	EXT puts
+	ENT trmrule
+	ENT trmclrln
+	EXT rxchar
+	EXT putchar
+	ENT trmesc
+	ENT trmkey
+	ENT trmbell
+	EVEN
+	END
+
+; --- End of Compilation ---

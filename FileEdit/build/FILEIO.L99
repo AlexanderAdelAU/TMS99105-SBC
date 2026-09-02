@@ -1,0 +1,2137 @@
+                        ;* * *  Small-C/Plus Version 1.06a for the TMS 9900 - Cameron * * *
+                        ;       Cain, Van Zandt, Hendrix, Yorston, Cameron
+                        ;          Original Z80  Version 21st April 1990       
+                        ;
+  0000                  R0	EQU 0
+  0001                  R1	EQU 1
+  0002                  R2	EQU 2
+  0003                  R3	EQU 3
+  0004                  R4	EQU 4
+  0005                  R5	EQU 5
+  0006                  R6	EQU 6
+  0007                  R7	EQU 7
+  0008                  R8	EQU 8
+  0009                  SL	EQU 9
+  0009                  R9	EQU 9
+  000A                  SP	EQU 10
+  000D                  WP	EQU 13
+  000B                  R11	EQU 11
+                        	DXOP CALL,6
+                        	DXOP RET,7
+                        	DXOP WHEX,10
+                        	DXOP WRITE,12    ;WRITE CHAR IN MSB 
+                        	DXOP	MESG,14
+                        	DXOP DEBUG,15    ;TRACE THE PRECEDING INSTRUCTION, PC,ST and REGISTERS 
+                        
+                        ;-------- START MODULE -----------
+  0000                  	NAM FILEIO
+                        ;/*
+                        ;** FILEIO.C -- FILESTAT resident file services (Step 6).
+                        ;**
+                        ;** Step 6 generalises the hardware-proven Step 5 save path so it can save the
+                        ;** current document or Save As to another filename.  Existing targets receive
+                        ;** a rolling .BAK before replacement; every write is closed, reopened and
+                        ;** verified before the editor marks the document clean.
+                        ;*/
+                        ;extern fopen();
+                        ;extern fclose();
+                        ;extern fgetc();
+                        ;extern putc();
+                        ;extern putchar();
+                        ;extern puts();
+                        ;extern fsset();
+                        ;extern fsequal();
+                        ;extern char *fsname;
+                        ;extern char fsbak[16];
+                        ;extern int fsunit;
+                        ;extern int fsexist;
+                        ;extern char *ebbase;
+                        ;extern int eblen;
+                        ;extern int ebdirty;
+                        ;extern int ebsaved;
+                        ;fsopen()
+  0000                  	EVEN
+                        fsopen:
+                        ;{
+                        ;modstk(newsp,save)
+                        ;    fsunit = fopen(fsname, "r");
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0000   C120 0000      	MOV @fsname,R4
+  0004   064A           	DECT SP
+  0006   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0008   0204 005C      	LI R4,cc1+0
+  000C   064A           	DECT SP
+  000E   C684           	MOV R4,*SP
+                        ;zcall()
+  0010   2DA0 0000      	CALL @fopen
+                        ;modstk(newsp,save)
+  0014   022A 0004      	AI SP,4
+                        ;putmem(sym)
+  0018   C804 0000      	MOV R4,@fsunit
+                        ;    if(fsunit == 0) {
+                        ;getmem(sym)
+  001C   C120 0000      	MOV @fsunit,R4
+  0020   C104           	MOV R4,R4
+  0022   1302           	JEQ $+6
+  0024   0460 0056      	B @cc2
+                        ;        puts("FILESTAT: cannot open ");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0028   0204 005E      	LI R4,cc1+2
+  002C   064A           	DECT SP
+  002E   C684           	MOV R4,*SP
+                        ;zcall()
+  0030   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0034   05CA           	INCT SP
+                        ;        puts(fsname);
+                        ;getmem(sym)
+  0036   C120 0000      	MOV @fsname,R4
+  003A   064A           	DECT SP
+  003C   C684           	MOV R4,*SP
+                        ;zcall()
+  003E   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0042   05CA           	INCT SP
+                        ;        puts("\n");
+                        ;constant(lval)
+  0044   0204 0075      	LI R4,cc1+25
+  0048   064A           	DECT SP
+  004A   C684           	MOV R4,*SP
+                        ;zcall()
+  004C   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0050   05CA           	INCT SP
+                        ;        return 0;
+  0052   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0054   2DC0           	RET
+                        ;    }
+                        ;    return 1;
+                        cc2:
+  0056   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  005A   2DC0           	RET
+                        ;}
+  005C   7200 4649      cc1:	BYTE 114,0,70,73,76,69,83,84,65,84,58,32
+  0060   4C45 5354      
+  0064   4154 3A20      
+  0068   6361 6E6E      	BYTE 99,97,110,110,111,116,32,111,112,101,110,32
+  006C   6F74 206F      
+  0070   7065 6E20      
+  0074   000D 00        	BYTE 0,13,0
+  0077   00             	EVEN
+                        ;fsclose()
+  0078                  	EVEN
+                        fsclose:
+                        ;{
+                        ;    if(fsunit) {
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0078   C120 0000      	MOV @fsunit,R4
+  007C   C104           	MOV R4,R4
+  007E   1602           	JNE $+6
+  0080   0460 0098      	B @cc4
+                        ;        fclose(fsunit);
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0084   C120 0000      	MOV @fsunit,R4
+  0088   064A           	DECT SP
+  008A   C684           	MOV R4,*SP
+                        ;zcall()
+  008C   2DA0 0000      	CALL @fclose
+                        ;modstk(newsp,save)
+  0090   05CA           	INCT SP
+                        ;        fsunit = 0;
+  0092   04C4           	CLR R4
+                        ;putmem(sym)
+  0094   C804 0000      	MOV R4,@fsunit
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;}
+                        cc4:
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0098   2DC0           	RET
+                        ;fsrewind()
+  009A                  	EVEN
+                        fsrewind:
+                        ;{
+                        ;    fsclose();
+                        ;modstk(newsp,save)
+                        ;zcall()
+  009A   2DA0 0078      	CALL @fsclose
+                        ;modstk(newsp,save)
+                        ;    return fsopen();
+                        ;zcall()
+  009E   2DA0 0000      	CALL @fsopen
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  00A2   2DC0           	RET
+                        ;}
+                        ;fsgetc()
+  00A4                  	EVEN
+                        fsgetc:
+                        ;{
+                        ;    return fgetc(fsunit);
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  00A4   C120 0000      	MOV @fsunit,R4
+  00A8   064A           	DECT SP
+  00AA   C684           	MOV R4,*SP
+                        ;zcall()
+  00AC   2DA0 0000      	CALL @fgetc
+                        ;modstk(newsp,save)
+  00B0   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  00B2   2DC0           	RET
+                        ;}
+                        ;/* Return 1 when a readable file currently exists under name. */
+                        ;fsprobe(name)
+  00B4                  	EVEN
+                        fsprobe:
+                        ;char *name;
+                        ;{
+                        ;    int in;
+                        ;    in = fopen(name, "r");
+                        ;modstk(newsp,save)
+  00B4   064A           	DECT SP
+                        ;getloc(sym, off)
+  00B6   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  00BA   064A           	DECT SP
+  00BC   C684           	MOV R4,*SP
+                        ;constant(lval)
+  00BE   0204 00F4      	LI R4,cc7+0
+  00C2   064A           	DECT SP
+  00C4   C684           	MOV R4,*SP
+                        ;zcall()
+  00C6   2DA0 0000      	CALL @fopen
+                        ;modstk(newsp,save)
+  00CA   022A 0004      	AI SP,4
+                        ;puttos()
+  00CE   C684           	MOV R4,*SP
+                        ;    if(in == 0)
+                        ;getloc(sym, off)
+  00D0   C11A           	MOV *SP,R4 ;optimised load
+  00D2   C104           	MOV R4,R4
+  00D4   1302           	JEQ $+6
+  00D6   0460 00E0      	B @cc8
+                        ;        return 0;
+  00DA   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  00DC   05CA           	INCT SP
+  00DE   2DC0           	RET
+                        ;    fclose(in);
+                        cc8:
+                        ;getloc(sym, off)
+  00E0   C11A           	MOV *SP,R4 ;optimised load
+  00E2   064A           	DECT SP
+  00E4   C684           	MOV R4,*SP
+                        ;zcall()
+  00E6   2DA0 0000      	CALL @fclose
+                        ;modstk(newsp,save)
+  00EA   05CA           	INCT SP
+                        ;    return 1;
+  00EC   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  00F0   05CA           	INCT SP
+  00F2   2DC0           	RET
+                        ;}
+  00F4   7200           cc7:	BYTE 114,0
+                        ;/*
+                        ;** IOLIB normalizes a text line ending to Small-C '\n', which this compiler
+                        ;** represents as CR (0x0D).  Tera Term already handles that logical newline.
+                        ;*/
+                        ;fsout(c)
+  00F6                  	EVEN
+                        fsout:
+                        ;int c;
+                        ;{
+                        ;    putchar(c);
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  00F6   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  00FA   064A           	DECT SP
+  00FC   C684           	MOV R4,*SP
+                        ;zcall()
+  00FE   2DA0 0000      	CALL @putchar
+                        ;modstk(newsp,save)
+  0102   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0104   2DC0           	RET
+                        ;fslist()
+  0106                  	EVEN
+                        fslist:
+                        ;{
+                        ;    int c;
+                        ;    puts("\n--- file contents ---\n");
+                        ;modstk(newsp,save)
+  0106   064A           	DECT SP
+                        ;constant(lval)
+  0108   0204 0152      	LI R4,cc10+0
+  010C   064A           	DECT SP
+  010E   C684           	MOV R4,*SP
+                        ;zcall()
+  0110   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0114   05CA           	INCT SP
+                        ;    c = fsgetc();
+                        ;zcall()
+  0116   2DA0 00A4      	CALL @fsgetc
+                        ;modstk(newsp,save)
+                        ;puttos()
+  011A   C684           	MOV R4,*SP
+                        ;    while(c != -1) {
+                        cc11:
+                        ;getloc(sym, off)
+  011C   C11A           	MOV *SP,R4 ;optimised load
+  011E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0120   0704           	SETO R4
+                        ;_ccne
+  0122   8103           	C R3,R4 ;optimised
+  0124   1602           	JNE $+6
+  0126   0460 0140      	B @cc12
+                        ;        fsout(c);
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  012A   C11A           	MOV *SP,R4 ;optimised load
+  012C   064A           	DECT SP
+  012E   C684           	MOV R4,*SP
+                        ;zcall()
+  0130   2DA0 00F6      	CALL @fsout
+                        ;modstk(newsp,save)
+  0134   05CA           	INCT SP
+                        ;        c = fsgetc();
+                        ;zcall()
+  0136   2DA0 00A4      	CALL @fsgetc
+                        ;modstk(newsp,save)
+                        ;puttos()
+  013A   C684           	MOV R4,*SP
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  013C   0460 011C      	B @cc11
+                        cc12:
+                        ;    puts("--- end contents ---\n");
+                        ;constant(lval)
+  0140   0204 016A      	LI R4,cc10+24
+  0144   064A           	DECT SP
+  0146   C684           	MOV R4,*SP
+                        ;zcall()
+  0148   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  014C   05CA           	INCT SP
+                        ;}
+                        ;modstk(newsp,save)
+  014E   05CA           	INCT SP
+                        ;modstk(newsp,save)
+  0150   2DC0           	RET
+  0152   0D2D 2D2D      cc10:	BYTE 13,45,45,45,32,102,105,108,101,32,99,111
+  0156   2066 696C      
+  015A   6520 636F      
+  015E   6E74 656E      	BYTE 110,116,101,110,116,115,32,45,45,45,13,0
+  0162   7473 202D      
+  0166   2D2D 0D00      
+  016A   2D2D 2D20      	BYTE 45,45,45,32,101,110,100,32,99,111,110,116
+  016E   656E 6420      
+  0172   636F 6E74      
+  0176   656E 7473      	BYTE 101,110,116,115,32,45,45,45,13,0
+  017A   202D 2D2D      
+  017E   0D00           
+                        ;/* Uppercase one ASCII character without adding a library dependency. */
+                        ;upch(c)
+  0180                  	EVEN
+                        upch:
+                        ;int c;
+                        ;{
+                        ;    if(c >= 'a' && c <= 'z')
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0180   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  0184   C0C4           	MOV R4,R3 ;optimised push/pop
+  0186   0204 0061      	LI R4,97
+                        ;_ccge
+  018A   8103           	C R3,R4 ;optimised
+  018C   1503           	JGT $+8
+  018E   1302           	JEQ $+6
+  0190   0460 01B0      	B @cc15
+                        ;getloc(sym, off)
+  0194   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  0198   C0C4           	MOV R4,R3 ;optimised push/pop
+  019A   0204 007A      	LI R4,122
+                        ;_ccle
+  019E   8103           	C R3,R4 ;optimised
+  01A0   1103           	JLT $+8
+  01A2   1302           	JEQ $+6
+  01A4   0460 01B0      	B @cc15
+  01A8   0204 0001      	LI R4,1
+                        ;jump(label)
+  01AC   0460 01B2      	B @cc16
+                        cc15:
+  01B0   04C4           	CLR R4
+                        cc16:
+  01B2   C104           	MOV R4,R4
+  01B4   1602           	JNE $+6
+  01B6   0460 01CE      	B @cc14
+                        ;        c = c - 'a' + 'A';
+                        ;getloc(sym, off)
+  01BA   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;const2(val)
+  01BE   0203 FF9F      	LI R3,-97
+                        ;	zadd()
+  01C2   A103           	A R3,R4
+                        ;const2(val)
+  01C4   0203 0041      	LI R3,65
+                        ;	zadd()
+  01C8   A103           	A R3,R4
+                        ;put2tos()
+  01CA   CA84 0002      	MOV R4,@2(SP)
+                        ;    return c;
+                        cc14:
+                        ;getloc(sym, off)
+  01CE   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;modstk(newsp,save)
+  01D2   2DC0           	RET
+                        ;}
+                        ;/* Build a rolling backup filename for an arbitrary target. */
+                        ;mkbak(name)
+  01D4                  	EVEN
+                        mkbak:
+                        ;char *name;
+                        ;{
+                        ;    int i;
+                        ;    int dot;
+                        ;    int isbak;
+                        ;    i = 0;
+                        ;modstk(newsp,save)
+  01D4   022A FFFA      	AI SP,-6
+                        ;getloc(sym, off)
+  01D8   0204 0004      	LI R4,4
+  01DC   A10A           	A SP,R4
+  01DE   C0C4           	MOV R4,R3 ;optimised push/pop
+  01E0   04C4           	CLR R4
+                        ;putstk - int
+  01E2   C4C4           	MOV R4,*R3
+                        ;    dot = -1;
+  01E4   0704           	SETO R4
+                        ;put2tos()
+  01E6   CA84 0002      	MOV R4,@2(SP)
+                        ;    while(name[i] != 0 && i < 14) {
+                        cc18:
+                        ;getloc(sym, off)
+  01EA   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  01EE   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  01F0   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  01F4   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  01F6   A103           	A R3,R4
+                        ;indirect ccgchar
+  01F8   D114           	MOVB *R4,R4
+  01FA   0884           	SRA R4,8
+  01FC   C0C4           	MOV R4,R3 ;optimised push/pop
+  01FE   04C4           	CLR R4
+                        ;_ccne
+  0200   8103           	C R3,R4 ;optimised
+  0202   1602           	JNE $+6
+  0204   0460 0222      	B @cc20
+                        ;getloc(sym, off)
+  0208   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  020C   C0C4           	MOV R4,R3 ;optimised push/pop
+  020E   0204 000E      	LI R4,14
+                        ;_cclt
+  0212   8103           	C R3,R4 ;optimised
+  0214   1102           	JLT $+6
+  0216   0460 0222      	B @cc20
+  021A   0204 0001      	LI R4,1
+                        ;jump(label)
+  021E   0460 0224      	B @cc21
+                        cc20:
+  0222   04C4           	CLR R4
+                        cc21:
+  0224   C104           	MOV R4,R4
+  0226   1602           	JNE $+6
+  0228   0460 0294      	B @cc19
+                        ;        fsbak[i] = name[i];
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  022C   0204 0000      	LI R4,fsbak
+  0230   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0232   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  0236   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  0238   A103           	A R3,R4
+  023A   064A           	DECT SP
+  023C   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  023E   C12A 000A      	MOV @10(SP),R4 ;optimised load
+  0242   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0244   C12A 0006      	MOV @6(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  0248   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  024A   A103           	A R3,R4
+                        ;indirect ccgchar
+  024C   D114           	MOVB *R4,R4
+  024E   0884           	SRA R4,8
+  0250   C0FA           	MOV *SP+,R3
+                        ;putstk - char
+  0252   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;        if(name[i] == '.')
+                        ;getloc(sym, off)
+  0256   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  025A   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  025C   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  0260   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  0262   A103           	A R3,R4
+                        ;indirect ccgchar
+  0264   D114           	MOVB *R4,R4
+  0266   0884           	SRA R4,8
+  0268   C0C4           	MOV R4,R3 ;optimised push/pop
+  026A   0204 002E      	LI R4,46
+                        ;_cceq
+  026E   8103           	C R3,R4 ;optimised
+  0270   1302           	JEQ $+6
+  0272   0460 027E      	B @cc22
+                        ;            dot = i;
+                        ;getloc(sym, off)
+  0276   C12A 0004      	MOV @4(SP),R4 ;optimised load
+                        ;put2tos()
+  027A   CA84 0002      	MOV R4,@2(SP)
+                        ;        i = i + 1;
+                        cc22:
+                        ;getloc(sym, off)
+  027E   0204 0004      	LI R4,4
+  0282   A10A           	A SP,R4
+  0284   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0286   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;inc()
+  028A   0584           	INC R4
+  028C   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;putstk - int
+  028E   C4C4           	MOV R4,*R3
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0290   0460 01EA      	B @cc18
+                        cc19:
+                        ;    fsbak[i] = 0;
+                        ;address(ptr)
+  0294   0204 0000      	LI R4,fsbak
+  0298   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  029A   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  029E   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  02A0   A103           	A R3,R4
+  02A2   C0C4           	MOV R4,R3 ;optimised push/pop
+  02A4   04C4           	CLR R4
+                        ;putstk - char
+  02A6   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;    isbak = 0;
+  02AA   04C4           	CLR R4
+                        ;puttos()
+  02AC   C684           	MOV R4,*SP
+                        ;    if(dot >= 0) {
+                        ;getloc(sym, off)
+  02AE   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;ge0(label)
+  02B2   C104           	MOV  R4,R4
+  02B4   1303           	JEQ  $+8
+  02B6   1502           	JGT  $+6
+  02B8   0460 03FA      	B @cc23
+                        ;        if(name[dot + 1] != 0 &&
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  02BC   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  02C0   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  02C2   C12A 0002      	MOV @2(SP),R4 ;optimised load/expr
+                        ;inc()
+  02C6   0584           	INC R4
+                        ;scale(type,tag)
+  02C8   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  02CA   A103           	A R3,R4
+                        ;indirect ccgchar
+  02CC   D114           	MOVB *R4,R4
+  02CE   0884           	SRA R4,8
+  02D0   C0C4           	MOV R4,R3 ;optimised push/pop
+  02D2   04C4           	CLR R4
+                        ;_ccne
+  02D4   8103           	C R3,R4 ;optimised
+  02D6   1602           	JNE $+6
+  02D8   0460 03D4      	B @cc25
+                        ;           name[dot + 2] != 0 &&
+                        ;getloc(sym, off)
+  02DC   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  02E0   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  02E2   C12A 0002      	MOV @2(SP),R4 ;optimised load/expr
+                        ;inct()
+  02E6   05C4           	INCT R4
+                        ;scale(type,tag)
+  02E8   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  02EA   A103           	A R3,R4
+                        ;indirect ccgchar
+  02EC   D114           	MOVB *R4,R4
+  02EE   0884           	SRA R4,8
+  02F0   C0C4           	MOV R4,R3 ;optimised push/pop
+  02F2   04C4           	CLR R4
+                        ;_ccne
+  02F4   8103           	C R3,R4 ;optimised
+  02F6   1602           	JNE $+6
+  02F8   0460 03D4      	B @cc25
+                        ;           name[dot + 3] != 0 &&
+                        ;getloc(sym, off)
+  02FC   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  0300   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0302   C12A 0002      	MOV @2(SP),R4 ;optimised load/expr
+                        ;const2(val)
+  0306   0203 0003      	LI R3,3
+                        ;	zadd()
+  030A   A103           	A R3,R4
+                        ;scale(type,tag)
+  030C   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  030E   A103           	A R3,R4
+                        ;indirect ccgchar
+  0310   D114           	MOVB *R4,R4
+  0312   0884           	SRA R4,8
+  0314   C0C4           	MOV R4,R3 ;optimised push/pop
+  0316   04C4           	CLR R4
+                        ;_ccne
+  0318   8103           	C R3,R4 ;optimised
+  031A   1602           	JNE $+6
+  031C   0460 03D4      	B @cc25
+                        ;           upch(name[dot + 1]) == 'B' &&
+                        ;getloc(sym, off)
+  0320   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  0324   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0326   C12A 0002      	MOV @2(SP),R4 ;optimised load/expr
+                        ;inc()
+  032A   0584           	INC R4
+                        ;scale(type,tag)
+  032C   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  032E   A103           	A R3,R4
+                        ;indirect ccgchar
+  0330   D114           	MOVB *R4,R4
+  0332   0884           	SRA R4,8
+  0334   064A           	DECT SP
+  0336   C684           	MOV R4,*SP
+                        ;zcall()
+  0338   2DA0 0180      	CALL @upch
+                        ;modstk(newsp,save)
+  033C   05CA           	INCT SP
+  033E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0340   0204 0042      	LI R4,66
+                        ;_cceq
+  0344   8103           	C R3,R4 ;optimised
+  0346   1302           	JEQ $+6
+  0348   0460 03D4      	B @cc25
+                        ;           upch(name[dot + 2]) == 'A' &&
+                        ;getloc(sym, off)
+  034C   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  0350   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0352   C12A 0002      	MOV @2(SP),R4 ;optimised load/expr
+                        ;inct()
+  0356   05C4           	INCT R4
+                        ;scale(type,tag)
+  0358   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  035A   A103           	A R3,R4
+                        ;indirect ccgchar
+  035C   D114           	MOVB *R4,R4
+  035E   0884           	SRA R4,8
+  0360   064A           	DECT SP
+  0362   C684           	MOV R4,*SP
+                        ;zcall()
+  0364   2DA0 0180      	CALL @upch
+                        ;modstk(newsp,save)
+  0368   05CA           	INCT SP
+  036A   C0C4           	MOV R4,R3 ;optimised push/pop
+  036C   0204 0041      	LI R4,65
+                        ;_cceq
+  0370   8103           	C R3,R4 ;optimised
+  0372   1302           	JEQ $+6
+  0374   0460 03D4      	B @cc25
+                        ;           upch(name[dot + 3]) == 'K' &&
+                        ;getloc(sym, off)
+  0378   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  037C   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  037E   C12A 0002      	MOV @2(SP),R4 ;optimised load/expr
+                        ;const2(val)
+  0382   0203 0003      	LI R3,3
+                        ;	zadd()
+  0386   A103           	A R3,R4
+                        ;scale(type,tag)
+  0388   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  038A   A103           	A R3,R4
+                        ;indirect ccgchar
+  038C   D114           	MOVB *R4,R4
+  038E   0884           	SRA R4,8
+  0390   064A           	DECT SP
+  0392   C684           	MOV R4,*SP
+                        ;zcall()
+  0394   2DA0 0180      	CALL @upch
+                        ;modstk(newsp,save)
+  0398   05CA           	INCT SP
+  039A   C0C4           	MOV R4,R3 ;optimised push/pop
+  039C   0204 004B      	LI R4,75
+                        ;_cceq
+  03A0   8103           	C R3,R4 ;optimised
+  03A2   1302           	JEQ $+6
+  03A4   0460 03D4      	B @cc25
+                        ;           name[dot + 4] == 0)
+                        ;getloc(sym, off)
+  03A8   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  03AC   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  03AE   C12A 0002      	MOV @2(SP),R4 ;optimised load/expr
+                        ;const2(val)
+  03B2   0203 0004      	LI R3,4
+                        ;	zadd()
+  03B6   A103           	A R3,R4
+                        ;scale(type,tag)
+  03B8   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  03BA   A103           	A R3,R4
+                        ;indirect ccgchar
+  03BC   D114           	MOVB *R4,R4
+  03BE   0884           	SRA R4,8
+  03C0   C0C4           	MOV R4,R3 ;optimised push/pop
+  03C2   04C4           	CLR R4
+                        ;_cceq
+  03C4   8103           	C R3,R4 ;optimised
+  03C6   1302           	JEQ $+6
+  03C8   0460 03D4      	B @cc25
+  03CC   0204 0001      	LI R4,1
+                        ;jump(label)
+  03D0   0460 03D6      	B @cc26
+                        cc25:
+  03D4   04C4           	CLR R4
+                        cc26:
+  03D6   C104           	MOV R4,R4
+  03D8   1602           	JNE $+6
+  03DA   0460 03E4      	B @cc24
+                        ;            isbak = 1;
+  03DE   0204 0001      	LI R4,1
+                        ;puttos()
+  03E2   C684           	MOV R4,*SP
+                        ;        i = dot + 1;
+                        cc24:
+                        ;getloc(sym, off)
+  03E4   0204 0004      	LI R4,4
+  03E8   A10A           	A SP,R4
+  03EA   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  03EC   C12A 0002      	MOV @2(SP),R4 ;optimised load/expr
+                        ;inc()
+  03F0   0584           	INC R4
+  03F2   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;putstk - int
+  03F4   C4C4           	MOV R4,*R3
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;    else {
+                        ;jump(label)
+  03F6   0460 0436      	B @cc27
+                        cc23:
+                        ;        if(i < 14) {
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  03FA   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  03FE   C0C4           	MOV R4,R3 ;optimised push/pop
+  0400   0204 000E      	LI R4,14
+                        ;_cclt
+  0404   8103           	C R3,R4 ;optimised
+  0406   1102           	JLT $+6
+  0408   0460 0436      	B @cc28
+                        ;            fsbak[i] = '.';
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  040C   0204 0000      	LI R4,fsbak
+  0410   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0412   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  0416   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  0418   A103           	A R3,R4
+  041A   C0C4           	MOV R4,R3 ;optimised push/pop
+  041C   0204 002E      	LI R4,46
+                        ;putstk - char
+  0420   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;            i = i + 1;
+                        ;getloc(sym, off)
+  0424   0204 0004      	LI R4,4
+  0428   A10A           	A SP,R4
+  042A   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  042C   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;inc()
+  0430   0584           	INC R4
+  0432   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;putstk - int
+  0434   C4C4           	MOV R4,*R3
+                        ;        }
+                        ;modstk(newsp,save)
+                        ;    }
+                        cc28:
+                        ;modstk(newsp,save)
+                        cc27:
+                        ;    if(isbak) {
+                        ;getloc(sym, off)
+  0436   C11A           	MOV *SP,R4 ;optimised load
+  0438   C104           	MOV R4,R4
+  043A   1602           	JNE $+6
+  043C   0460 0490      	B @cc29
+                        ;        fsbak[i] = 'B';
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  0440   0204 0000      	LI R4,fsbak
+  0444   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0446   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  044A   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  044C   A103           	A R3,R4
+  044E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0450   0204 0042      	LI R4,66
+                        ;putstk - char
+  0454   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;        fsbak[i + 1] = 'K';
+                        ;address(ptr)
+  0458   0204 0000      	LI R4,fsbak
+  045C   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  045E   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;inc()
+  0462   0584           	INC R4
+                        ;scale(type,tag)
+  0464   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  0466   A103           	A R3,R4
+  0468   C0C4           	MOV R4,R3 ;optimised push/pop
+  046A   0204 004B      	LI R4,75
+                        ;putstk - char
+  046E   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;        fsbak[i + 2] = '1';
+                        ;address(ptr)
+  0472   0204 0000      	LI R4,fsbak
+  0476   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0478   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;inct()
+  047C   05C4           	INCT R4
+                        ;scale(type,tag)
+  047E   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  0480   A103           	A R3,R4
+  0482   C0C4           	MOV R4,R3 ;optimised push/pop
+  0484   0204 0031      	LI R4,49
+                        ;putstk - char
+  0488   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;    else {
+                        ;jump(label)
+  048C   0460 04DC      	B @cc30
+                        cc29:
+                        ;        fsbak[i] = 'B';
+                        ;modstk(newsp,save)
+                        ;address(ptr)
+  0490   0204 0000      	LI R4,fsbak
+  0494   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0496   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  049A   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  049C   A103           	A R3,R4
+  049E   C0C4           	MOV R4,R3 ;optimised push/pop
+  04A0   0204 0042      	LI R4,66
+                        ;putstk - char
+  04A4   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;        fsbak[i + 1] = 'A';
+                        ;address(ptr)
+  04A8   0204 0000      	LI R4,fsbak
+  04AC   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  04AE   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;inc()
+  04B2   0584           	INC R4
+                        ;scale(type,tag)
+  04B4   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  04B6   A103           	A R3,R4
+  04B8   C0C4           	MOV R4,R3 ;optimised push/pop
+  04BA   0204 0041      	LI R4,65
+                        ;putstk - char
+  04BE   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;        fsbak[i + 2] = 'K';
+                        ;address(ptr)
+  04C2   0204 0000      	LI R4,fsbak
+  04C6   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  04C8   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;inct()
+  04CC   05C4           	INCT R4
+                        ;scale(type,tag)
+  04CE   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  04D0   A103           	A R3,R4
+  04D2   C0C4           	MOV R4,R3 ;optimised push/pop
+  04D4   0204 004B      	LI R4,75
+                        ;putstk - char
+  04D8   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;    }
+                        ;modstk(newsp,save)
+                        cc30:
+                        ;    fsbak[i + 3] = 0;
+                        ;address(ptr)
+  04DC   0204 0000      	LI R4,fsbak
+  04E0   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  04E2   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;const2(val)
+  04E6   0203 0003      	LI R3,3
+                        ;	zadd()
+  04EA   A103           	A R3,R4
+                        ;scale(type,tag)
+  04EC   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  04EE   A103           	A R3,R4
+  04F0   C0C4           	MOV R4,R3 ;optimised push/pop
+  04F2   04C4           	CLR R4
+                        ;putstk - char
+  04F4   D4ED 0009      	MOVB @2*R4+1(WP),*R3
+                        ;}
+                        ;modstk(newsp,save)
+  04F8   022A 0006      	AI SP,6
+                        ;modstk(newsp,save)
+  04FC   2DC0           	RET
+                        ;/* Copy one existing target to the rolling backup. */
+                        ;cpyback(name)
+  04FE                  	EVEN
+                        cpyback:
+                        ;char *name;
+                        ;{
+                        ;    int in;
+                        ;    int out;
+                        ;    int c;
+                        ;    int ok;
+                        ;    in = fopen(name, "r");
+                        ;modstk(newsp,save)
+  04FE   022A FFF8      	AI SP,-8
+                        ;getloc(sym, off)
+  0502   0204 0006      	LI R4,6
+  0506   A10A           	A SP,R4
+  0508   064A           	DECT SP
+  050A   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  050C   C12A 000C      	MOV @12(SP),R4 ;optimised load
+  0510   064A           	DECT SP
+  0512   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0514   0204 06C8      	LI R4,cc31+0
+  0518   064A           	DECT SP
+  051A   C684           	MOV R4,*SP
+                        ;zcall()
+  051C   2DA0 0000      	CALL @fopen
+                        ;modstk(newsp,save)
+  0520   022A 0004      	AI SP,4
+  0524   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0526   C4C4           	MOV R4,*R3
+                        ;    if(in == 0) {
+                        ;getloc(sym, off)
+  0528   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  052C   C104           	MOV R4,R4
+  052E   1302           	JEQ $+6
+  0530   0460 054A      	B @cc32
+                        ;        puts("SAVE: cannot reopen existing file for backup\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0534   0204 06CA      	LI R4,cc31+2
+  0538   064A           	DECT SP
+  053A   C684           	MOV R4,*SP
+                        ;zcall()
+  053C   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0540   05CA           	INCT SP
+                        ;        return 0;
+  0542   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0544   022A 0008      	AI SP,8
+  0548   2DC0           	RET
+                        ;    }
+                        ;    out = fopen(fsbak, "w");
+                        cc32:
+                        ;getloc(sym, off)
+  054A   0204 0004      	LI R4,4
+  054E   A10A           	A SP,R4
+  0550   064A           	DECT SP
+  0552   C684           	MOV R4,*SP
+                        ;address(ptr)
+  0554   0204 0000      	LI R4,fsbak
+  0558   064A           	DECT SP
+  055A   C684           	MOV R4,*SP
+                        ;constant(lval)
+  055C   0204 06F8      	LI R4,cc31+48
+  0560   064A           	DECT SP
+  0562   C684           	MOV R4,*SP
+                        ;zcall()
+  0564   2DA0 0000      	CALL @fopen
+                        ;modstk(newsp,save)
+  0568   022A 0004      	AI SP,4
+  056C   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  056E   C4C4           	MOV R4,*R3
+                        ;    if(out == 0) {
+                        ;getloc(sym, off)
+  0570   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0574   C104           	MOV R4,R4
+  0576   1302           	JEQ $+6
+  0578   0460 05BC      	B @cc33
+                        ;        fclose(in);
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  057C   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  0580   064A           	DECT SP
+  0582   C684           	MOV R4,*SP
+                        ;zcall()
+  0584   2DA0 0000      	CALL @fclose
+                        ;modstk(newsp,save)
+  0588   05CA           	INCT SP
+                        ;        puts("SAVE: cannot create backup ");
+                        ;constant(lval)
+  058A   0204 06FA      	LI R4,cc31+50
+  058E   064A           	DECT SP
+  0590   C684           	MOV R4,*SP
+                        ;zcall()
+  0592   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0596   05CA           	INCT SP
+                        ;        puts(fsbak);
+                        ;address(ptr)
+  0598   0204 0000      	LI R4,fsbak
+  059C   064A           	DECT SP
+  059E   C684           	MOV R4,*SP
+                        ;zcall()
+  05A0   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  05A4   05CA           	INCT SP
+                        ;        puts("\nExisting file was not changed.\n");
+                        ;constant(lval)
+  05A6   0204 0716      	LI R4,cc31+78
+  05AA   064A           	DECT SP
+  05AC   C684           	MOV R4,*SP
+                        ;zcall()
+  05AE   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  05B2   05CA           	INCT SP
+                        ;        return 0;
+  05B4   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  05B6   022A 0008      	AI SP,8
+  05BA   2DC0           	RET
+                        ;    }
+                        ;    ok = 1;
+                        cc33:
+  05BC   0204 0001      	LI R4,1
+                        ;puttos()
+  05C0   C684           	MOV R4,*SP
+                        ;    c = fgetc(in);
+                        ;getloc(sym, off)
+  05C2   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  05C6   064A           	DECT SP
+  05C8   C684           	MOV R4,*SP
+                        ;zcall()
+  05CA   2DA0 0000      	CALL @fgetc
+                        ;modstk(newsp,save)
+  05CE   05CA           	INCT SP
+                        ;put2tos()
+  05D0   CA84 0002      	MOV R4,@2(SP)
+                        ;    while(c != -1 && ok) {
+                        cc34:
+                        ;getloc(sym, off)
+  05D4   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  05D8   C0C4           	MOV R4,R3 ;optimised push/pop
+  05DA   0704           	SETO R4
+                        ;_ccne
+  05DC   8103           	C R3,R4 ;optimised
+  05DE   1602           	JNE $+6
+  05E0   0460 05F6      	B @cc36
+                        ;getloc(sym, off)
+  05E4   C11A           	MOV *SP,R4 ;optimised load
+  05E6   C104           	MOV R4,R4
+  05E8   1602           	JNE $+6
+  05EA   0460 05F6      	B @cc36
+  05EE   0204 0001      	LI R4,1
+                        ;jump(label)
+  05F2   0460 05F8      	B @cc37
+                        cc36:
+  05F6   04C4           	CLR R4
+                        cc37:
+  05F8   C104           	MOV R4,R4
+  05FA   1602           	JNE $+6
+  05FC   0460 0650      	B @cc35
+                        ;        if(c != 10) {
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0600   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  0604   C0C4           	MOV R4,R3 ;optimised push/pop
+  0606   0204 000A      	LI R4,10
+                        ;_ccne
+  060A   8103           	C R3,R4 ;optimised
+  060C   1602           	JNE $+6
+  060E   0460 063A      	B @cc38
+                        ;            if(putc(c, out) == -1)
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0612   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  0616   064A           	DECT SP
+  0618   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  061A   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  061E   064A           	DECT SP
+  0620   C684           	MOV R4,*SP
+                        ;zcall()
+  0622   2DA0 0000      	CALL @putc
+                        ;modstk(newsp,save)
+  0626   022A 0004      	AI SP,4
+  062A   C0C4           	MOV R4,R3 ;optimised push/pop
+  062C   0704           	SETO R4
+                        ;_cceq
+  062E   8103           	C R3,R4 ;optimised
+  0630   1302           	JEQ $+6
+  0632   0460 063A      	B @cc39
+                        ;                ok = 0;
+  0636   04C4           	CLR R4
+                        ;puttos()
+  0638   C684           	MOV R4,*SP
+                        ;        }
+                        cc39:
+                        ;modstk(newsp,save)
+                        ;        c = fgetc(in);
+                        cc38:
+                        ;getloc(sym, off)
+  063A   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  063E   064A           	DECT SP
+  0640   C684           	MOV R4,*SP
+                        ;zcall()
+  0642   2DA0 0000      	CALL @fgetc
+                        ;modstk(newsp,save)
+  0646   05CA           	INCT SP
+                        ;put2tos()
+  0648   CA84 0002      	MOV R4,@2(SP)
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  064C   0460 05D4      	B @cc34
+                        cc35:
+                        ;    if(ok) {
+                        ;getloc(sym, off)
+  0650   C11A           	MOV *SP,R4 ;optimised load
+  0652   C104           	MOV R4,R4
+  0654   1602           	JNE $+6
+  0656   0460 0682      	B @cc40
+                        ;        if(putc(26, out) == -1)
+                        ;modstk(newsp,save)
+  065A   0204 001A      	LI R4,26
+  065E   064A           	DECT SP
+  0660   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0662   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  0666   064A           	DECT SP
+  0668   C684           	MOV R4,*SP
+                        ;zcall()
+  066A   2DA0 0000      	CALL @putc
+                        ;modstk(newsp,save)
+  066E   022A 0004      	AI SP,4
+  0672   C0C4           	MOV R4,R3 ;optimised push/pop
+  0674   0704           	SETO R4
+                        ;_cceq
+  0676   8103           	C R3,R4 ;optimised
+  0678   1302           	JEQ $+6
+  067A   0460 0682      	B @cc41
+                        ;            ok = 0;
+  067E   04C4           	CLR R4
+                        ;puttos()
+  0680   C684           	MOV R4,*SP
+                        ;    }
+                        cc41:
+                        ;modstk(newsp,save)
+                        ;    fclose(in);
+                        cc40:
+                        ;getloc(sym, off)
+  0682   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  0686   064A           	DECT SP
+  0688   C684           	MOV R4,*SP
+                        ;zcall()
+  068A   2DA0 0000      	CALL @fclose
+                        ;modstk(newsp,save)
+  068E   05CA           	INCT SP
+                        ;    fclose(out);
+                        ;getloc(sym, off)
+  0690   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0694   064A           	DECT SP
+  0696   C684           	MOV R4,*SP
+                        ;zcall()
+  0698   2DA0 0000      	CALL @fclose
+                        ;modstk(newsp,save)
+  069C   05CA           	INCT SP
+                        ;    if(ok == 0) {
+                        ;getloc(sym, off)
+  069E   C11A           	MOV *SP,R4 ;optimised load
+  06A0   C104           	MOV R4,R4
+  06A2   1302           	JEQ $+6
+  06A4   0460 06BE      	B @cc42
+                        ;        puts("SAVE: backup write failed; existing file was not changed.\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  06A8   0204 0737      	LI R4,cc31+111
+  06AC   064A           	DECT SP
+  06AE   C684           	MOV R4,*SP
+                        ;zcall()
+  06B0   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  06B4   05CA           	INCT SP
+                        ;        return 0;
+  06B6   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  06B8   022A 0008      	AI SP,8
+  06BC   2DC0           	RET
+                        ;    }
+                        ;    return 1;
+                        cc42:
+  06BE   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  06C2   022A 0008      	AI SP,8
+  06C6   2DC0           	RET
+                        ;}
+  06C8   7200 5341      cc31:	BYTE 114,0,83,65,86,69,58,32,99,97,110,110
+  06CC   5645 3A20      
+  06D0   6361 6E6E      
+  06D4   6F74 2072      	BYTE 111,116,32,114,101,111,112,101,110,32,101,120
+  06D8   656F 7065      
+  06DC   6E20 6578      
+  06E0   6973 7469      	BYTE 105,115,116,105,110,103,32,102,105,108,101,32
+  06E4   6E67 2066      
+  06E8   696C 6520      
+  06EC   666F 7220      	BYTE 102,111,114,32,98,97,99,107,117,112,13,0
+  06F0   6261 636B      
+  06F4   7570 0D00      
+  06F8   7700 5341      	BYTE 119,0,83,65,86,69,58,32,99,97,110,110
+  06FC   5645 3A20      
+  0700   6361 6E6E      
+  0704   6F74 2063      	BYTE 111,116,32,99,114,101,97,116,101,32,98,97
+  0708   7265 6174      
+  070C   6520 6261      
+  0710   636B 7570      	BYTE 99,107,117,112,32,0,13,69,120,105,115,116
+  0714   2000 0D45      
+  0718   7869 7374      
+  071C   696E 6720      	BYTE 105,110,103,32,102,105,108,101,32,119,97,115
+  0720   6669 6C65      
+  0724   2077 6173      
+  0728   206E 6F74      	BYTE 32,110,111,116,32,99,104,97,110,103,101,100
+  072C   2063 6861      
+  0730   6E67 6564      
+  0734   2E0D 0053      	BYTE 46,13,0,83,65,86,69,58,32,98,97,99
+  0738   4156 453A      
+  073C   2062 6163      
+  0740   6B75 7020      	BYTE 107,117,112,32,119,114,105,116,101,32,102,97
+  0744   7772 6974      
+  0748   6520 6661      
+  074C   696C 6564      	BYTE 105,108,101,100,59,32,101,120,105,115,116,105
+  0750   3B20 6578      
+  0754   6973 7469      
+  0758   6E67 2066      	BYTE 110,103,32,102,105,108,101,32,119,97,115,32
+  075C   696C 6520      
+  0760   7761 7320      
+  0764   6E6F 7420      	BYTE 110,111,116,32,99,104,97,110,103,101,100,46
+  0768   6368 616E      
+  076C   6765 642E      
+  0770   0D00           	BYTE 13,0
+                        ;/* Write the persistent editor image to name. */
+                        ;wrname(name)
+  0772                  	EVEN
+                        wrname:
+                        ;char *name;
+                        ;{
+                        ;    int out;
+                        ;    int i;
+                        ;    int ok;
+                        ;    out = fopen(name, "w");
+                        ;modstk(newsp,save)
+  0772   022A FFFA      	AI SP,-6
+                        ;getloc(sym, off)
+  0776   0204 0004      	LI R4,4
+  077A   A10A           	A SP,R4
+  077C   064A           	DECT SP
+  077E   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0780   C12A 000A      	MOV @10(SP),R4 ;optimised load
+  0784   064A           	DECT SP
+  0786   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0788   0204 08C2      	LI R4,cc43+0
+  078C   064A           	DECT SP
+  078E   C684           	MOV R4,*SP
+                        ;zcall()
+  0790   2DA0 0000      	CALL @fopen
+                        ;modstk(newsp,save)
+  0794   022A 0004      	AI SP,4
+  0798   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  079A   C4C4           	MOV R4,*R3
+                        ;    if(out == 0) {
+                        ;getloc(sym, off)
+  079C   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  07A0   C104           	MOV R4,R4
+  07A2   1302           	JEQ $+6
+  07A4   0460 07DA      	B @cc44
+                        ;        puts("SAVE: cannot create/replace ");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  07A8   0204 08C4      	LI R4,cc43+2
+  07AC   064A           	DECT SP
+  07AE   C684           	MOV R4,*SP
+                        ;zcall()
+  07B0   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  07B4   05CA           	INCT SP
+                        ;        puts(name);
+                        ;getloc(sym, off)
+  07B6   C12A 0008      	MOV @8(SP),R4 ;optimised load
+  07BA   064A           	DECT SP
+  07BC   C684           	MOV R4,*SP
+                        ;zcall()
+  07BE   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  07C2   05CA           	INCT SP
+                        ;        puts("\n");
+                        ;constant(lval)
+  07C4   0204 08E1      	LI R4,cc43+31
+  07C8   064A           	DECT SP
+  07CA   C684           	MOV R4,*SP
+                        ;zcall()
+  07CC   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  07D0   05CA           	INCT SP
+                        ;        return 0;
+  07D2   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  07D4   022A 0006      	AI SP,6
+  07D8   2DC0           	RET
+                        ;    }
+                        ;    ok = 1;
+                        cc44:
+  07DA   0204 0001      	LI R4,1
+                        ;puttos()
+  07DE   C684           	MOV R4,*SP
+                        ;    i = 0;
+  07E0   04C4           	CLR R4
+                        ;put2tos()
+  07E2   CA84 0002      	MOV R4,@2(SP)
+                        ;    while(i < eblen && ok) {
+                        cc45:
+                        ;getloc(sym, off)
+  07E6   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  07EA   C0C4           	MOV R4,R3 ;optimised push/pop
+  07EC   C120 0000      	MOV @eblen,R4
+                        ;_cclt
+  07F0   8103           	C R3,R4 ;optimised
+  07F2   1102           	JLT $+6
+  07F4   0460 080A      	B @cc47
+                        ;getloc(sym, off)
+  07F8   C11A           	MOV *SP,R4 ;optimised load
+  07FA   C104           	MOV R4,R4
+  07FC   1602           	JNE $+6
+  07FE   0460 080A      	B @cc47
+  0802   0204 0001      	LI R4,1
+                        ;jump(label)
+  0806   0460 080C      	B @cc48
+                        cc47:
+  080A   04C4           	CLR R4
+                        cc48:
+  080C   C104           	MOV R4,R4
+  080E   1602           	JNE $+6
+  0810   0460 0858      	B @cc46
+                        ;        if(putc(ebbase[i], out) == -1)
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0814   C120 0000      	MOV @ebbase,R4
+  0818   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  081A   C12A 0002      	MOV @2(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  081E   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  0820   A103           	A R3,R4
+                        ;indirect ccgchar
+  0822   D114           	MOVB *R4,R4
+  0824   0884           	SRA R4,8
+  0826   064A           	DECT SP
+  0828   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  082A   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  082E   064A           	DECT SP
+  0830   C684           	MOV R4,*SP
+                        ;zcall()
+  0832   2DA0 0000      	CALL @putc
+                        ;modstk(newsp,save)
+  0836   022A 0004      	AI SP,4
+  083A   C0C4           	MOV R4,R3 ;optimised push/pop
+  083C   0704           	SETO R4
+                        ;_cceq
+  083E   8103           	C R3,R4 ;optimised
+  0840   1302           	JEQ $+6
+  0842   0460 084A      	B @cc49
+                        ;            ok = 0;
+  0846   04C4           	CLR R4
+                        ;puttos()
+  0848   C684           	MOV R4,*SP
+                        ;        i = i + 1;
+                        cc49:
+                        ;getloc(sym, off)
+  084A   C12A 0002      	MOV @2(SP),R4 ;optimised load
+                        ;inc()
+  084E   0584           	INC R4
+                        ;put2tos()
+  0850   CA84 0002      	MOV R4,@2(SP)
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0854   0460 07E6      	B @cc45
+                        cc46:
+                        ;    if(ok) {
+                        ;getloc(sym, off)
+  0858   C11A           	MOV *SP,R4 ;optimised load
+  085A   C104           	MOV R4,R4
+  085C   1602           	JNE $+6
+  085E   0460 088A      	B @cc50
+                        ;        if(putc(26, out) == -1)
+                        ;modstk(newsp,save)
+  0862   0204 001A      	LI R4,26
+  0866   064A           	DECT SP
+  0868   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  086A   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  086E   064A           	DECT SP
+  0870   C684           	MOV R4,*SP
+                        ;zcall()
+  0872   2DA0 0000      	CALL @putc
+                        ;modstk(newsp,save)
+  0876   022A 0004      	AI SP,4
+  087A   C0C4           	MOV R4,R3 ;optimised push/pop
+  087C   0704           	SETO R4
+                        ;_cceq
+  087E   8103           	C R3,R4 ;optimised
+  0880   1302           	JEQ $+6
+  0882   0460 088A      	B @cc51
+                        ;            ok = 0;
+  0886   04C4           	CLR R4
+                        ;puttos()
+  0888   C684           	MOV R4,*SP
+                        ;    }
+                        cc51:
+                        ;modstk(newsp,save)
+                        ;    fclose(out);
+                        cc50:
+                        ;getloc(sym, off)
+  088A   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  088E   064A           	DECT SP
+  0890   C684           	MOV R4,*SP
+                        ;zcall()
+  0892   2DA0 0000      	CALL @fclose
+                        ;modstk(newsp,save)
+  0896   05CA           	INCT SP
+                        ;    if(ok == 0) {
+                        ;getloc(sym, off)
+  0898   C11A           	MOV *SP,R4 ;optimised load
+  089A   C104           	MOV R4,R4
+  089C   1302           	JEQ $+6
+  089E   0460 08B8      	B @cc52
+                        ;        puts("SAVE: disk write failed.  Edited RAM is still intact.\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  08A2   0204 08E3      	LI R4,cc43+33
+  08A6   064A           	DECT SP
+  08A8   C684           	MOV R4,*SP
+                        ;zcall()
+  08AA   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  08AE   05CA           	INCT SP
+                        ;        return 0;
+  08B0   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  08B2   022A 0006      	AI SP,6
+  08B6   2DC0           	RET
+                        ;    }
+                        ;    return 1;
+                        cc52:
+  08B8   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  08BC   022A 0006      	AI SP,6
+  08C0   2DC0           	RET
+                        ;}
+  08C2   7700 5341      cc43:	BYTE 119,0,83,65,86,69,58,32,99,97,110,110
+  08C6   5645 3A20      
+  08CA   6361 6E6E      
+  08CE   6F74 2063      	BYTE 111,116,32,99,114,101,97,116,101,47,114,101
+  08D2   7265 6174      
+  08D6   652F 7265      
+  08DA   706C 6163      	BYTE 112,108,97,99,101,32,0,13,0,83,65,86
+  08DE   6520 000D      
+  08E2   0053 4156      
+  08E6   453A 2064      	BYTE 69,58,32,100,105,115,107,32,119,114,105,116
+  08EA   6973 6B20      
+  08EE   7772 6974      
+  08F2   6520 6661      	BYTE 101,32,102,97,105,108,101,100,46,32,32,69
+  08F6   696C 6564      
+  08FA   2E20 2045      
+  08FE   6469 7465      	BYTE 100,105,116,101,100,32,82,65,77,32,105,115
+  0902   6420 5241      
+  0906   4D20 6973      
+  090A   2073 7469      	BYTE 32,115,116,105,108,108,32,105,110,116,97,99
+  090E   6C6C 2069      
+  0912   6E74 6163      
+  0916   742E 0D00      	BYTE 116,46,13,0
+                        ;/* Re-open name and compare its normalized text stream to RAM. */
+                        ;vrname(name)
+  091A                  	EVEN
+                        vrname:
+                        ;char *name;
+                        ;{
+                        ;    int in;
+                        ;    int i;
+                        ;    int c;
+                        ;    int ok;
+                        ;    in = fopen(name, "r");
+                        ;modstk(newsp,save)
+  091A   022A FFF8      	AI SP,-8
+                        ;getloc(sym, off)
+  091E   0204 0006      	LI R4,6
+  0922   A10A           	A SP,R4
+  0924   064A           	DECT SP
+  0926   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0928   C12A 000C      	MOV @12(SP),R4 ;optimised load
+  092C   064A           	DECT SP
+  092E   C684           	MOV R4,*SP
+                        ;constant(lval)
+  0930   0204 0A86      	LI R4,cc53+0
+  0934   064A           	DECT SP
+  0936   C684           	MOV R4,*SP
+                        ;zcall()
+  0938   2DA0 0000      	CALL @fopen
+                        ;modstk(newsp,save)
+  093C   022A 0004      	AI SP,4
+  0940   C0FA           	MOV *SP+,R3
+                        ;putstk - int
+  0942   C4C4           	MOV R4,*R3
+                        ;    if(in == 0) {
+                        ;getloc(sym, off)
+  0944   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  0948   C104           	MOV R4,R4
+  094A   1302           	JEQ $+6
+  094C   0460 0966      	B @cc54
+                        ;        puts("SAVE: file written but cannot be reopened for verify.\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0950   0204 0A88      	LI R4,cc53+2
+  0954   064A           	DECT SP
+  0956   C684           	MOV R4,*SP
+                        ;zcall()
+  0958   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  095C   05CA           	INCT SP
+                        ;        return 0;
+  095E   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0960   022A 0008      	AI SP,8
+  0964   2DC0           	RET
+                        ;    }
+                        ;    i = 0;
+                        cc54:
+                        ;getloc(sym, off)
+  0966   0204 0004      	LI R4,4
+  096A   A10A           	A SP,R4
+  096C   C0C4           	MOV R4,R3 ;optimised push/pop
+  096E   04C4           	CLR R4
+                        ;putstk - int
+  0970   C4C4           	MOV R4,*R3
+                        ;    ok = 1;
+  0972   0204 0001      	LI R4,1
+                        ;puttos()
+  0976   C684           	MOV R4,*SP
+                        ;    c = fgetc(in);
+                        ;getloc(sym, off)
+  0978   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  097C   064A           	DECT SP
+  097E   C684           	MOV R4,*SP
+                        ;zcall()
+  0980   2DA0 0000      	CALL @fgetc
+                        ;modstk(newsp,save)
+  0984   05CA           	INCT SP
+                        ;put2tos()
+  0986   CA84 0002      	MOV R4,@2(SP)
+                        ;    while(c != -1 && ok) {
+                        cc55:
+                        ;getloc(sym, off)
+  098A   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  098E   C0C4           	MOV R4,R3 ;optimised push/pop
+  0990   0704           	SETO R4
+                        ;_ccne
+  0992   8103           	C R3,R4 ;optimised
+  0994   1602           	JNE $+6
+  0996   0460 09AC      	B @cc57
+                        ;getloc(sym, off)
+  099A   C11A           	MOV *SP,R4 ;optimised load
+  099C   C104           	MOV R4,R4
+  099E   1602           	JNE $+6
+  09A0   0460 09AC      	B @cc57
+  09A4   0204 0001      	LI R4,1
+                        ;jump(label)
+  09A8   0460 09AE      	B @cc58
+                        cc57:
+  09AC   04C4           	CLR R4
+                        cc58:
+  09AE   C104           	MOV R4,R4
+  09B0   1602           	JNE $+6
+  09B2   0460 0A38      	B @cc56
+                        ;        if(c != 10) {
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  09B6   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  09BA   C0C4           	MOV R4,R3 ;optimised push/pop
+  09BC   0204 000A      	LI R4,10
+                        ;_ccne
+  09C0   8103           	C R3,R4 ;optimised
+  09C2   1602           	JNE $+6
+  09C4   0460 0A22      	B @cc59
+                        ;            if(i >= eblen)
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  09C8   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  09CC   C0C4           	MOV R4,R3 ;optimised push/pop
+  09CE   C120 0000      	MOV @eblen,R4
+                        ;_ccge
+  09D2   8103           	C R3,R4 ;optimised
+  09D4   1503           	JGT $+8
+  09D6   1302           	JEQ $+6
+  09D8   0460 09E4      	B @cc60
+                        ;                ok = 0;
+  09DC   04C4           	CLR R4
+                        ;puttos()
+  09DE   C684           	MOV R4,*SP
+                        ;            else if(c != ebbase[i])
+                        ;jump(label)
+  09E0   0460 0A22      	B @cc61
+                        cc60:
+                        ;getloc(sym, off)
+  09E4   C12A 0002      	MOV @2(SP),R4 ;optimised load
+  09E8   064A           	DECT SP
+  09EA   C684           	MOV R4,*SP
+                        ;getmem(sym)
+  09EC   C120 0000      	MOV @ebbase,R4
+  09F0   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  09F2   C12A 0006      	MOV @6(SP),R4 ;optimised load/expr
+                        ;scale(type,tag)
+  09F6   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;	zadd()
+  09F8   A103           	A R3,R4
+                        ;indirect ccgchar
+  09FA   D114           	MOVB *R4,R4
+  09FC   0884           	SRA R4,8
+  09FE   C0FA           	MOV *SP+,R3
+                        ;_ccne
+  0A00   8103           	C R3,R4 ;optimised
+  0A02   1602           	JNE $+6
+  0A04   0460 0A10      	B @cc62
+                        ;                ok = 0;
+  0A08   04C4           	CLR R4
+                        ;puttos()
+  0A0A   C684           	MOV R4,*SP
+                        ;            else
+                        ;jump(label)
+  0A0C   0460 0A22      	B @cc63
+                        cc62:
+                        ;                i = i + 1;
+                        ;getloc(sym, off)
+  0A10   0204 0004      	LI R4,4
+  0A14   A10A           	A SP,R4
+  0A16   C144           	MOV R4,R5 ;optimised expr save
+                        ;getloc(sym, off)
+  0A18   C12A 0004      	MOV @4(SP),R4 ;optimised load/expr
+                        ;inc()
+  0A1C   0584           	INC R4
+  0A1E   C0C5           	MOV R5,R3 ;optimised expr restore
+                        ;putstk - int
+  0A20   C4C4           	MOV R4,*R3
+                        cc63:
+                        cc61:
+                        ;        }
+                        ;modstk(newsp,save)
+                        ;        c = fgetc(in);
+                        cc59:
+                        ;getloc(sym, off)
+  0A22   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  0A26   064A           	DECT SP
+  0A28   C684           	MOV R4,*SP
+                        ;zcall()
+  0A2A   2DA0 0000      	CALL @fgetc
+                        ;modstk(newsp,save)
+  0A2E   05CA           	INCT SP
+                        ;put2tos()
+  0A30   CA84 0002      	MOV R4,@2(SP)
+                        ;    }
+                        ;modstk(newsp,save)
+                        ;jump(label)
+  0A34   0460 098A      	B @cc55
+                        cc56:
+                        ;    if(i != eblen)
+                        ;getloc(sym, off)
+  0A38   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0A3C   C0C4           	MOV R4,R3 ;optimised push/pop
+  0A3E   C120 0000      	MOV @eblen,R4
+                        ;_ccne
+  0A42   8103           	C R3,R4 ;optimised
+  0A44   1602           	JNE $+6
+  0A46   0460 0A4E      	B @cc64
+                        ;        ok = 0;
+  0A4A   04C4           	CLR R4
+                        ;puttos()
+  0A4C   C684           	MOV R4,*SP
+                        ;    fclose(in);
+                        cc64:
+                        ;getloc(sym, off)
+  0A4E   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  0A52   064A           	DECT SP
+  0A54   C684           	MOV R4,*SP
+                        ;zcall()
+  0A56   2DA0 0000      	CALL @fclose
+                        ;modstk(newsp,save)
+  0A5A   05CA           	INCT SP
+                        ;    if(ok == 0) {
+                        ;getloc(sym, off)
+  0A5C   C11A           	MOV *SP,R4 ;optimised load
+  0A5E   C104           	MOV R4,R4
+  0A60   1302           	JEQ $+6
+  0A62   0460 0A7C      	B @cc65
+                        ;        puts("SAVE: verification FAILED.  Edited RAM is still intact.\n");
+                        ;modstk(newsp,save)
+                        ;constant(lval)
+  0A66   0204 0ABF      	LI R4,cc53+57
+  0A6A   064A           	DECT SP
+  0A6C   C684           	MOV R4,*SP
+                        ;zcall()
+  0A6E   2DA0 0000      	CALL @puts
+                        ;modstk(newsp,save)
+  0A72   05CA           	INCT SP
+                        ;        return 0;
+  0A74   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0A76   022A 0008      	AI SP,8
+  0A7A   2DC0           	RET
+                        ;    }
+                        ;    return 1;
+                        cc65:
+  0A7C   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0A80   022A 0008      	AI SP,8
+  0A84   2DC0           	RET
+                        ;}
+  0A86   7200 5341      cc53:	BYTE 114,0,83,65,86,69,58,32,102,105,108,101
+  0A8A   5645 3A20      
+  0A8E   6669 6C65      
+  0A92   2077 7269      	BYTE 32,119,114,105,116,116,101,110,32,98,117,116
+  0A96   7474 656E      
+  0A9A   2062 7574      
+  0A9E   2063 616E      	BYTE 32,99,97,110,110,111,116,32,98,101,32,114
+  0AA2   6E6F 7420      
+  0AA6   6265 2072      
+  0AAA   656F 7065      	BYTE 101,111,112,101,110,101,100,32,102,111,114,32
+  0AAE   6E65 6420      
+  0AB2   666F 7220      
+  0AB6   7665 7269      	BYTE 118,101,114,105,102,121,46,13,0,83,65,86
+  0ABA   6679 2E0D      
+  0ABE   0053 4156      
+  0AC2   453A 2076      	BYTE 69,58,32,118,101,114,105,102,105,99,97,116
+  0AC6   6572 6966      
+  0ACA   6963 6174      
+  0ACE   696F 6E20      	BYTE 105,111,110,32,70,65,73,76,69,68,46,32
+  0AD2   4641 494C      
+  0AD6   4544 2E20      
+  0ADA   2045 6469      	BYTE 32,69,100,105,116,101,100,32,82,65,77,32
+  0ADE   7465 6420      
+  0AE2   5241 4D20      
+  0AE6   6973 2073      	BYTE 105,115,32,115,116,105,108,108,32,105,110,116
+  0AEA   7469 6C6C      
+  0AEE   2069 6E74      
+  0AF2   6163 742E      	BYTE 97,99,116,46,13,0
+  0AF6   0D00           
+                        ;/* Save the current filename, creating a backup only when it already exists. */
+                        ;fssave()
+  0AF8                  	EVEN
+                        fssave:
+                        ;{
+                        ;    if(fsexist && ebdirty == 0) {
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0AF8   C120 0000      	MOV @fsexist,R4
+  0AFC   C104           	MOV R4,R4
+  0AFE   1602           	JNE $+6
+  0B00   0460 0B1C      	B @cc68
+                        ;getmem(sym)
+  0B04   C120 0000      	MOV @ebdirty,R4
+  0B08   C0C4           	MOV R4,R3 ;optimised push/pop
+  0B0A   04C4           	CLR R4
+                        ;_cceq
+  0B0C   8103           	C R3,R4 ;optimised
+  0B0E   1302           	JEQ $+6
+  0B10   0460 0B1C      	B @cc68
+  0B14   0204 0001      	LI R4,1
+                        ;jump(label)
+  0B18   0460 0B1E      	B @cc69
+                        cc68:
+  0B1C   04C4           	CLR R4
+                        cc69:
+  0B1E   C104           	MOV R4,R4
+  0B20   1602           	JNE $+6
+  0B22   0460 0B34      	B @cc67
+                        ;        ebsaved = 1;
+                        ;modstk(newsp,save)
+  0B26   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  0B2A   C804 0000      	MOV R4,@ebsaved
+                        ;        return 1;
+  0B2E   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0B32   2DC0           	RET
+                        ;    }
+                        ;    if(fsexist) {
+                        cc67:
+                        ;getmem(sym)
+  0B34   C120 0000      	MOV @fsexist,R4
+  0B38   C104           	MOV R4,R4
+  0B3A   1602           	JNE $+6
+  0B3C   0460 0B68      	B @cc70
+                        ;        mkbak(fsname);
+                        ;modstk(newsp,save)
+                        ;getmem(sym)
+  0B40   C120 0000      	MOV @fsname,R4
+  0B44   064A           	DECT SP
+  0B46   C684           	MOV R4,*SP
+                        ;zcall()
+  0B48   2DA0 01D4      	CALL @mkbak
+                        ;modstk(newsp,save)
+  0B4C   05CA           	INCT SP
+                        ;        if(cpyback(fsname) == 0)
+                        ;getmem(sym)
+  0B4E   C120 0000      	MOV @fsname,R4
+  0B52   064A           	DECT SP
+  0B54   C684           	MOV R4,*SP
+                        ;zcall()
+  0B56   2DA0 04FE      	CALL @cpyback
+                        ;modstk(newsp,save)
+  0B5A   05CA           	INCT SP
+  0B5C   C104           	MOV R4,R4
+  0B5E   1302           	JEQ $+6
+  0B60   0460 0B68      	B @cc71
+                        ;            return 0;
+  0B64   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0B66   2DC0           	RET
+                        ;    }
+                        cc71:
+                        ;modstk(newsp,save)
+                        ;    if(wrname(fsname) == 0)
+                        cc70:
+                        ;getmem(sym)
+  0B68   C120 0000      	MOV @fsname,R4
+  0B6C   064A           	DECT SP
+  0B6E   C684           	MOV R4,*SP
+                        ;zcall()
+  0B70   2DA0 0772      	CALL @wrname
+                        ;modstk(newsp,save)
+  0B74   05CA           	INCT SP
+  0B76   C104           	MOV R4,R4
+  0B78   1302           	JEQ $+6
+  0B7A   0460 0B82      	B @cc72
+                        ;        return 0;
+  0B7E   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0B80   2DC0           	RET
+                        ;    if(vrname(fsname) == 0)
+                        cc72:
+                        ;getmem(sym)
+  0B82   C120 0000      	MOV @fsname,R4
+  0B86   064A           	DECT SP
+  0B88   C684           	MOV R4,*SP
+                        ;zcall()
+  0B8A   2DA0 091A      	CALL @vrname
+                        ;modstk(newsp,save)
+  0B8E   05CA           	INCT SP
+  0B90   C104           	MOV R4,R4
+  0B92   1302           	JEQ $+6
+  0B94   0460 0B9C      	B @cc73
+                        ;        return 0;
+  0B98   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0B9A   2DC0           	RET
+                        ;    fsexist = 1;
+                        cc73:
+  0B9C   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  0BA0   C804 0000      	MOV R4,@fsexist
+                        ;    ebdirty = 0;
+  0BA4   04C4           	CLR R4
+                        ;putmem(sym)
+  0BA6   C804 0000      	MOV R4,@ebdirty
+                        ;    ebsaved = 1;
+  0BAA   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  0BAE   C804 0000      	MOV R4,@ebsaved
+                        ;    return 1;
+  0BB2   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0BB6   2DC0           	RET
+                        ;}
+                        ;/*
+                        ;** Save As to name.  The old document identity is retained unless the new
+                        ;** target has been written and verified successfully.
+                        ;*/
+                        ;fssavas(name)
+  0BB8                  	EVEN
+                        fssavas:
+                        ;char *name;
+                        ;{
+                        ;    int exists;
+                        ;    if(fsequal(fsname, name))
+                        ;modstk(newsp,save)
+  0BB8   064A           	DECT SP
+                        ;getmem(sym)
+  0BBA   C120 0000      	MOV @fsname,R4
+  0BBE   064A           	DECT SP
+  0BC0   C684           	MOV R4,*SP
+                        ;getloc(sym, off)
+  0BC2   C12A 0006      	MOV @6(SP),R4 ;optimised load
+  0BC6   064A           	DECT SP
+  0BC8   C684           	MOV R4,*SP
+                        ;zcall()
+  0BCA   2DA0 0000      	CALL @fsequal
+                        ;modstk(newsp,save)
+  0BCE   022A 0004      	AI SP,4
+  0BD2   C104           	MOV R4,R4
+  0BD4   1602           	JNE $+6
+  0BD6   0460 0BE2      	B @cc75
+                        ;        return fssave();
+                        ;zcall()
+  0BDA   2DA0 0AF8      	CALL @fssave
+                        ;modstk(newsp,save)
+                        ;modstk(newsp,save)
+  0BDE   05CA           	INCT SP
+  0BE0   2DC0           	RET
+                        ;    exists = fsprobe(name);
+                        cc75:
+                        ;getloc(sym, off)
+  0BE2   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0BE6   064A           	DECT SP
+  0BE8   C684           	MOV R4,*SP
+                        ;zcall()
+  0BEA   2DA0 00B4      	CALL @fsprobe
+                        ;modstk(newsp,save)
+  0BEE   05CA           	INCT SP
+                        ;puttos()
+  0BF0   C684           	MOV R4,*SP
+                        ;    if(exists) {
+                        ;getloc(sym, off)
+  0BF2   C11A           	MOV *SP,R4 ;optimised load
+  0BF4   C104           	MOV R4,R4
+  0BF6   1602           	JNE $+6
+  0BF8   0460 0C26      	B @cc76
+                        ;        mkbak(name);
+                        ;modstk(newsp,save)
+                        ;getloc(sym, off)
+  0BFC   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0C00   064A           	DECT SP
+  0C02   C684           	MOV R4,*SP
+                        ;zcall()
+  0C04   2DA0 01D4      	CALL @mkbak
+                        ;modstk(newsp,save)
+  0C08   05CA           	INCT SP
+                        ;        if(cpyback(name) == 0)
+                        ;getloc(sym, off)
+  0C0A   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0C0E   064A           	DECT SP
+  0C10   C684           	MOV R4,*SP
+                        ;zcall()
+  0C12   2DA0 04FE      	CALL @cpyback
+                        ;modstk(newsp,save)
+  0C16   05CA           	INCT SP
+  0C18   C104           	MOV R4,R4
+  0C1A   1302           	JEQ $+6
+  0C1C   0460 0C26      	B @cc77
+                        ;            return 0;
+  0C20   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0C22   05CA           	INCT SP
+  0C24   2DC0           	RET
+                        ;    }
+                        cc77:
+                        ;modstk(newsp,save)
+                        ;    if(wrname(name) == 0)
+                        cc76:
+                        ;getloc(sym, off)
+  0C26   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0C2A   064A           	DECT SP
+  0C2C   C684           	MOV R4,*SP
+                        ;zcall()
+  0C2E   2DA0 0772      	CALL @wrname
+                        ;modstk(newsp,save)
+  0C32   05CA           	INCT SP
+  0C34   C104           	MOV R4,R4
+  0C36   1302           	JEQ $+6
+  0C38   0460 0C42      	B @cc78
+                        ;        return 0;
+  0C3C   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0C3E   05CA           	INCT SP
+  0C40   2DC0           	RET
+                        ;    if(vrname(name) == 0)
+                        cc78:
+                        ;getloc(sym, off)
+  0C42   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0C46   064A           	DECT SP
+  0C48   C684           	MOV R4,*SP
+                        ;zcall()
+  0C4A   2DA0 091A      	CALL @vrname
+                        ;modstk(newsp,save)
+  0C4E   05CA           	INCT SP
+  0C50   C104           	MOV R4,R4
+  0C52   1302           	JEQ $+6
+  0C54   0460 0C5E      	B @cc79
+                        ;        return 0;
+  0C58   04C4           	CLR R4
+                        ;modstk(newsp,save)
+  0C5A   05CA           	INCT SP
+  0C5C   2DC0           	RET
+                        ;    fsset(name);
+                        cc79:
+                        ;getloc(sym, off)
+  0C5E   C12A 0004      	MOV @4(SP),R4 ;optimised load
+  0C62   064A           	DECT SP
+  0C64   C684           	MOV R4,*SP
+                        ;zcall()
+  0C66   2DA0 0000      	CALL @fsset
+                        ;modstk(newsp,save)
+  0C6A   05CA           	INCT SP
+                        ;    fsexist = 1;
+  0C6C   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  0C70   C804 0000      	MOV R4,@fsexist
+                        ;    ebdirty = 0;
+  0C74   04C4           	CLR R4
+                        ;putmem(sym)
+  0C76   C804 0000      	MOV R4,@ebdirty
+                        ;    ebsaved = 1;
+  0C7A   0204 0001      	LI R4,1
+                        ;putmem(sym)
+  0C7E   C804 0000      	MOV R4,@ebsaved
+                        ;    return 1;
+  0C82   0204 0001      	LI R4,1
+                        ;modstk(newsp,save)
+  0C86   05CA           	INCT SP
+  0C88   2DC0           	RET
+                        ;}
+                        	ENT fsgetc
+                        	ENT vrname
+                        	ENT cpyback
+                        	EXT fsname
+                        	EXT ebdirty
+                        	ENT wrname
+                        	EXT eblen
+                        	ENT fslist
+                        	ENT fssave
+                        	ENT fsopen
+                        	EXT fgetc
+                        	ENT fsclose
+                        	EXT fsunit
+                        	ENT upch
+                        	EXT putc
+                        	EXT ebbase
+                        	EXT fsbak
+                        	EXT puts
+                        	EXT fsequal
+                        	EXT ebsaved
+                        	EXT fopen
+                        	ENT mkbak
+                        	ENT fsrewind
+                        	EXT fsexist
+                        	EXT fsset
+                        	ENT fsout
+                        	ENT fssavas
+                        	ENT fsprobe
+                        	EXT fclose
+                        	EXT putchar
+  0C8A                  	EVEN
+  0C8A                  	END
+
+No error(s).
+CALL              2D80'  DEBUG             2FC0'  MESG              2F80'  R0                0000   
+R1                0001   R11               000B   R2                0002   R3                0003   
+R4                0004   R5                0005   R6                0006   R7                0007   
+R8                0008   R9                0009   RET               2DC0'  SL                0009   
+SP                000A   WHEX              2E80'  WP                000D   WRITE             2F00'  
+cc1               005C'  cc10              0152'  cc11              011C'  cc12              0140'  
+cc14              01CE'  cc15              01B0'  cc16              01B2'  cc18              01EA'  
+cc19              0294'  cc2               0056'  cc20              0222'  cc21              0224'  
+cc22              027E'  cc23              03FA'  cc24              03E4'  cc25              03D4'  
+cc26              03D6'  cc27              0436'  cc28              0436'  cc29              0490'  
+cc30              04DC'  cc31              06C8'  cc32              054A'  cc33              05BC'  
+cc34              05D4'  cc35              0650'  cc36              05F6'  cc37              05F8'  
+cc38              063A'  cc39              063A'  cc4               0098'  cc40              0682'  
+cc41              0682'  cc42              06BE'  cc43              08C2'  cc44              07DA'  
+cc45              07E6'  cc46              0858'  cc47              080A'  cc48              080C'  
+cc49              084A'  cc50              088A'  cc51              088A'  cc52              08B8'  
+cc53              0A86'  cc54              0966'  cc55              098A'  cc56              0A38'  
+cc57              09AC'  cc58              09AE'  cc59              0A22'  cc60              09E4'  
+cc61              0A22'  cc62              0A10'  cc63              0A22'  cc64              0A4E'  
+cc65              0A7C'  cc67              0B34'  cc68              0B1C'  cc69              0B1E'  
+cc7               00F4'  cc70              0B68'  cc71              0B68'  cc72              0B82'  
+cc73              0B9C'  cc75              0BE2'  cc76              0C26'  cc77              0C26'  
+cc78              0C42'  cc79              0C5E'  cc8               00E0'  cpyback           04FE'  
+ebbase            0000*  ebdirty           0000*  eblen             0000*  ebsaved           0000*  
+fclose            0000*  fgetc             0000*  fopen             0000*  fsbak             0000*  
+fsclose           0078'  fsequal           0000*  fsexist           0000*  fsgetc            00A4'  
+fslist            0106'  fsname            0000*  fsopen            0000'  fsout             00F6'  
+fsprobe           00B4'  fsrewind          009A'  fssavas           0BB8'  fssave            0AF8'  
+fsset             0000*  fsunit            0000*  mkbak             01D4'  putc              0000*  
+putchar           0000*  puts              0000*  upch              0180'  vrname            091A'  
+wrname            0772'  
+
