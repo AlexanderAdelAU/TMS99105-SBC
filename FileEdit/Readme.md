@@ -28,13 +28,13 @@ alias, but **FILEEDIT.EXE** is the primary application.
 
 ### FileEdit main menu
 
-![FileEdit Step 7 main menu in Tera Term](docs/images/fileedit-menu.png)
+![FileEdit Step 7 main menu in Tera Term](fileedit-menu.png)
 
 The main menu provides Edit, Open, New, Save, Save As, View, Statistics and Quit while retaining the current document in resident editor state.
 
 ### Full-screen editor with display-only line numbers
 
-![FileEdit editing TEST.C with line-number gutter in Tera Term](docs/images/fileedit-editor.png)
+![FileEdit editing TEST.C with line-number gutter in Tera Term](fileedit-editor.png)
 
 The editor runs directly in the VT100/ANSI terminal. The line-number gutter is rendered by `OVL_VIEW`; the numbers are not part of the document and are never saved. The status line shows the logical line/column and the principal navigation and save commands.
 
