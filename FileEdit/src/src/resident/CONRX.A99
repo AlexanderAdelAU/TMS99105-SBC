@@ -1,0 +1,270 @@
+;*******************************************************************
+; CONRX.A99 -- FileEdit resident TMS9902 RX interrupt queue test.
+;
+; Hooks only the INT4 PC word in writable common RAM.  The MONITOR's
+; existing INT4 workspace is retained.  RX characters are drained into a
+; 64-byte circular buffer. RX-only interrupts return directly with RTWP;
+; simultaneous timer interrupts chain to the original MONITOR INT4 handler.
+;
+; CRU assumptions verified against the supplied MONITOR source:
+;   CRUBASE >0080
+;   TB 21   receive buffer register full
+;   bit 18  receiver interrupt enable / acknowledge; re-armed per char
+;
+; Public symbols are <= 8 characters for the Small-C/Plus toolchain.
+;*******************************************************************
+
+        DXOP    RET,7
+
+R0      EQU     0
+R1      EQU     1
+R2      EQU     2
+R3      EQU     3
+R12     EQU     12
+
+CRUBASE EQU     0080H
+INT4WP  EQU     0010H
+INT4PC  EQU     0012H
+RXMASK  EQU     003FH          ; 64-byte queue, indices 0..63
+
+;-------------------------------------------------------------------
+; rxinit -- install resident INT4 PC hook and enable 9902 RX IRQ.
+;           Idempotent.  Existing INT4 WP/PC and caller status are saved.
+;           FileEdit runs with LIMI 7 while the hook is active.
+;-------------------------------------------------------------------
+rxinit:
+        MOV     @RXACT,R0
+        JNE     RXI_RET
+
+        STST    R0
+        MOV     R0,@OLDST
+        LIMI    0
+
+        MOV     @INT4WP,R0
+        MOV     R0,@OLDWP
+        MOV     @INT4PC,R0
+        MOV     R0,@OLDPC
+
+        CLR     @RXHEAD
+        CLR     @RXTAIL
+        CLR     @RXOVFL
+        CLR     @rxchar
+
+        ; Keep MONITOR's INT4 workspace; replace only handler PC.
+        LI      R0,RXISR
+        MOV     R0,@INT4PC
+
+        ; Drain one stale byte, if present, before enabling RX IRQ.
+        LI      R12,CRUBASE
+        TB      21
+        JNE     RXI_EN
+        CLR     R1
+        STCR    R1,8
+
+RXI_EN  SBO     18             ; receiver interrupt enable
+        LI      R0,1
+        MOV     R0,@RXACT
+
+        ; FileEdit needs INT4 admitted while the RX hook is active.
+        ; MONITOR itself normally runs with LIMI 7.
+        LIMI    7
+RXI_RET RET
+
+;-------------------------------------------------------------------
+; rxfini -- disable RX IRQ and restore original INT4 vector.
+;-------------------------------------------------------------------
+rxfini:
+        MOV     @RXACT,R0
+        JEQ     RXF_RET
+
+        LIMI    0
+
+        LI      R12,CRUBASE
+        SBZ     18             ; receiver interrupt disable
+
+        MOV     @OLDWP,R0
+        MOV     R0,@INT4WP
+        MOV     @OLDPC,R0
+        MOV     R0,@INT4PC
+        CLR     @RXACT
+
+        MOV     @OLDST,R0
+        LST     R0
+RXF_RET RET
+
+;-------------------------------------------------------------------
+; rxwait -- block until one queued character is available.
+;           Result is deposited in resident word rxchar (0..255).
+;           Mainline owns RXTAIL; ISR owns RXHEAD.
+;-------------------------------------------------------------------
+rxwait:
+RXW_LP  MOV     @RXTAIL,R0
+        C       R0,@RXHEAD
+        JEQ     RXW_LP
+
+        LI      R1,RXBUF
+        A       R0,R1
+        CLR     R2
+        MOVB    *R1,R2
+        SWPB    R2
+        MOV     R2,@rxchar
+
+        INC     R0
+        ANDI    R0,RXMASK
+        MOV     R0,@RXTAIL
+        RET
+
+;-------------------------------------------------------------------
+; RXISR -- INT4 resident handler.
+;
+; Uses the existing MONITOR INT4 workspace.  R13/R14/R15 therefore retain
+; the interrupted context exactly as for the original handler.  If an RX byte
+; is ready, consume it immediately into the queue.  Always chain to the saved
+; original INT4 handler so simultaneous/pure timer interrupts are processed.
+;-------------------------------------------------------------------
+RXISR:
+        LI      R12,CRUBASE
+        TB      21             ; receive buffer register full?
+        JNE     RX_CHAIN       ; no: let original INT4 handler inspect timer
+
+        ; Acknowledge/inhibit this receive interrupt before draining RBR.
+        ; TI's 9902 receive example explicitly clears bit 18 after service;
+        ; leaving it set causes INT4 to remain asserted/re-enter after RTWP.
+        SBZ     18
+        CLR     R1
+        STCR    R1,8           ; received byte in MSB of R1; drain RBR
+
+        ; Re-arm receiver interrupts for the next character.  If a new byte
+        ; arrived while inhibited, enabling bit 18 will assert INT4 again.
+        SBO     18
+
+        MOV     @RXHEAD,R0
+        MOV     R0,R2
+        INC     R2
+        ANDI    R2,RXMASK      ; next head
+        C       R2,@RXTAIL
+        JEQ     RX_DROP        ; queue full: consume hardware byte, drop it
+
+        LI      R3,RXBUF
+        A       R0,R3
+        MOVB    R1,*R3
+        MOV     R2,@RXHEAD
+        JMP     RX_CHAIN
+
+RX_DROP INC     @RXOVFL
+
+RX_CHAIN:
+        ; We are still executing in the MONITOR INT4 workspace.
+        ; Do not touch a C/Small-C stack here: there is no valid application
+        ; SP in this workspace.  R12 was loaded explicitly above for serial
+        ; TMS9902 CRU access.
+        ;
+        ; If the 9902 timer is also requesting INT4, pass control to the
+        ; original MONITOR handler; it services the timer and ends in RTWP.
+        ; Otherwise this was an RX-only interrupt and we return ourselves.
+        LI      R12,CRUBASE
+        TB      25             ; timer elapsed interrupt pending?
+        JNE     RX_RTWP        ; no: RX cause has been completely serviced
+
+        MOV     @OLDPC,R0
+        B       *R0            ; INTTIMER owns the final RTWP
+
+RX_RTWP RTWP                   ; restore interrupted WP/PC/ST directly
+
+
+;-------------------------------------------------------------------
+; rxtest -- isolated INT4/timer hook diagnostic.
+;
+; Installs a temporary INT4 PC hook, programs the TMS9902 interval
+; timer exactly like the supplied MONITOR SETTIMER path, and blocks
+; until eight timer interrupts have reached our handler.  RX IRQ is
+; not enabled for this test.  Original vector/status are restored.
+;-------------------------------------------------------------------
+rxtest:
+        STST    R0
+        MOV     R0,@TSTST
+        LIMI    0
+
+        MOV     @INT4WP,R0
+        MOV     R0,@TSTWP
+        MOV     @INT4PC,R0
+        MOV     R0,@TSTPC
+
+        CLR     @rxticks
+        CLR     @TSTDONE
+
+        LI      R0,TSTISR
+        MOV     R0,@INT4PC
+
+        ; Same timer setup used by MONITOR SETTIMER.
+        LI      R12,CRUBASE
+        SBZ     20             ; reset/disable timer interrupt
+        SBZ     14
+        SBO     13             ; load interval timer only
+        LDCR    @TSTINT,8
+        SBO     20             ; enable timer interrupt
+
+        LIMI    7
+TSTWAIT MOV     @TSTDONE,R0
+        JEQ     TSTWAIT
+
+        LIMI    0
+        LI      R12,CRUBASE
+        SBZ     20
+
+        MOV     @TSTWP,R0
+        MOV     R0,@INT4WP
+        MOV     @TSTPC,R0
+        MOV     R0,@INT4PC
+
+        MOV     @TSTST,R0
+        LST     R0
+        RET
+
+; Timer-only ISR used by rxtest.  It intentionally does not chain to
+; MONITOR; during this short diagnostic it owns the programmed timer.
+TSTISR:
+        LI      R12,CRUBASE
+        TB      25             ; timer elapsed status?
+        JNE     TSTIRET        ; unexpected INT4: leave immediately
+
+        SBO     20             ; reset timer interrupt condition
+        INC     @rxticks
+        MOV     @rxticks,R0
+        CI      R0,8
+        JLT     TSTIRET
+
+        SBZ     20             ; enough ticks: stop timer IRQ
+        LI      R0,1
+        MOV     R0,@TSTDONE
+TSTIRET RTWP
+
+TSTWP   WORD    0
+TSTPC   WORD    0
+TSTST   WORD    0
+TSTDONE WORD    0
+rxticks WORD    0
+TSTINT  BYTE    255            ; MONITOR comment: about 16 ms
+        EVEN
+
+;-------------------------------------------------------------------
+; Resident queue/state.
+;-------------------------------------------------------------------
+OLDWP   WORD    0
+OLDPC   WORD    0
+OLDST   WORD    0
+RXACT   WORD    0
+RXHEAD  WORD    0
+RXTAIL  WORD    0
+RXOVFL  WORD    0
+rxchar  WORD    0
+RXBUF   BSS     64
+        EVEN
+
+        ENT     rxinit
+        ENT     rxfini
+        ENT     rxwait
+        ENT     rxchar
+        ENT     rxtest
+        ENT     rxticks
+        END
