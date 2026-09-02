@@ -12,8 +12,6 @@ functionality.
 
 ## Current milestone
 
-This GitHub package is based on **Step 7.1.6**.
-
 Current features include full-screen VT100/ANSI editing, a display-only
 line-number gutter, cursor navigation, insertion/deletion, real ASCII
 TABs, Open/New/Save/Save As, `[MOD]` dirty-state indication, rolling
