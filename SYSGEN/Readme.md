@@ -50,8 +50,17 @@ Use the ROM monitor's native commands to push the payload to memory, execute the
 >500G  --> bootstrap OS onto disc
 >Q     --> Boot the OS
 
->Q--Booting....
 Shell Version 6.3
 TMS99105 SBC V4 - Paged Memory
+%DIR2
+
+FILENAME TYPE    SIZE    LOAD
+-------- ---- -------    ----
+SHELL     SYS      7168  C000
+BDOS      SYS      2560  E000
+XMODEM    COM      2048  1000
+DIR2      COM      1024  0500
+
+FREE CAPACITY:   16332 KB
 %
 ```
