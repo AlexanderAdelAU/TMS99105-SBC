@@ -28,3 +28,25 @@ To build a fresh OS payload consisting of the initializer, Shell, BDOS, XMODEM, 
 
 ```bash
 sysgen PAYLOAD65.HEX DSKINIT62.H99 SHELL.SYS=SHELLV63.H99 BDOS.SYS=BDOS61.H99 XMODEM.COM=XMODEM58.H99 DIR2.COM=DIR2.H99
+```
+
+---
+
+## 💾 Uploading and Bootstrapping the OS
+
+Once you have generated your payload hex file, follow these steps to upload it to the SBC V4 and bootstrap the operating system onto the IDE disk.
+
+### Step 1: Prepare the Target
+1. Connect to the SBC V4 via your serial terminal emulator.
+2. Ensure the system is sitting at the ROM Monitor prompt (`>`).
+
+### Step 2: Bootstrapping the OS
+
+Use the ROM monitor's native commands to push the payload to memory, execute the initialization routine, and boot the system:
+
+```text
+<TMS9900 DISC MONITOR V5.5F>
+>U     --> upload PAYLOAD65.HEX
+>500G  --> bootstrap OS onto disc
+>Q     --> Boot the OS
+```
