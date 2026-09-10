@@ -1,0 +1,1087 @@
+;*******************************************************************
+;	IDEDEBUG.A99 - IDE/SATA Interface Debug Utility
+;	TMS99105 SBC V4
+;	Load at 0x0500 (COMMON)
+;
+;	Parameters at fixed addresses - edit then run 500G:
+;
+;	0502: COMMAND
+;	0504: LBA_HI    MSW of LBA address (default 0)
+;	0506: LBA_LO    LSW of LBA address (default 1)
+;	0508: BUFFER    buffer address     (default 02000H)
+;	050A: SECTORS   sector count       (default 1)
+;
+;	COMMANDS:
+;	0=MEMDSK 1=STATUS 2=RDLBA 3=WRLBA 4=DRVID
+;	5=ERASE  6=DUMP   7=HELP  8=INFO  9=VRFY
+;	10=INIT  11=RDBLOCK 12=DISKMAP
+;
+;	NOTE: BYTSEC=512 (BDOS sector size)
+;	      IDE_BYTSEC=256 (8-bit IDE reads per LBA - high byte only)
+;	      Each BDOS sector = 2 LBA reads of 256 bytes each
+;*******************************************************************
+
+;--- Define XOPs ---
+	DXOP	CALL,6
+	DXOP	RET,7
+	DXOP	PUSH,8
+	DXOP	POP,9
+	DXOP	WHEX,10		;WRITE OUT A 16 BIT HEX VALUE
+	DXOP	RHEX,11		;READ IN A 16 BIT HEX VALUE
+	DXOP	WRITE,12	;WRITE CHAR IN MSB
+	DXOP	READ,13		;READ CHAR IN MSB
+	DXOP	MESG,14		;OUTPUT NULL TERMINATED MESSAGE
+	DXOP	DEBUG,15
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+R3	EQU	3
+R4	EQU	4
+R5	EQU	5
+R6	EQU	6
+R7	EQU	7
+R8	EQU	8
+R9	EQU	9
+R10	EQU	10
+R11	EQU	11
+R12	EQU	12
+PORT	EQU	R12		;CRU PORT REGISTER
+
+WORKSP:		EQU	0250H
+MONITOR:	EQU	0F000H
+BYTEWIDE:	EQU	2
+BYTSEC:		EQU	512	;BDOS SECTOR SIZE
+IDE_BYTSEC:	EQU	256	;IDE 8-BIT READS PER LBA (HIGH BYTE ONLY)
+			;EACH BDOS SECTOR = 2 LBA READS OF 256 BYTES
+
+;--- Character constants ---
+CR		BYTE	0DH
+LF		BYTE	0AH
+SPACE		BYTE	20H
+		BYTE	0
+		EVEN
+
+;--- IDE I/O ports ---
+IDE_BASE_PORT:	EQU	8040H
+
+IDE_DATA:	EQU	IDE_BASE_PORT + 0*2
+IDE_ERROR:	EQU	IDE_BASE_PORT + 1*2
+IDE_SEC_CNT:	EQU	IDE_BASE_PORT + 2*2
+IDE_SECTOR:	EQU	IDE_BASE_PORT + 3*2
+IDE_CYL_LSB:	EQU	IDE_BASE_PORT + 4*2
+IDE_CYL_MSB:	EQU	IDE_BASE_PORT + 5*2
+IDE_HEAD:	EQU	IDE_BASE_PORT + 6*2
+IDE_COMMAND:	EQU	IDE_BASE_PORT + 7*2
+IDE_STATUS:	EQU	IDE_BASE_PORT + 7*2
+IDE_CONTROL:	EQU	IDE_BASE_PORT + 6*2
+
+;--- IDE status register bits (in MSB) ---
+IDE_BSY:	EQU	10000000B	;80H busy
+IDE_DRDY:	EQU	01000000B	;40H drive ready
+IDE_DWF:	EQU	00100000B	;20H drive write fault
+IDE_DSC:	EQU	00010000B	;10H drive seek complete
+IDE_DRQ:	EQU	00001000B	;08H data request
+IDE_ERR:	EQU	00000001B	;01H error
+
+;--- IDE commands (in MSB) ---
+IDE_CMD_RECAL:	EQU	01000H
+IDE_CMD_READ:	EQU	02000H
+IDE_CMD_WRITE:	EQU	03000H
+IDE_CMD_INIT:	EQU	09100H
+IDE_CMD_ID:	EQU	0EC00H
+IDE_CMD_SDOWN:	EQU	0E000H
+
+;--- Command constants ---
+CMD_MEMDSK:	EQU	0
+CMD_STATUS:	EQU	1
+CMD_RDLBA:	EQU	2
+CMD_WRLBA:	EQU	3
+CMD_DRVID:	EQU	4
+CMD_ERASE:	EQU	5
+CMD_DUMP:	EQU	6
+CMD_HELP:	EQU	7
+CMD_DRVINFO:	EQU	8
+CMD_VERIFY:	EQU	9
+CMD_INITDRV:	EQU	10H
+CMD_RDBLOCK:	EQU	11H
+CMD_DISKMAP:	EQU	12
+
+DEF_BUFFER:	EQU	02000H
+
+	AORG	500H
+;--- Parameters at fixed addresses ---
+RUN:	JMP	TRAMP
+COMMAND:	WORD	CMD_STATUS
+LBA_HI:	WORD	0
+LBA_LO:	WORD	1
+BUFFER:	WORD	DEF_BUFFER
+SECTORS:	WORD	1
+TRAMP:	B	@START
+
+	AORG	01000H
+	JMP	START
+
+
+
+START:
+	LWPI	WORKSP
+	MESG	@TXT_BANNER
+
+;--- Dispatch ---
+	MOV	@COMMAND,R0
+	CI	R0,CMD_MEMDSK
+	JNE	DX1
+	B	@DO_MEMDSK
+DX1	CI	R0,CMD_STATUS
+	JNE	D2
+	B	@DO_STATUS
+D2	CI	R0,CMD_RDLBA
+	JNE	D3
+	B	@DO_RDLBA
+D3	CI	R0,CMD_WRLBA
+	JNE	D4
+	B	@DO_WRLBA
+D4	CI	R0,CMD_DRVID
+	JNE	D5
+	B	@DO_DRVID
+D5	CI	R0,CMD_ERASE
+	JNE	D6
+	B	@DO_ERASE
+D6	CI	R0,CMD_DUMP
+	JNE	D7
+	B	@DO_DUMP
+D7	CI	R0,CMD_HELP
+	JNE	D8
+	B	@DO_HELP
+D8	CI	R0,CMD_DRVINFO
+	JNE	D9
+	B	@DO_DRVINFO
+D9	CI	R0,CMD_VERIFY
+	JNE	D10
+	B	@DO_VERIFY
+D10	CI	R0,CMD_INITDRV
+	JNE	D11
+	B	@DO_INIT
+D11	CI	R0,CMD_RDBLOCK
+	JNE	D12
+	B	@DO_RDBLOCK
+D12	CI	R0,CMD_DISKMAP
+	JNE	DBAD
+	B	@DO_DISKMAP
+DBAD	MESG	@TXT_BADCMD
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 0: Write memory 0x1000-0x4FFF to LBA 0-31 then verify ---
+;    Phase 1: write 32x IDE_BYTSEC bytes from memory to disk
+;    Phase 2: read back and compare byte by byte against memory
+;*******************************************************************
+DO_MEMDSK:
+	MESG	@TXT_MEMDSK
+;--- PHASE 1: WRITE ---
+	MESG	@TXT_MWRT
+	LI	R8,1000H
+	CLR	R5
+	LI	R7,32
+MDWLP:
+	MOV	R8,@BUFFER
+	CALL	@IDE_READY
+	CALL	@IDE_WR_LBA
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_WRITE
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	MOV	R0,R0
+	JNE	MDWOK
+	B	@DO_ERR
+MDWOK:	CALL	@IDE_WRITE_DATA
+	WHEX	R5
+	MOVB	@SPACE,R3
+	WRITE	R3
+	AI	R8,IDE_BYTSEC
+	INC	R5
+	DEC	R7
+	JNE	MDWLP
+	MOVB	@CR,R3
+	WRITE	R3
+	MOVB	@LF,R3
+	WRITE	R3
+;--- PHASE 2: READ BACK AND VERIFY ---
+	MESG	@TXT_MRDV
+	LI	R8,1000H
+	CLR	R5
+	LI	R7,32
+	CLR	R6
+MDRLP:
+;--- ZERO FILL READ BUFFER ---
+	MOV	@BUFFER,R3
+	MOV	@BUFFER,R1
+	AI	R1,IDE_BYTSEC
+	CLR	R0
+MDRZ:	MOVB	R0,*R3+
+	C	R3,R1
+	JLT	MDRZ
+;--- READ SECTOR ---
+	CALL	@IDE_READY
+	CALL	@IDE_WR_LBA
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_READ
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	MOV	R0,R0
+	JNE	MDROK
+	B	@DO_ERR
+MDROK:	CALL	@IDE_READ_DATA
+;--- COMPARE ---
+	MOV	@BUFFER,R3
+	MOV	R8,R4
+	MOV	@BUFFER,R1
+	AI	R1,IDE_BYTSEC
+MDRCMP:	MOVB	*R3+,R0
+	CB	R0,*R4+
+	JEQ	MDRCOK
+	INC	R6
+MDRCOK:	C	R3,R1
+	JLT	MDRCMP
+	WHEX	R5
+	MOVB	@SPACE,R3
+	WRITE	R3
+	AI	R8,IDE_BYTSEC
+	INC	R5
+	DEC	R7
+	JNE	MDRLP
+	MOVB	@CR,R3
+	WRITE	R3
+	MOVB	@LF,R3
+	WRITE	R3
+	MOV	R6,R6
+	JEQ	MDOK
+	MESG	@TXT_VERFAIL
+	WHEX	R6
+	MESG	@TXT_ERRS
+	MOVB	@CR,R3
+	WRITE	R3
+	MOVB	@LF,R3
+	WRITE	R3
+	B	@EXIT
+MDOK:	MESG	@TXT_VERPASS
+	MOVB	@CR,R3
+	WRITE	R3
+	MOVB	@LF,R3
+	WRITE	R3
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 1: Print IDE status register ---
+;*******************************************************************
+DO_STATUS:
+	MESG	@TXT_STATUS
+	LI	PORT,IDE_STATUS
+	CLR	R1
+	STCR	R1,BYTEWIDE
+	WHEX	R1
+	MESG	@TXT_NL
+	MOVB	R1,R0
+	ANDI	R0,IDE_BSY*256
+	JEQ	S1
+	MESG	@TXT_BSY
+S1	MOVB	R1,R0
+	ANDI	R0,IDE_DRDY*256
+	JEQ	S2
+	MESG	@TXT_DRDY
+S2	MOVB	R1,R0
+	ANDI	R0,IDE_DWF*256
+	JEQ	S2A
+	MESG	@TXT_DWF
+S2A	MOVB	R1,R0
+	ANDI	R0,IDE_DSC*256
+	JEQ	S2B
+	MESG	@TXT_DSC
+S2B	MOVB	R1,R0
+	ANDI	R0,IDE_DRQ*256
+	JEQ	S3
+	MESG	@TXT_DRQ
+S3	MOVB	R1,R0
+	ANDI	R0,IDE_ERR*256
+	JEQ	S4
+	MESG	@TXT_ERR
+	LI	PORT,IDE_ERROR
+	CLR	R1
+	STCR	R1,BYTEWIDE
+	MESG	@TXT_ERRREG
+	WHEX	R1
+	MESG	@TXT_NL
+S4	B	@EXIT
+
+;*******************************************************************
+;--- CMD 2: Read LBA sector to buffer ---
+;*******************************************************************
+DO_RDLBA:
+	CALL	@IDE_READY
+	MESG	@TXT_RDLBA
+	MOV	@LBA_HI,R0
+	WHEX	R0
+	MESG	@TXT_COLON
+	MOV	@LBA_LO,R0
+	WHEX	R0
+	MESG	@TXT_NL
+	CALL	@IDE_NOT_BUSY
+	MOV	@LBA_LO,R5
+	CALL	@IDE_WR_LBA
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_READ
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	JEQ	RDERR
+	B	@RDOK
+RDERR	B	@DO_ERR
+RDOK	CALL	@IDE_READ_DATA
+	MESG	@TXT_OK
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 3: Write buffer to LBA sector ---
+;*******************************************************************
+DO_WRLBA:
+	CALL	@IDE_READY
+	MESG	@TXT_WRLBA
+	MOV	@LBA_HI,R0
+	WHEX	R0
+	MESG	@TXT_COLON
+	MOV	@LBA_LO,R0
+	WHEX	R0
+	MESG	@TXT_NL
+	CALL	@IDE_NOT_BUSY
+	MOV	@LBA_LO,R5
+	CALL	@IDE_WR_LBA
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_WRITE
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	JEQ	WRERR
+	B	@WROK
+WRERR	B	@DO_ERR
+WROK	CALL	@IDE_WRITE_DATA
+	MESG	@TXT_OK
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 4: Drive identify ---
+;*******************************************************************
+DO_DRVID:
+	CALL	@IDE_READY
+	MESG	@TXT_DRVID
+	CALL	@IDE_NOT_BUSY
+	CLR	R5
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_ID
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	JEQ	IDERR
+	B	@IDOK
+IDERR	B	@DO_ERR
+IDOK	CALL	@IDE_READ_DATA
+	MESG	@TXT_OK
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 5: Erase sectors ---
+;*******************************************************************
+DO_ERASE:
+	MESG	@TXT_ERASE
+	MOV	@BUFFER,R3
+	MOV	@BUFFER,R1
+	AI	R1,IDE_BYTSEC
+	LI	R0,0E5E5H
+ERD0	MOV	R0,*R3+
+	C	R3,R1
+	JLT	ERD0
+	MOV	@LBA_LO,R5
+	LI	R6,32
+ERD1	CALL	@IDE_NOT_BUSY
+	CALL	@IDE_WR_LBA
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_WRITE
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	JEQ	ERERR
+	B	@EROK
+ERERR	B	@DO_ERR
+EROK	CALL	@IDE_WRITE_DATA
+	INC	R5
+	MOV	R5,@LBA_LO
+	DEC	R6
+	JNE	ERD1
+	MESG	@TXT_OK
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 6: Dump buffer ---
+;*******************************************************************
+DO_DUMP:
+	MESG	@TXT_DUMP
+	MOV	@BUFFER,R4
+	MOV	@BUFFER,R5
+	AI	R5,IDE_BYTSEC
+	LI	R6,0
+DMPLOOP
+	WHEX	*R4+
+	INC	R6
+	CI	R6,8
+	JNE	DMP1
+	MESG	@TXT_NL
+	CLR	R6
+DMP1	C	R4,R5
+	JLT	DMPLOOP
+	MESG	@TXT_NL
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 8: Drive info ---
+;*******************************************************************
+DO_DRVINFO:
+	MESG	@TXT_8BIT
+	CALL	@IDE_READY
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_ID
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	JEQ	DIERR
+	B	@DIOK
+DIERR	B	@DO_ERR
+DIOK	CALL	@IDE_READ_DATA
+	MESG	@TXT_MODEL
+	MOV	@BUFFER,R4
+	AI	R4,54
+	LI	R0,40
+DIMOD	MOVB	*R4+,R2
+	MOVB	*R4+,R1
+	WRITE	R1
+	WRITE	R2
+	AI	R0,-2
+	JNE	DIMOD
+	MESG	@TXT_NL
+	MESG	@TXT_SERIAL
+	MOV	@BUFFER,R4
+	AI	R4,20
+	LI	R0,20
+DISER	MOVB	*R4+,R2
+	MOVB	*R4+,R1
+	WRITE	R1
+	WRITE	R2
+	AI	R0,-2
+	JNE	DISER
+	MESG	@TXT_NL
+	MESG	@TXT_FWREV
+	MOV	@BUFFER,R4
+	AI	R4,46
+	LI	R0,8
+DIFW	MOVB	*R4+,R2
+	MOVB	*R4+,R1
+	WRITE	R1
+	WRITE	R2
+	AI	R0,-2
+	JNE	DIFW
+	MESG	@TXT_NL
+	MESG	@TXT_CYLS
+	MOV	@BUFFER,R4
+	AI	R4,2
+	MOV	*R4,R0
+	WHEX	R0
+	MESG	@TXT_HEADS
+	MOV	@BUFFER,R4
+	AI	R4,6
+	MOV	*R4,R0
+	WHEX	R0
+	MESG	@TXT_SECS
+	MOV	@BUFFER,R4
+	AI	R4,12
+	MOV	*R4,R0
+	WHEX	R0
+	MESG	@TXT_NL
+	MESG	@TXT_TOTAL
+	MOV	@BUFFER,R4
+	AI	R4,114
+	MOV	*R4+,R0
+	WHEX	R0
+	MOV	*R4,R0
+	WHEX	R0
+	MESG	@TXT_NL
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 9: Verify sectors ---
+;*******************************************************************
+DO_VERIFY:
+	MESG	@TXT_VERIFY
+	MOV	@LBA_LO,R0
+	WHEX	R0
+	MOVB	@CR,R3
+	WRITE	R3
+	MOVB	@LF,R3
+	WRITE	R3
+	MOV	@SECTORS,R6
+	CI	R6,1
+	JHE	VCNT1
+	B	@VERBAD
+VCNT1	CI	R6,20
+	JLE	VCNT2
+	B	@VERBAD
+VCNT2
+;--- FILL WRITE BUFFER ---
+	MOV	@BUFFER,R3
+	MOV	@BUFFER,R1
+	AI	R1,IDE_BYTSEC
+	LI	R0,0A500H
+VERFILL:	MOVB	R0,*R3+
+	C	R3,R1
+	JLT	VERFILL
+;--- WRITE SECTORS ---
+	MESG	@TXT_VERWRT
+	MOV	@LBA_LO,R5
+	MOV	R6,R7
+VERWLP:
+	CALL	@IDE_READY
+	CALL	@IDE_WR_LBA
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_WRITE
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	JNE	VERWOK
+	B	@DO_ERR
+VERWOK:	CALL	@IDE_WRITE_DATA
+	WHEX	R5
+	MOVB	@SPACE,R3
+	WRITE	R3
+	INC	R5
+	DEC	R7
+	JNE	VERWLP
+	MOVB	@CR,R3
+	WRITE	R3
+	MOVB	@LF,R3
+	WRITE	R3
+;--- READ BACK ---
+	MESG	@TXT_VERRD
+	MOV	@BUFFER,R9
+	MOV	@BUFFER,R0
+	AI	R0,IDE_BYTSEC*2
+	MOV	R0,@BUFFER
+	MOV	@LBA_LO,R5
+	MOV	R6,R7
+	CLR	R8
+VERRLP:
+	CALL	@IDE_READY
+	CALL	@IDE_WR_LBA
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_READ
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	JNE	VERROK
+	B	@DO_ERR
+VERROK:
+	MOV	R9,R3
+	AI	R3,IDE_BYTSEC*2
+	MOV	R3,R1
+	AI	R1,IDE_BYTSEC
+	CLR	R0
+VERZERO:	MOVB	R0,*R3+
+	C	R3,R1
+	JLT	VERZERO
+	CALL	@IDE_READ_DATA
+	MOV	R9,R3
+	MOV	R9,R4
+	AI	R4,IDE_BYTSEC*2
+	MOV	R9,R1
+	AI	R1,IDE_BYTSEC
+VERCMP:	MOVB	*R3+,R0
+	CB	R0,*R4+
+	JEQ	VERCOK
+	INC	R8
+VERCOK:	C	R3,R1
+	JLT	VERCMP
+	WHEX	R5
+	MOVB	@SPACE,R3
+	WRITE	R3
+	INC	R5
+	DEC	R7
+	JNE	VERRLP
+	MOVB	@CR,R3
+	WRITE	R3
+	MOVB	@LF,R3
+	WRITE	R3
+	MOV	R9,@BUFFER
+	MOV	R8,R8
+	JEQ	VEROK
+	MESG	@TXT_VERFAIL
+	WHEX	R8
+	MESG	@TXT_ERRS
+	MOVB	@CR,R3
+	WRITE	R3
+	MOVB	@LF,R3
+	WRITE	R3
+	B	@EXIT
+VEROK:	MESG	@TXT_VERPASS
+	MOVB	@CR,R3
+	WRITE	R3
+	MOVB	@LF,R3
+	WRITE	R3
+	B	@EXIT
+VERBAD:	MESG	@TXT_VERCNT
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 10: Reset and Initialize Drive ---
+;*******************************************************************
+DO_INIT:
+	MESG	@TXT_INITSTART
+
+	;--- Step 1: Assert Software Reset (SRST) via Control Port ---
+	LI	PORT,IDE_CONTROL
+	LI	R1,0040H*256        ; Bit 2 of Device Control is SRST (0x04)
+	LDCR	R1,BYTEWIDE         ; Set SRST high
+
+	; Brief delay loop while reset is held active
+	LI	R0,1000H
+RSTDEL	DEC	R0
+	JNE	RSTDEL
+
+	LI	R1,0000H            ; Clear SRST
+	LDCR	R1,BYTEWIDE
+
+	;--- Step 2: Wait for drive to clear BSY after reset ---
+	CALL	@IDE_NOT_BUSY
+
+	;--- Step 3: Issue Initialize Drive Parameters Command ---
+	CALL	@IDE_READY
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_INIT     ; 0x9100H
+	LDCR	R1,BYTEWIDE
+
+	;--- Step 4: Verify execution ---
+	CALL	@IDE_NOT_BUSY
+	LI	PORT,IDE_STATUS
+	CLR	R1
+	STCR	R1,BYTEWIDE
+	ANDI	R1,IDE_ERR*256      ; Check if error bit got raised
+	JNE	INITERR
+
+	MESG	@TXT_OK
+	B	@EXIT
+INITERR	B	@DO_ERR
+
+;*******************************************************************
+;--- CMD 11: Read and dump one BDOS allocation block ---
+;
+;    0502 = 0011        command
+;    0504 = untouched
+;    0506 = block number
+;    0508 = buffer address
+;
+;    1 allocation block = 4096 bytes = 16 IDE LBAs (NEW FORMAT)
+;    first IDE LBA      = block * 16
+;*******************************************************************
+DO_RDBLOCK:
+	MOV	@LBA_LO,R5
+	SLA	R5,4			; Multiply Block by 16
+	MOV	@BUFFER,R4
+	LI	R7,16			; Read 16 LBAs for a full 4KB block
+
+RDBLK_NEXT:
+	CALL	@IDE_READY
+	CALL	@IDE_NOT_BUSY
+	CALL	@RDBLK_SETLBA
+	LI	PORT,IDE_COMMAND
+	LI	R1,IDE_CMD_READ
+	LDCR	R1,BYTEWIDE
+	CALL	@IDE_WAIT_DRQ
+	JEQ	RDBLK_ERROR
+	CALL	@RDBLK_READ256
+	INC	R5
+	DEC	R7
+	JNE	RDBLK_NEXT
+
+	MOV	@BUFFER,R4
+	MOV	R4,R5
+	AI	R5,4096			; Dump full 4096 bytes
+
+RDBLK_LINE:
+	MESG	@TXT_DUMP_INDENT
+	MOV	R4,R0			;actual address of this line
+	WHEX	R0
+	MESG	@TXT_DUMP_GAP
+	LI	R6,8
+
+RDBLK_PRINT:
+	WHEX	*R4+
+	DEC	R6
+	JNE	RDBLK_PRINT
+	MESG	@TXT_NL
+	C	R4,R5
+	JLT	RDBLK_LINE
+	B	@EXIT
+
+RDBLK_ERROR:
+	B	@DO_ERR
+
+;*******************************************************************
+;--- CMD 12: Print Disk Map ---
+;*******************************************************************
+DO_DISKMAP:
+	MESG	@TXT_DMAP_HDR
+	MESG	@TXT_DMAP_BOOT
+	MESG	@TXT_DMAP_BAT
+	MESG	@TXT_DMAP_DIR
+	MESG	@TXT_DMAP_ALIAS
+	MESG	@TXT_DMAP_DATA
+	B	@EXIT
+
+;*******************************************************************
+;--- CMD 7: Help ---
+;*******************************************************************
+DO_HELP:
+	MESG	@TXT_HELP
+	B	@EXIT
+
+;*******************************************************************
+;--- Error handler ---
+;*******************************************************************
+DO_ERR:
+	LI	PORT,IDE_ERROR
+	CLR	R1
+	STCR	R1,BYTEWIDE
+	MESG	@TXT_ERRMSG
+	WHEX	R1
+	MESG	@TXT_NL
+	B	@EXIT
+
+EXIT:
+	BLWP	@0F004H
+
+;*******************************************************************
+;	IDE_READY
+;*******************************************************************
+IDE_READY:
+	LI	PORT,IDE_HEAD
+	LI	R1,0E000H
+	LDCR	R1,BYTEWIDE
+IRDY1	LI	PORT,IDE_STATUS
+	CLR	R1
+	STCR	R1,BYTEWIDE
+	ANDI	R1,IDE_BSY*256
+	JNE	IRDY1
+IRDY2	LI	PORT,IDE_STATUS
+	CLR	R1
+	STCR	R1,BYTEWIDE
+	ANDI	R1,IDE_DRDY*256
+	JEQ	IRDY2
+
+DRAIN	LI	PORT,IDE_STATUS
+	CLR	R1
+	STCR	R1,BYTEWIDE
+	ANDI	R1,IDE_DRQ*256
+	JEQ	DRAINED
+	LI	R0,IDE_BYTSEC		;DRAIN FULL SECTOR WORTH
+	LI	PORT,IDE_DATA
+DRAINL:	CLR	R1
+	STCR	R1,BYTEWIDE
+	DEC	R0
+	JNE	DRAINL
+	JMP	DRAIN
+DRAINED:
+	RET
+
+;*******************************************************************
+;	IDE_NOT_BUSY
+;*******************************************************************
+IDE_NOT_BUSY:
+	LI	PORT,IDE_STATUS
+BSY2	CLR	R1
+	STCR	R1,BYTEWIDE
+	ANDI	R1,IDE_BSY*256
+	JNE	BSY2
+	RET
+
+;*******************************************************************
+;	IDE_WAIT_DRQ
+;*******************************************************************
+IDE_WAIT_DRQ:
+	SETO	R0
+	LI	PORT,IDE_STATUS
+DRQ1	DEC	R0
+	JEQ	DRQ_X
+	CLR	R1
+	STCR	R1,BYTEWIDE
+	ANDI	R1,IDE_DRQ*256
+	JEQ	DRQ1
+	MOV	R1,R0
+DRQ_X	RET
+
+;*******************************************************************
+;	IDE_WR_LBA - R5 = LBA value
+;*******************************************************************
+IDE_WR_LBA:
+	MOV	@LBA_HI,@LBA
+	MOV	R5,@LBA+2
+	ANDI	R1,0FH*256
+	ORI	R1,0E0H*256
+	LI	PORT,IDE_HEAD
+	LDCR	R1,BYTEWIDE
+	MOVB	@LBA+1,R1
+	LI	PORT,IDE_CYL_MSB
+	LDCR	R1,BYTEWIDE
+	MOVB	@LBA+2,R1
+	LI	PORT,IDE_CYL_LSB
+	LDCR	R1,BYTEWIDE
+	MOVB	@LBA+3,R1
+	LI	PORT,IDE_SECTOR
+	LDCR	R1,BYTEWIDE
+	LI	R1,1*256		;1 SECTOR COUNT IN MSB
+	LI	PORT,IDE_SEC_CNT
+	LDCR	R1,BYTEWIDE
+	RET
+
+;*******************************************************************
+;	IDE_READ_DATA - read IDE_BYTSEC (256) bytes from IDE to buffer
+;	Uses IDE_BYTSEC not BYTSEC - 8-bit interface reads 256 bytes per LBA
+;*******************************************************************
+;*******************************************************************
+; Private helpers used only by CMD 11
+;*******************************************************************
+RDBLK_SETLBA:
+	CLR	@LBA
+	MOV	R5,@LBA+2
+	MOV	R5,R1
+	ANDI	R1,0FH*256
+	ORI	R1,0E0H*256
+	LI	PORT,IDE_HEAD
+	LDCR	R1,BYTEWIDE
+	MOVB	@LBA+1,R1
+	LI	PORT,IDE_CYL_MSB
+	LDCR	R1,BYTEWIDE
+	MOVB	@LBA+2,R1
+	LI	PORT,IDE_CYL_LSB
+	LDCR	R1,BYTEWIDE
+	MOVB	@LBA+3,R1
+	LI	PORT,IDE_SECTOR
+	LDCR	R1,BYTEWIDE
+	LI	R1,0100H
+	LI	PORT,IDE_SEC_CNT
+	LDCR	R1,BYTEWIDE
+	RET
+
+RDBLK_READ256:
+	LI	R0,IDE_BYTSEC
+	LI	PORT,IDE_DATA
+RDBLK_BYTE:
+	STCR	R1,BYTEWIDE
+	MOVB	R1,*R4+
+	DEC	R0
+	JNE	RDBLK_BYTE
+	RET
+
+IDE_READ_DATA:
+	LI	R0,IDE_BYTSEC		;256 BYTES PER LBA
+	MOV	@BUFFER,R4
+	LI	PORT,IDE_DATA
+RDL	STCR	R1,BYTEWIDE
+	MOVB	R1,*R4+
+	DEC	R0
+	JNE	RDL
+	RET
+
+;*******************************************************************
+;	IDE_WRITE_DATA - write IDE_BYTSEC (256) bytes from buffer to IDE
+;	Uses IDE_BYTSEC not BYTSEC - 8-bit interface writes 256 bytes per LBA
+;*******************************************************************
+IDE_WRITE_DATA:
+	LI	R0,IDE_BYTSEC		;256 BYTES PER LBA
+	MOV	@BUFFER,R4
+	LI	PORT,IDE_DATA
+WDL	MOVB	*R4+,R1
+	LDCR	R1,BYTEWIDE
+	DEC	R0
+	JNE	WDL
+	RET
+
+;*******************************************************************
+;	Messages
+;*******************************************************************
+TXT_BANNER:	TEXT	"CMD:0=MEM 1=STAT 2=RD 3=WR 4=ID 5=ERS 6=DMP 7=HLP 8=INF 9=VRFY 10=INIT 11=RDBLK 12=MAP"
+		BYTE	0DH,0AH
+		TEXT	"PARAMS: 0502=CMD 0504=LBA_HI 0506=LBA_LO 0508=BUF 050A=SECS(def=1)"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_HELP:	TEXT	"IDEDEBUG - IDE_BYTSEC=256 (8-bit), BYTSEC=512 (BDOS)"
+		BYTE	0DH,0AH
+		TEXT	"  0=MEMDSK  WRITE MEM 0x1000 TO LBA 0 (32 SECTORS)"
+		BYTE	0DH,0AH
+		TEXT	"  1=STATUS  IDE STATUS REGISTER"
+		BYTE	0DH,0AH
+		TEXT	"  2=RDLBA   READ LBA TO BUFFER"
+		BYTE	0DH,0AH
+		TEXT	"  3=WRLBA   WRITE BUFFER TO LBA"
+		BYTE	0DH,0AH
+		TEXT	"  4=DRVID   IDENTIFY DRIVE"
+		BYTE	0DH,0AH
+		TEXT	"  5=ERASE   FILL 32 SECTORS WITH E5E5H"
+		BYTE	0DH,0AH
+		TEXT	"  6=DUMP    DUMP BUFFER"
+		BYTE	0DH,0AH
+		TEXT	"  7=HELP    THIS MESSAGE"
+		BYTE	0DH,0AH
+		TEXT	"  8=INFO    DRIVE INFO"
+		BYTE	0DH,0AH
+		TEXT	"  9=VERIFY  WRITE A5 PATTERN AND VERIFY (050A=SECS)"
+		BYTE	0DH,0AH
+		TEXT	"  10=INIT   RESET AND INITIALISE DRIVE PARAMETERS"
+		BYTE	0DH,0AH
+		TEXT	"  11=RDBLOCK READ+DUMP 4096-BYTE BLOCK (0506=BLOCK)"
+		BYTE	0DH,0AH
+		TEXT	"  12=DISKMAP PRINT SYSTEM LBA MAP (HEX)"
+		BYTE	0,0
+		EVEN
+TXT_DUMP_INDENT:
+		TEXT	"    "
+		BYTE	0
+		EVEN
+TXT_DUMP_GAP:
+		TEXT	" "
+		BYTE	0
+		EVEN
+TXT_BADCMD:	TEXT	"BAD CMD"
+		BYTE	0
+		EVEN
+TXT_STATUS:	TEXT	"IDE STATUS: "
+		BYTE	0
+		EVEN
+TXT_BSY:	TEXT	" BSY"
+		BYTE	0
+		EVEN
+TXT_DRDY:	TEXT	" DRDY"
+		BYTE	0
+		EVEN
+TXT_DWF:	TEXT	" DWF"
+		BYTE	0
+		EVEN
+TXT_DSC:	TEXT	" DSC"
+		BYTE	0
+		EVEN
+TXT_DRQ:	TEXT	" DRQ"
+		BYTE	0
+		EVEN
+TXT_ERR:	TEXT	" ERR"
+		BYTE	0
+		EVEN
+TXT_ERRREG:	TEXT	" ERRREG:"
+		BYTE	0
+		EVEN
+TXT_RDLBA:	TEXT	"RDLBA LBA:"
+		BYTE	0
+		EVEN
+TXT_WRLBA:	TEXT	"WRLBA LBA:"
+		BYTE	0
+		EVEN
+TXT_DRVID:	TEXT	"DRVID:"
+		BYTE	0
+		EVEN
+TXT_ERASE:	TEXT	"ERASE:32 SECTORS"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_DUMP:	TEXT	"DUMP:"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_OK:		TEXT	"OK"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_ERRMSG:	TEXT	"IDE ERROR:"
+		BYTE	0
+		EVEN
+TXT_COLON:	TEXT	":"
+		BYTE	0
+		EVEN
+TXT_MEMDSK:	TEXT	"MEM->DISK: 0x1000 TO LBA 0 (32 SECTORS)"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_MWRT:	TEXT	"WRITING:"
+		BYTE	0
+		EVEN
+TXT_MRDV:	TEXT	"VERIFYING:"
+		BYTE	0
+		EVEN
+TXT_VERIFY:	TEXT	"VERIFY FROM LBA:"
+		BYTE	0
+		EVEN
+TXT_VERWRT:	TEXT	"WRITING:"
+		BYTE	0
+		EVEN
+TXT_VERRD:	TEXT	"READING:"
+		BYTE	0
+		EVEN
+TXT_VERPASS:	TEXT	"VERIFY PASS"
+		BYTE	0
+		EVEN
+TXT_VERFAIL:	TEXT	"VERIFY FAIL ERRORS:"
+		BYTE	0
+		EVEN
+TXT_VERCNT:	TEXT	"SECTOR COUNT MUST BE 1-20"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_ERRS:	TEXT	" ERRORS"
+		BYTE	0
+		EVEN
+TXT_8BIT:	TEXT	"NOTE: 8-BIT INTERFACE - HIGH BYTES ONLY"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_MODEL:	TEXT	"MODEL:  "
+		BYTE	0
+		EVEN
+TXT_SERIAL:	TEXT	"SERIAL: "
+		BYTE	0
+		EVEN
+TXT_FWREV:	TEXT	"FW REV: "
+		BYTE	0
+		EVEN
+TXT_CYLS:	TEXT	"CYLS:"
+		BYTE	0
+		EVEN
+TXT_HEADS:	TEXT	" HEADS:"
+		BYTE	0
+		EVEN
+TXT_SECS:	TEXT	" SECS/TRK:"
+		BYTE	0
+		EVEN
+TXT_TOTAL:	TEXT	"TOTAL SECTORS:"
+		BYTE	0
+		EVEN
+TXT_INITSTART:  TEXT	"RESETTING & INITIALISING DRIVE..."
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_NL:		BYTE	0DH,0AH,0
+		EVEN
+
+TXT_DMAP_HDR:	TEXT	"SYSTEM DISK MAP (HEX LBAS):"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_DMAP_BOOT:	TEXT	"  BOOT:  0000 - 000F  (BLK 0)"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_DMAP_BAT:	TEXT	"  BAT:   0010 - 002F  (BLK 1-2)"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_DMAP_DIR:	TEXT	"  DIR:   0030 - 006F  (BLK 3-6)"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_DMAP_ALIAS:	TEXT	"  ALIAS: 0070 - 007F  (BLK 7)"
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_DMAP_DATA:	TEXT	"  DATA:  0080 - FFFF  (BLK 8+)"
+		BYTE	0DH,0AH,0
+		EVEN
+
+;*******************************************************************
+;	Working storage
+;*******************************************************************
+LBA:		BSS	4
+
+	END
