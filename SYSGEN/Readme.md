@@ -49,4 +49,9 @@ Use the ROM monitor's native commands to push the payload to memory, execute the
 >U     --> upload PAYLOAD65.HEX
 >500G  --> bootstrap OS onto disc
 >Q     --> Boot the OS
+
+>Q--Booting....
+Shell Version 6.3
+TMS99105 SBC V4 - Paged Memory
+%
 ```
