@@ -1,4 +1,3 @@
-# TMS9900/99105-Windows Based Cross Assembler
 ## TMS9900/99105A Single Board Computer
 
 ### A bit of history
