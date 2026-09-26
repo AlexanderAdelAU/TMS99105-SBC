@@ -3,12 +3,12 @@
 ![CPU](https://img.shields.io/badge/CPU-TMS99105-blue)
 ![Language](https://img.shields.io/badge/Language-Small--C%20%2B%20structs-green)
 ![Memory](https://img.shields.io/badge/Memory-64K%20paged%20to%201MB-orange)
-![Tests](https://img.shields.io/badge/Tests-237%20runtime%20checks%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-287%20runtime%20checks%20passing-brightgreen)
 
 SMALLC99 is a C compiler that runs **on** the TMS99105 SBC V4 and produces
 TMS9900 assembly for the SBC's own assembler (`R99`) and linker (`LINK99`).
 It descends from J. E. Hendrix's Small-C 2.2, and extends it with structures
-and unions, multi-level pointers, arrays of pointers, and error reporting.
+and unions, multi-level pointers, multi-dimensional arrays, and error reporting.
 
 The compiler is far larger than the 64K the processor can address, so it is
 built as a small **resident** part plus **overlays** that are swapped through
@@ -35,6 +35,7 @@ ALL POINTER TESTS PASSED
 | `LANGTEST_LANGUAGE.C` — the core language | 133 | all pass |
 | `STRUCTTEST.C` — structures and unions | 60 | all pass |
 | `PTRTEST.C` — pointers to pointers, arrays of pointers | 44 | all pass |
+| `ARRTEST.C` — multi-dimensional arrays | 50 | all pass |
 | `ERRTEST.C` — error reporting | 3 planted errors | all reported |
 
 ---
@@ -45,8 +46,12 @@ ALL POINTER TESTS PASSED
 
 - **Types:** `char`, `int`, `unsigned char`, `unsigned int` (16-bit);
   `struct` and `union`; pointers, including pointers to pointers (up to four
-  levels, e.g. `int ****p`); one-dimensional arrays, including arrays of
-  pointers (`char *words[10]`) and arrays of structs.
+  levels, e.g. `int ****p`).
+- **Arrays:** of any of the types above, with up to five dimensions
+  (`int m[3][4]`, `int c[2][3][4]`), as globals, locals, struct members and
+  parameters (`int a[][4]`). `m[i]` is the address of a row and can be passed
+  as an `int *`; arrays of pointers (`char *words[10]`, `char *t[2][2]`) and
+  arrays of structs (`struct pt grid[2][3]`) work in any number of dimensions.
 - **Structures and unions:** global and local variables, `.` and `->`,
   nesting, member arrays, self-referencing lists
   (`struct node { int v; struct node *next; }`), pointers to structs as
@@ -74,7 +79,6 @@ ALL POINTER TESTS PASSED
 
 | Feature | Notes |
 |---|---|
-| Multi-dimensional arrays | Designed (a row is treated as a sized element type); next after the code-generator work |
 | `long`, `float`, `double` | |
 | Casts, `typedef`, `enum` | |
 | `static`, `register` | |
@@ -90,7 +94,7 @@ ALL POINTER TESTS PASSED
 | Line length | 127 characters (longer lines are reported) |
 | String literals per function | 255 bytes |
 | Global symbols / local symbols | 140 / 25 |
-| Struct tags / struct members (all structs) | 16 / 40 |
+| Struct tags + row types / struct members (all structs) | 16 / 40 (a row type such as `int[4]` is one tag entry, shared by every array with that row) |
 | Nested calls between overlays | 16 (statement depth × expression depth) |
 
 ### Errors
@@ -147,7 +151,7 @@ per segment. SMALLC99 uses them like this:
 | 5 | `DFUN` — define function | Function headers and parameter declarations |
 | 6 | `CGEN` — code generator | Turns the compiler's p-codes into TMS9900 assembly from templates |
 | 7 | `CLI` — command line | Options and file names at start-up; error reports |
-| 8 | `STRD` — struct declarations | `struct`/`union` tags and member lists |
+| 8 | `STRD` — struct declarations | `struct`/`union` tags and member lists; the row types of multi-dimensional arrays |
 
 **Calling rules**
 
@@ -183,9 +187,9 @@ value:
 
 ```
 bits 7-6   extra pointer levels (0-3)
-bits 5-2   size (1 or 2) — or, for a struct, its tag number (0-15)
-bit  1     struct
-bit  0     unsigned
+bits 5-2   size (1 or 2) — or, for a struct or row, its tag number (0-15)
+bit  1     struct (or row)
+bit  0     unsigned — or, with bit 1, a ROW of a multi-dimensional array
 ```
 
 The symbol table's IDENT field supplies the first level of indirection
@@ -194,6 +198,13 @@ whose type is "char, one extra level", and `char *tab[5]` is an ARRAY of
 that same type. One resident routine, `elsize()`, gives the size of any type
 — 1 or 2 for scalars, 2 for any pointer, or the struct's size from the tag
 table — and every size calculation in the compiler goes through it.
+
+A multi-dimensional array is an array of **rows**. `int m[3][4]` is an ARRAY
+of 3 elements whose type is the row `int[4]`: a tag-table entry with no
+name, holding the row's size (8) and its element type (`int`). Subscripting
+to a row yields its address rather than a value, exactly as naming an array
+does, so `m[i][j]` is two ordinary subscripts and `m[i]` can be passed as an
+`int *`.
 
 ---
 
@@ -242,8 +253,8 @@ The regression suite built on it:
 
 - compiles 24 programs (the tests, fixtures and the compiler's own sources)
   and requires every `.A99` to be byte-identical to a reference;
-- assembles, links and runs `LANGTEST`, `STRUCTTEST` and `PTRTEST` in the
-  emulator.
+- assembles, links and runs `LANGTEST`, `STRUCTTEST`, `PTRTEST` and
+  `ARRTEST` in the emulator.
 
 Every change is proved there before it reaches the SBC; so far every result
 on the hardware has matched the emulator exactly.
@@ -274,7 +285,7 @@ on the hardware has matched the emulator exactly.
 2. **Self-hosting.** SMALLC99 already compiles all of its own sources without
    errors; once its code is dense enough, a stage-2 compiler built by
    SMALLC99 itself will replace smallcp for everyday builds.
-3. **Multi-dimensional arrays**, then `enum`, `typedef`, and structs phase 2.
+3. `enum`, `typedef`, casts, macros with arguments, and structs phase 2.
 
 ---
 
@@ -289,6 +300,7 @@ overlay architecture (the M3x series), then:
   console and in the output.
 - **Pointers to pointers and arrays of pointers** — pointer depth in the type
   byte; the compiler's own sources now compile under SMALLC99.
+- **Multi-dimensional arrays** — row types in the tag table.
 
 Along the way the host toolchain was fixed in several silent failure modes:
 link99 (code over 64K, external-plus-offset relocation, library-search
