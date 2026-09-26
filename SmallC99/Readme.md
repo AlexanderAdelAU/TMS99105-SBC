@@ -121,7 +121,7 @@ segment sit sixteen physical pages (1MB in total), selected by a map register
 per segment. SMALLC99 uses them like this:
 
 <p align="center">
-  <img src="docs/smallc99_memory_layout.svg" alt="SMALLC99 memory layout" width="600">
+  <img src="smallc99_memory_layout.svg" alt="SMALLC99 memory layout" width="600">
 </p>
 
 | Region | Contents |
@@ -135,7 +135,7 @@ per segment. SMALLC99 uses them like this:
 ### Overlays
 
 <p align="center">
-  <img src="docs/smallc99_overlay_table.svg" alt="SMALLC99 overlay table" width="680">
+  <img src="smallc99_overlay_table.svg" alt="SMALLC99 overlay table" width="680">
 </p>
 
 | ID | Overlay | Does |
