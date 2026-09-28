@@ -8,8 +8,9 @@ OVL_PREP    EQU 4		; M33: recycles the retired OVL_TESTB slot.
 ;			  was an empty table row. It now carries the CCC2
 ;			  preprocessor (CC_PREP.C) and its macro pools.
 OVL_DFUN 	EQU 5
-OVL_CGEN    EQU 6		; M35a: codegen back end (ccout + code[] table)
-OVL_CLI     EQU 7		; M36a r1: one-shot command-line parser overlay
+OVL_CGEN    EQU 6		; M38e: 2-page codegen (>8000 ccout/code[], >9000 templates)
+OVL_CLI     EQU 7
+OVL_STRD    EQU 8		; struct-declaration parser (CC_STRD, page 15)		; M36a r1: one-shot command-line parser overlay
 
 VEC_R_EXPR  EQU 02A8H
 VEC_R_STMT  EQU 02A2H
