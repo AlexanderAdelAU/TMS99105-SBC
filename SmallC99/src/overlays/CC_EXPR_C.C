@@ -52,7 +52,7 @@
 #define SIZE     3
 #define OFFSET   5
 #define NAME     7
-#define NAMESIZE 9
+#define NAMESIZE 16
 
 /* ---- values for IDENT ---- */
 #define LABEL    0
@@ -139,6 +139,7 @@
 #define SWAP12   70
 #define SWAP1s   71
 #define XOR12    73
+#define LSR12    74
 
 extern char *glbptr;
 extern char *lptr;
@@ -170,7 +171,7 @@ level1(is) int is[];  {
   else if(match("*="))  {oper = MUL12; oper2 = MUL12u;}
   else if(match("/="))  {oper = DIV12; oper2 = DIV12u;}
   else if(match("%="))  {oper = MOD12; oper2 = MOD12u;}
-  else if(match(">>=")) {oper =        oper2 = ASR12;}
+  else if(match(">>=")) {oper = ASR12; oper2 = LSR12;}
   else if(match("<<=")) {oper =        oper2 = ASL12;}
   else if(match("="))   {oper =        oper2 = 0;}
   else return k;
@@ -214,7 +215,7 @@ down2(oper, oper2, level, is, is2)
   if(is[TC]) {                    /* consant op unknown */
     if(down1(level, is2)) fetch(is2);
     if(is[CV] == 0) is[SA] = snext;
-    gen(GETw2n, is[CV] << doubl2(oper, is2, is));
+    gen(GETw2n, is[CV] * doubl2(oper, is2, is));
     }
   else {                          /* variable op unknown */
     gen(PUSH1, 0);                /* at start in the buffer */
@@ -224,17 +225,17 @@ down2(oper, oper2, level, is, is2)
       csp += BPW;                 /* adjust stack and */
       clearstage(before, 0);      /* discard the PUSH */
       if(oper == ADD12) {         /* commutative */
-        gen(GETw2n, is2[CV] << doubl2(oper, is, is2));
+        gen(GETw2n, is2[CV] * doubl2(oper, is, is2));
         }
       else {                      /* non-commutative */
         gen(MOVE21, 0);
-        gen(GETw1n, is2[CV] << doubl2(oper, is, is2));
+        gen(GETw1n, is2[CV] * doubl2(oper, is, is2));
         }
       }
     else {                        /* variable op variable */
       gen(POP2, 0);
-      if(doubl2(oper, is, is2)) gen(DBL1, 0);
-      if(doubl2(oper, is2, is)) gen(DBL2, 0);
+      scale1(doubl2(oper, is, is2));  /* x1, DBL1, or x struct size */
+      scale2(doubl2(oper, is2, is));
       }
     }
   if(oper) {
@@ -246,12 +247,17 @@ down2(oper, oper2, level, is, is2)
       }
     else {                                        /* variable result */
       gen(oper, 0);
-      if(oper == SUB12
-      && is [TA] >> 2 == BPW
-      && is2[TA] >> 2 == BPW) { /* difference of two word addresses */
-        gen(SWAP12, 0);
-        gen(GETw1n, 1);
-        gen(ASR12, 0);          /* div by 2 */
+      if(oper == SUB12 && is[TA] && is2[TA]
+      && elsize(is[TA]) > 1 && elsize(is[TA]) == elsize(is2[TA])) {
+        gen(SWAP12, 0);         /* difference of two word or   */
+        if(elsize(is[TA]) == BPW) {  /* struct addresses: divide */
+          gen(GETw1n, 1);       /* by the element size          */
+          gen(ASR12, 0);        /* div by 2                     */
+          }
+        else {
+          gen(GETw1n, elsize(is[TA]));
+          gen(DIV12, 0);
+          }
         }
       is[OP] = oper;            /* identify the operator */
       }
@@ -316,15 +322,52 @@ nosign(is) int is[]; {
 ** calcualte unsigned constant result
 */
 calc2(left, oper, right) unsigned left, right; int oper; {
-  switch(oper) {
-    case MUL12u: return (left  *  right);
-    case DIV12u: return (left  /  right);
-    case MOD12u: return (left  %  right);
-    case LE12u:  return (left  <= right);
-    case GE12u:  return (left  >= right);
-    case LT12u:  return (left  <  right);
-    case GT12u:  return (left  >  right);
-    }
+  /*
+  ** Do not implement the compiler's own constant folder with a C switch.
+  ** A switch here makes the RUNNING compiler call _ccswitc while it is
+  ** folding a source-level constant expression.  Keep target SWITCH codegen
+  ** separate; this is only internal compiler dispatch.
+  */
+  if(oper == MUL12u) return (left  *  right);
+  if(oper == DIV12u) return (left  /  right);
+  if(oper == MOD12u) return (left  %  right);
+  if(oper == LE12u)  return (left  <= right);
+  if(oper == GE12u)  return (left  >= right);
+  if(oper == LT12u)  return (left  <  right);
+  if(oper == GT12u)  return (left  >  right);
+  if(oper == LSR12)   return (left  >> right);
   return (0);
+  }
+
+/*
+** ==== Structures: scaling (moved here from CC_EXPR_A for space) ====
+*/
+/*
+** Scale the primary register (R4) by n, keeping the secondary (R3).
+** n = 1: nothing; n = 2: DBL1 as before; larger (a struct size): the
+** secondary is parked on the stack round a multiply.
+*/
+scale1(n) int n; {
+  if(n == 2) gen(DBL1, 0);
+  else if(n > 2) {
+    gen(SWAP12, 0);             /* R4 = the keeper, R3 = the value */
+    gen(PUSH1, 0);              /* park the keeper                 */
+    gen(SWAP12, 0);             /* R4 = the value again            */
+    gen(GETw2n, n);
+    gen(MUL12, 0);              /* R4 = value * n                  */
+    gen(POP2, 0);               /* R3 = the keeper                 */
+    }
+  }
+
+/*
+** The same for the secondary register (R3), keeping the primary.
+*/
+scale2(n) int n; {
+  if(n == 2) gen(DBL2, 0);
+  else if(n > 2) {
+    gen(SWAP12, 0);
+    scale1(n);
+    gen(SWAP12, 0);
+    }
   }
 

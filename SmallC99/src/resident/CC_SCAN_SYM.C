@@ -17,11 +17,11 @@
 #define NAME   7
 
 #define SYMAVG  12
-#define SYMMAX  16
+#define SYMMAX  23
 #define NUMLOCS 25
-#define NUMGLBS 200
-#define NAMEMAX 8
-#define NAMESIZE 9
+#define NUMGLBS 140
+#define NAMEMAX 15
+#define NAMESIZE 16
 
 #define STARTLOC symtab
 #define ENDLOC   (symtab + NUMLOCS * SYMAVG)
@@ -226,8 +226,19 @@ symname(sname) char *sname; {
   return 1;
   }
 
+/*
+** Report once per statement: ns() and the statement/function/line
+** boundaries clear errflag, so follow-on errors from the same fault are
+** suppressed.  The message itself is written by errrep() in the CLI
+** overlay (console + .A99), reached through R_ERROR: resident space is
+** too tight for the formatting.
+*/
+extern int errcnt;
 error(msg) char *msg; {
+  if(errflag) return;
   errflag = 1;
+  ++errcnt;
+  R_ERROR(msg);
   }
 
 /*
@@ -340,7 +351,9 @@ hash(sname) char *sname; {
   int i, c;
   i = 0;
   while(c = *sname++) i = (i << 1) + c;
-  return i;
+  /* 15-char names overflow a 16-bit int: keep the hash non-negative
+  ** so search() never indexes before STARTGLB */
+  return (i & 32767);
   }
 
 findglb(sname) char *sname; {

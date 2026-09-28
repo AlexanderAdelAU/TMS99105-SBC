@@ -13,10 +13,12 @@
         DXOP    RET,7
 
         EXT     OVLMGR_INIT
+        EXT     CUR_WINA_ID
         EXT     STUBINIT
 
 PORT_INIT:
         CALL    @OVLMGR_INIT
+        CLR     @CUR_WINA_ID
         CALL    @STUBINIT
         RET
 

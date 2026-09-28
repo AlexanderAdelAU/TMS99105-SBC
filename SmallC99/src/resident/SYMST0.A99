@@ -1,0 +1,16 @@
+;*******************************************************************
+; SYMST0.A99 -- M38h first half of resident Small-C symbol storage
+;
+; The 15-character symbol contract needs 5175 bytes:
+;   25 locals * 23 + 200 globals * 23 = 5175.
+;
+; A single 5175-byte BSS object would make one R99 module exceed the
+; 4KB module ceiling.  Keep the store contiguous but split it across
+; two explicitly adjacent resident modules.  This first chunk is even
+; sized so SYMST1 begins immediately after it with no alignment hole.
+;*******************************************************************
+
+        ENT     symtab
+symtab:
+        BSS     3000
+        END

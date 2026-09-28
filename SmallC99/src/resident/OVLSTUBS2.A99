@@ -107,39 +107,34 @@ TRPANIC:
 ;  Call once at startup, after OVLMGR_INIT, before any overlay code
 ;  runs.
 ;*******************************************************************
-;  M38g: THE VECTOR TABLE WRITES ARE GONE.
-;
-;  VEC_R_* were >02A2 to >02B4 in OVLDEFS.INC.  SHELL V6.3 owns
-;  >02A0 to >02FF and keeps its own page bookkeeping there:
-;
-;      OVL_PRINT_VEC  02A0    OVL_COUNT      02A2
-;      OVL_PAGE_TAB   02A4    OVL_SEG_TAB    02C4
-;      OVL_CURR_ID    02E4    OVL_CURR_SEG   02E6
-;      LGATE/RGATE/BGATE  02E8 onwards
-;
-;  So STUBINIT was overwriting the shell's OVL_COUNT and the first
-;  sixteen words of its OVL_PAGE_TAB on every run, and the shell's
-;  loader was writing back over our vectors on every launch.  After
-;  the compiler exited, the shell's page table held trampoline
-;  addresses, so the NEXT program launch mapped whatever those
-;  numbers happened to mean.  That is the cumulative, boot-clearable
-;  corruption: compiles failing after earlier compiles, faults in
-;  overlay pages at addresses unrelated to any source change.
-;
-;  Nothing in this build ever READ the table: every trampoline is
-;  reached through a linker-resolved reference (chain lint shows
-;  R_STMT = 16A4, R_TEST = 1864, R_CEXPR = 18E4 and so on).  The
-;  only readers are in src/old_working_skeleton, which is not built.
-;  So the writes are simply removed rather than relocated.
-;
-;  DO NOT reinstate them at >02A2.  If indirect dispatch is ever
-;  needed again, the table must live in the compiler's own resident
-;  image: segments 1-7 hold this program's pages while the overlay
-;  window is mapped, so overlay code can reach a resident table
-;  perfectly well.  Common memory >0000-0FFF is fully spoken for.
 STUBINIT:
 	LI	R0,TRSTACK
 	MOV	R0,@TRSP
+	LI	R0,R_STMT
+	MOV	R0,@VEC_R_STMT
+;  M30: R_DECL retired -- decl() is RESIDENT (CC_RESIDENT.C), so
+;  declloc() reaches it with an ordinary call and DREL no longer
+;  emits D_DECL. The vector stays populated, aimed at TRPANIC:
+;  stale overlay code calling through it dies loudly (>DEAD),
+;  not silently into whatever the word held.
+	LI	R0,TRPANIC
+	MOV	R0,@VEC_R_DECL
+	LI	R0,R_PREP
+	MOV	R0,@VEC_R_PREP
+	LI	R0,R_DEFINE
+	MOV	R0,@VEC_R_DEF
+	LI	R0,R_CCOUT
+	MOV	R0,@VEC_R_CCOUT
+	LI	R0,R_SETCODES
+	MOV	R0,@VEC_R_SETCODES
+	LI	R0,R_TEST
+	MOV	R0,@VEC_R_TEST
+	LI	R0,R_EXPR
+	MOV	R0,@VEC_R_EXPR
+	LI	R0,R_CEXPR
+	MOV	R0,@VEC_R_CEXPR
+	LI	R0,R_STR
+	MOV	R0,@VEC_R_STR
 	RET
 
 ;*******************************************************************
@@ -387,65 +382,6 @@ RSET1:
 ;  R_TEST - reached via VEC_R_TEST by doif()/dowhile()/dofor()
 ;  (OVL_STMT) to reach test() (OVL_EXPR) and resume safely.
 ;*******************************************************************
-R_ERROR:
-;*******************************************************************
-;  R_ERROR(msg) - framed trampoline to errrep() in the CLI overlay
-;  (OVL_CLI, page 12 at segment A).  error() calls it from anywhere,
-;  with any overlay mapped; the caller's overlay is restored after.
-;*******************************************************************
-	MOV	@TRSP,R2
-	CI	R2,TRSTKEND
-	JL	RERR1
-	B	@TRPANIC
-RERR1:
-	MOV	*SP+,*R2+
-	MOV	@CUR_WINA_ID,*R2+
-	MOV	R2,@TRSP
-	LI	R1,OVL_CLI
-	CALL	@OVLMGR
-	CALL	@P_ERRREP
-	MOV	@TRSP,R2
-	DECT	R2
-	MOV	*R2,R1
-	DECT	R2
-	MOV	R2,@TRSP
-	CALL	@OVLMGR
-	MOV	@TRSP,R2
-	DECT	SP
-	MOV	*R2,*SP
-	RET
-
-R_STRUCT:
-;*******************************************************************
-;  R_STRUCT(isunion, outer) - framed trampoline to dostruct() in the
-;  struct-declaration overlay (OVL_STRD).  Called by DECL now, and by
-;  STMT/DFUN for local and parameter declarations.  Same pattern as
-;  R_TEST: the return word moves to TRSTACK so the callee finds its
-;  arguments where a plain call leaves them; the caller's overlay is
-;  restored afterwards.  The type code comes back in R4.
-;*******************************************************************
-	MOV	@TRSP,R2
-	CI	R2,TRSTKEND
-	JL	RSTC1
-	B	@TRPANIC
-RSTC1:
-	MOV	*SP+,*R2+
-	MOV	@CUR_WINA_ID,*R2+
-	MOV	R2,@TRSP
-	LI	R1,OVL_STRD
-	CALL	@OVLMGR
-	CALL	@T_STRUCT
-	MOV	@TRSP,R2
-	DECT	R2
-	MOV	*R2,R1
-	DECT	R2
-	MOV	R2,@TRSP
-	CALL	@OVLMGR
-	MOV	@TRSP,R2
-	DECT	SP
-	MOV	*R2,*SP
-	RET
-
 R_TEST:
 	MOV	@TRSP,R2
 	CI	R2,TRSTKEND
@@ -610,8 +546,6 @@ RSTR1:
 	ENT	R_CODEON
 	ENT	R_STMT
 	ENT	R_TEST
-	ENT	R_STRUCT
-	ENT	R_ERROR
 	ENT	R_EXPR
 	ENT	R_CEXPR
 	ENT	R_EXPRVAL

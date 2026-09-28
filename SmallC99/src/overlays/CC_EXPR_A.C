@@ -52,7 +52,7 @@
 #define SIZE     3
 #define OFFSET   5
 #define NAME     7
-#define NAMESIZE 9
+#define NAMESIZE 16
 
 /* ---- values for IDENT ---- */
 #define LABEL    0
@@ -139,6 +139,7 @@
 #define SWAP12   70
 #define SWAP1s   71
 #define XOR12    73
+#define LSR12    74
 
 extern char *glbptr;
 extern char *lptr;
@@ -157,6 +158,79 @@ extern int opindex;
 extern int opsize;
 extern int *snext;
 /***************** lead-in functions *******************/
+
+/*
+** ==== Structures (phase 1): tag and member lookup ====
+** Tables live in CC_DATA (resident); elsize() is in CC_STRU (resident).
+** These two live here because only expressions look members up.
+** A struct type code is (tag index << 2) | STRUCTBIT.
+*/
+extern char tagtab[];
+extern char memtab[];
+extern int ntags;
+#define STRUCTBIT 2
+#define TAGSIZ   20     /* tagtab record: name[16] size[2] first count */
+#define TAGFIRST 18
+#define TAGCNT   19
+#define SYMMAX   23
+#define NAMEMAX  15
+
+/*
+** s.m (arrow 0) or p->m (arrow 1), called by level14 after the "." or
+** "->".  k is the lvalue flag so far.  The struct's address is put in
+** the primary register, the member's offset added, and the member is
+** left as an lvalue exactly as a subscript leaves an element, so fetch,
+** store, &, ++ and further [ . -> work unchanged.  is[ST] becomes the
+** member's record, which has the global-symbol layout.
+*/
+member(is, k, arrow) int is[], k, arrow; {
+  int t, off;
+  char *ptr, *m, mname[NAMESIZE];
+  ptr = is[ST];
+  if(arrow) {                       /* pointer (or array) to struct */
+    t = is[TA];
+    if((t & STRUCTBIT) && k) fetch(is);
+    }
+  else {                            /* a struct object */
+    t = is[TI];
+    if(t == 0 && ptr) {             /* global struct: address it */
+      t = ptr[TYPE];
+      if((t & STRUCTBIT) && ptr[IDENT] == VARIABLE) gen(POINT1m, ptr);
+      else t = 0;
+      }
+    }
+  if(symname(mname) == 0) {
+    illname();
+    return 0;
+    }
+  if((t & 0xC3) != STRUCTBIT) {     /* a struct: depth 0, not a row */
+    error(arrow ? "need struct pointer" : "need struct");
+    return 0;
+    }
+  if((m = findmemb((t >> 2) & 15, mname)) == 0) {
+    error("not a member");
+    return 0;
+    }
+  if(off = getint(m + OFFSET, 2)) {
+    gen(GETw2n, off);
+    gen(ADD12, 0);
+    }
+  is[ST] = m;
+  is[TC] = is[CV] = 0;
+  if(m[IDENT] == ARRAY) {           /* an address, not an lvalue */
+    is[TI] = is[TA] = m[TYPE];
+    return 0;
+    }
+  if(m[IDENT] == POINTER) {
+    is[TI] = UINT;
+    is[TA] = m[TYPE];
+    return 1;
+    }
+  is[TI] = m[TYPE];
+  is[TA] = 0;
+  return 1;
+  }
+
 
 constexpr(val) int *val; {
   int const;
@@ -214,23 +288,28 @@ level13(is)  int is[];  {
     }
   else if(match("*")) {             /* unary * */
     if(level13(is)) fetch(is);
-    if(ptr = is[ST]) is[TI] = ptr[TYPE];
-    else             is[TI] = INT;
+    if(is[TA])            k = lvtype(is, is[TA]);  /* what it points at */
+    else if(ptr = is[ST]) k = lvtype(is, ptr[TYPE]);
+    else                  k = lvtype(is, INT);
     is[SA] =       /* no (op 0) stage address */
-    is[TA] =       /* not an address */
     is[TC] = 0;    /* not a constant */
     is[CV] = 1;    /* omit fetch() on func call */
-    return 1;
+    return k;      /* 0 if it points at a row (an array) */
     }
   else if(amatch("sizeof", 6)) {    /* sizeof() */
-    int sz, p;  char *szptr, sname[NAMESIZE];
+    int sz, p, tg;  char *szptr, sname[NAMESIZE];
     if(match("(")) p = 1;
     else           p = 0;
     sz = 0;
     if     (amatch("unsigned", 8))  sz = BPW;
     if     (amatch("int",      3))  sz = BPW;
     else if(amatch("char",     4))  sz = 1;
-    if(sz) {if(match("*"))          sz = BPW;}
+    else if(amatch("struct", 6) || amatch("union", 5)) {
+      if(symname(sname) && (tg = findtag(sname)))
+        sz = elsize(((tg - 1) << 2) | STRUCTBIT);
+      else error("unknown struct");
+      }
+    if(sz) {if(match("*")) {sz = BPW; while(match("*"));}}
     else if(symname(sname)
          && ((szptr = findloc(sname)) ||
              (szptr = findglb(sname)))
@@ -249,7 +328,13 @@ level13(is)  int is[];  {
       return 0;
       }
     ptr = is[ST];
-    is[TA] = ptr[TYPE];
+    /* the address type is the addressed object's type: a pointer object
+    ** (TI UINT with a pointee) is one level more than what it points at
+    ** - &p for char *p is a char ** - otherwise as before */
+    if(is[TI] == UINT && is[TA]) is[TA] = is[TA] + 64;
+    else if(is[TI])              is[TA] = is[TI];
+    else if(ptr[IDENT] == POINTER) is[TA] = ptr[TYPE] + 64;
+    else                         is[TA] = ptr[TYPE];
     if(is[TI]) return 0;
     gen(POINT1m, ptr);
     is[TI] = ptr[TYPE];
@@ -277,33 +362,4 @@ level13(is)  int is[];  {
     }
   }
 
-/*
-** test primary register against zero and jump if false
-*/
-zerojump(oper, label, is) int oper, label, is[]; {
-  clearstage(is[SA], 0);       /* purge conventional code */
-  gen(oper, label);
-  }
-
-experr() {
-  error("invalid expression");
-  gen(GETw1n, 0);
-  skip();
-  }
-
-store(is)  int is[]; {
-  char *ptr;
-  if(is[TI]) {                    /* putstk */
-    if(is[TI] >> 2 == 1)
-         gen(PUTbp1, 0);
-    else gen(PUTwp1, 0);
-    }
-  else {                          /* putmem */
-    ptr = is[ST];
-    if(ptr[IDENT] != POINTER
-    && ptr[TYPE] >> 2 == 1)
-         gen(PUTbm1, ptr);
-    else gen(PUTwm1, ptr);
-    }
-  }
 

@@ -19,7 +19,7 @@
 **     [15] MOD12                    level12  down("* / %",     13)
 **
 ** op2[] differs from op[] only where signedness changes the p-code:
-** the four comparisons and the three multiplicative operators.
+** the four comparisons, unsigned right shift, and the three multiplicative operators.
 ** down2() selects between them on the operand types.
 **
 ** DO NOT REORDER EITHER TABLE. The indices are the level dispatch's
@@ -57,6 +57,7 @@
 #define OR12     57
 #define SUB12    69
 #define XOR12    73
+#define LSR12    74   /* logical shift right for unsigned operands */
 
 int op[16] = {          /* p-codes of signed binary operators */
   OR12,                         /* level5  */
@@ -75,7 +76,7 @@ int op2[16] = {         /* p-codes of unsigned binary operators */
   AND12,                        /* level7  */
   EQ12,   NE12,                 /* level8  */
   LE12u,  GE12u, LT12u, GT12u,  /* level9  */
-  ASR12,  ASL12,                /* level10 */
+  LSR12,  ASL12,                /* level10: unsigned >> is logical */
   ADD12,  SUB12,                /* level11 */
   MUL12u, DIV12u, MOD12u        /* level12 */
   };
@@ -86,7 +87,7 @@ int usexpr = 1;         /* Hendrix YES: expression value is used */
 
 char quote[2];          /* one-character string, set up by ccinit */
 
-char symtab[3500];
+char symtab[3520];
 
 char *glbptr;
 char *locptr;
@@ -120,6 +121,7 @@ char *cptr3;
 int declared = -1;
 int ncmp;
 int swactive;
+int stmtovlinit;       /* 0 until OVL_STMT page-2 state is initialised */
 
 /*
 ** ==== M33: preprocessor state ====
@@ -149,5 +151,26 @@ int outunit;            /* M35c generated-output file unit; used by SPYOUT.A99 *
 int oldseg;            /* M37a current 8086 output segment */
 
 
-char srcbuf[128];
+/* srcbuf[128] removed: it had no references anywhere in the active build. */
 char litq[256];
+
+/*
+** ==== Structures (phase 1) ====
+** tagtab: NUMTAGS x TAGSIZ   name[16], size (2, low byte first),
+**                            first member (1), member count (1)
+** memtab: NUMMEMB x SYMMAX   member records in global-symbol format:
+**                            IDENT TYPE CLASS(=owner tag) SIZE OFFSET NAME
+** A struct type code is (tag index << 2) | STRUCTBIT; see elsize().
+*/
+/*
+** Sized to leave the run-time heap (FREEMEM..>8000) at least ~1,800 bytes:
+** the compiler needs ~1,700 for its three file buffers when an #include is
+** open, and silently drops the include below that.
+*/
+char tagtab[320];       /* NUMTAGS 16 x TAGSIZ 20 */
+char memtab[920];       /* NUMMEMB 40 x SYMMAX 23 */
+int ntags;
+int nmembs;
+
+int errcnt;             /* errors reported (error(), CC_CL99 errrep) */
+int lineno;             /* primary-source line number (CC_PREP inline) */

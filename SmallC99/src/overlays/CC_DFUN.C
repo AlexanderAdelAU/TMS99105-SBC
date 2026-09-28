@@ -54,7 +54,7 @@
 	#define REFm     66
 	#define RETURN   67
 
-	#define NAMESIZE  9
+	#define NAMESIZE  16
 	#define STARTLOC  symtab
 
 	extern char symtab[];
@@ -167,6 +167,14 @@
 	        }
 	      ns();
 	      }
+	    else if(amatch("struct", 6)) {     /* parser is OVL_STRD */
+	      doargs(R_STRUCT(0, 1));
+	      ns();
+	      }
+	    else if(amatch("union", 5)) {
+	      doargs(R_STRUCT(1, 1));
+	      ns();
+	      }
 	    else {
 	      error("wrong number of arguments");
 	      break;
@@ -190,16 +198,20 @@
 	** Declare argument types.
 	*/
 	doargs(type) int type; {
-	  int id, sz;
+	  int id, sz, t;
 	  char *ptr;
 
 	  while(1) {
 	    if(argstk == 0) return;
 
-	    if(decl(type, POINTER, &id, &sz)) {
+	    t = type;                 /* per declarator: char *a, b; */
+	    if(decl(&t, POINTER, &id, &sz)) {
+	      if(id == POINTER) t = R_STRUCT(2, t);  /* int m[][4]: rows */
+	      if((t & 0xC2) == 2 && id == VARIABLE)  /* a struct, not ptr */
+	        error("pass structs by pointer");
 	      if(ptr = findloc(ssname)) {
 	        ptr[IDENT] = id;
-	        ptr[TYPE]  = type;
+	        ptr[TYPE]  = t;
 	        putint(sz, ptr + SIZE, 2);
 	        putint(argtop - getint(ptr + OFFSET, 2),
 	               ptr + OFFSET, 2);

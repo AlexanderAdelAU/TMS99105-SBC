@@ -16,10 +16,11 @@
 ;    >C000        shell / monitor
 ;
 ;  There is no separate window B. All paged code uses segments 8..11.
-;  Nestable overlays own the logical window through segment 8. CUR_WINA_ID
-;  records that segment-8 owner, and framed stubs save/restore that one ID.
-;  OVL_CGEN therefore maps its two pages at segments 8..9 (>8000/>9000); it
-;  must not be placed only at segments 10..11 while another overlay owns 8.
+;  Most overlays begin at segment 8; OVL_CGEN is deliberately a partial
+;  two-page service overlay at segments 10..11 (>A000/>B000). R_CCOUT and
+;  R_SETCODES save the segment-8 owner and the caller return word before
+;  mapping CGEN, then remap that owner before returning. This is what makes
+;  replacing expression pages 3/4 safe while codegen runs.
 ;
 ;  MAP_WIN_BASE (>80C0) is a CRU address and is unrelated to memory
 ;  segment 8. It does not move.
@@ -53,6 +54,8 @@
 	DXOP	PSEL_EN,1
 	DXOP	CALL,6
 	DXOP	RET,7
+	DXOP	WHEX,10
+	DXOP	MESG,14
 
 R0	EQU	0
 R1	EQU	1
@@ -96,8 +99,10 @@ CURRENT_ID:
 	WORD	0,0,0,0,0,0,0,0
 
 ;--- the segment-8/window-A owner ID, as a real data word OVLSTUBS can EXT.
-;    This is the single logical owner saved/restored by framed overlay stubs.
-;    Every nestable overlay must therefore begin at segment 8. ---
+;    For overlays beginning at segment 8 this is the ID of the whole set.
+;    Partial service overlays such as OVL_CGEN (segments 10..11) deliberately
+;    do NOT replace it: their trampolines need the saved segment-8 owner in
+;    order to restore the caller after CGEN temporarily replaces upper pages. ---
 CUR_WINA_ID:
 	WORD	0
 

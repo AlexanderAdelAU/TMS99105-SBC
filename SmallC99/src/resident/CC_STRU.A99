@@ -1,0 +1,56 @@
+;*******************************************************************
+; CC_STRU.A99 - resident struct helper (phase 1), hand-coded for size.
+;
+; elsize(type) - element size of a type code, returned in R4.
+;   char/int types:  type >> 2          (CHR 4 -> 1, INT 8 -> 2)
+;   pointer depth:   bits 6-7 non-zero -> 2 (the element is a pointer)
+;   struct types:    bit 1 (STRUCTBIT) set, tag index in bits 2-5;
+;                    the size is the tag table's size field
+;                    (tagtab + tag*20 + 16, stored low byte first).
+; Every "type >> 2 used as a size" in the compiler calls this.  It is
+; resident because every overlay needs it, and assembly because the
+; resident part and the run-time heap above it share the space below
+; >8000: the C version cost ten times as much.
+; Uses R1 and R4 only; the argument is at 2(SP).
+;*******************************************************************
+	DXOP	CALL,6
+	DXOP	RET,7
+R1	EQU	1
+R4	EQU	4
+SP	EQU	10
+STRUCTBIT EQU	2
+TAGSZ	EQU	16
+
+	EXT	tagtab
+
+elsize:	MOV	@2(SP),R4
+	ANDI	R4,0FFH			; a type is a byte: symbol TYPE fields
+					; read as signed chars (depth 2-3 set bit 7)
+	MOV	R4,R1
+	ANDI	R1,0C0H		; pointer depth (bits 6-7)?
+	JEQ	ELNPTR
+	LI	R4,2			; yes: the element is a pointer
+	RET
+ELNPTR:	COC	@STBIT,R4		; struct type?
+	JEQ	ELSTR
+	SRA	R4,2			; no: size is in bits 2-7
+	RET
+ELSTR:	SRL	R4,2			; tag index (bits 2-5)
+	ANDI	R4,15
+	MOV	R4,R1
+	SLA	R1,2			; tag*4
+	SLA	R4,4			; tag*16
+	A	R1,R4			; tag*20
+	AI	R4,tagtab		; (external+offset in one operand
+	AI	R4,TAGSZ		;  lost the offset: keep them apart)
+	CLR	R1
+	MOVB	*R4+,R1			; low byte
+	SWPB	R1
+	MOVB	*R4,R1			; high byte
+	MOV	R1,R4
+	RET
+
+STBIT:	WORD	STRUCTBIT
+
+	ENT	elsize
+	END

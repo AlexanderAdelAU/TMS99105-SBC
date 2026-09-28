@@ -8,12 +8,12 @@ R11     EQU     11
 WP      EQU     13
 BPROBE:
         STWP    WP
-        MOVB    @2*R3+1(WP),*R4
-        MOVB    @2*R3+1(WP),@BDEST
-        MOVB    *R4,R3
-        SRL     R3,8
-        MOVB    *R4,R3
-        SRA     R3,8
+        MOVB    @2*R4+1(WP),*R3
+        MOVB    @2*R4+1(WP),@BDEST
+        MOVB    *R3,R4
+        SRL     R4,8
+        MOVB    *R3,R4
+        SRA     R4,8
         MOV     *SP+,R3
         B       *R11
 BDEST   BYTE    0

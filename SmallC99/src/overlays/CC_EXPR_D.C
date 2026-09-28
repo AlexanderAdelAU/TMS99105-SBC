@@ -52,7 +52,7 @@
 #define SIZE     3
 #define OFFSET   5
 #define NAME     7
-#define NAMESIZE 9
+#define NAMESIZE 16
 
 /* ---- values for IDENT ---- */
 #define LABEL    0
@@ -139,6 +139,7 @@
 #define SWAP12   70
 #define SWAP1s   71
 #define XOR12    73
+#define LSR12    74
 
 extern char *glbptr;
 extern char *lptr;
@@ -172,7 +173,7 @@ primary(is)  int *is; {
         return 0;
         }
       k = getint(ptr+OFFSET, 2);
-      if(ptr[IDENT] == VARIABLE && (ptr[TYPE] >> 2) == 1)
+      if(ptr[IDENT] == VARIABLE && elsize(ptr[TYPE]) == 1)
         ++k;                /* TMS: a scalar char lives in the LSB */
                             /* of its word (cc6 getloc +1); aim     */
                             /* POINT1s at the odd byte. Arrays and   */
@@ -269,32 +270,42 @@ callfunc(ptr)  char *ptr; {      /* symbol table entry or 0 */
 ** calcualte signed constant result
 */
 calc(left, oper, right) int left, oper, right; {
-  switch(oper) {
-    case ADD12: return (left  +  right);
-    case SUB12: return (left  -  right);
-    case MUL12: return (left  *  right);
-    case DIV12: return (left  /  right);
-    case MOD12: return (left  %  right);
-    case EQ12:  return (left  == right);
-    case NE12:  return (left  != right);
-    case LE12:  return (left  <= right);
-    case GE12:  return (left  >= right);
-    case LT12:  return (left  <  right);
-    case GT12:  return (left  >  right);
-    case AND12: return (left  &  right);
-    case OR12:  return (left  |  right);
-    case XOR12: return (left  ^  right);
-    case ASR12: return (left  >> right);
-    case ASL12: return (left  << right);
-    }
+  /*
+  ** Internal compiler constant folding must not depend on the target switch
+  ** helper.  LG13 reaches this path for the first binary global constant
+  ** expression.  Straight dispatch preserves the CCC3 semantics while
+  ** avoiding an internal _ccswitc call from this overlay page.
+  */
+  if(oper == ADD12) return (left  +  right);
+  if(oper == SUB12) return (left  -  right);
+  if(oper == MUL12) return (left  *  right);
+  if(oper == DIV12) return (left  /  right);
+  if(oper == MOD12) return (left  %  right);
+  if(oper == EQ12)  return (left  == right);
+  if(oper == NE12)  return (left  != right);
+  if(oper == LE12)  return (left  <= right);
+  if(oper == GE12)  return (left  >= right);
+  if(oper == LT12)  return (left  <  right);
+  if(oper == GT12)  return (left  >  right);
+  if(oper == AND12) return (left  &  right);
+  if(oper == OR12)  return (left  |  right);
+  if(oper == XOR12) return (left  ^  right);
+  if(oper == ASR12) return (left  >> right);
+  if(oper == ASL12) return (left  << right);
   return (calc2(left, oper, right));
   }
 
 fetch(is) int is[]; {
   char *ptr;
   ptr = is[ST];
+  if((is[TI] & 2)                                /* STRUCTBIT: a whole */
+  || (is[TI] == 0 && ptr[IDENT] != POINTER       /* struct as a value  */
+      && (ptr[TYPE] & 2))) {
+    error("struct used as value");
+    return;
+    }
   if(is[TI]) {                                   /* indirect */
-    if(is[TI] >> 2 == BPW)     gen(GETw1p,  0);
+    if(elsize(is[TI]) == BPW)  gen(GETw1p,  0);
     else {
       if(ptr[TYPE] & UNSIGNED) gen(GETb1pu, 0);
       else                     gen(GETb1p,  0);
@@ -302,7 +313,7 @@ fetch(is) int is[]; {
     }
   else {                                         /* direct */
     if(ptr[IDENT] == POINTER
-    || ptr[TYPE] >> 2 == BPW)  gen(GETw1m,  ptr);
+    || elsize(ptr[TYPE]) == BPW) gen(GETw1m,  ptr);
     else {
       if(ptr[TYPE] & UNSIGNED) gen(GETb1mu, ptr);
       else                     gen(GETb1m,  ptr);
@@ -320,3 +331,41 @@ level9 (is) int is[]; {return down("<= >= < >",    5, level10, is);}
 level10(is) int is[]; {return down(">> <<",        9, level11, is);}
 level11(is) int is[]; {return down("+ -",         11, level12, is);}
 level12(is) int is[]; {return down("* / %",       13, level13, is);}
+
+/* store() moved here from CC_EXPR_A for space (pointer work) */
+#define STRUCTBIT 2
+/*
+** test primary register against zero and jump if false
+*/
+zerojump(oper, label, is) int oper, label, is[]; {
+  clearstage(is[SA], 0);       /* purge conventional code */
+  gen(oper, label);
+  }
+
+experr() {
+  error("invalid expression");
+  gen(GETw1n, 0);
+  skip();
+  }
+
+store(is)  int is[]; {
+  char *ptr;
+  ptr = is[ST];
+  if((is[TI] & STRUCTBIT)
+  || (is[TI] == 0 && ptr && ptr[IDENT] != POINTER && (ptr[TYPE] & STRUCTBIT))) {
+    error("can't assign a struct");
+    return;
+    }
+  if(is[TI]) {                    /* putstk */
+    if(elsize(is[TI]) == 1)
+         gen(PUTbp1, 0);
+    else gen(PUTwp1, 0);
+    }
+  else {                          /* putmem */
+    ptr = is[ST];
+    if(ptr[IDENT] != POINTER
+    && elsize(ptr[TYPE]) == 1)
+         gen(PUTbm1, ptr);
+    else gen(PUTwm1, ptr);
+    }
+  }

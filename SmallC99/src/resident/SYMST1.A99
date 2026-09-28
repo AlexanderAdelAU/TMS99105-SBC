@@ -1,0 +1,12 @@
+;*******************************************************************
+; SYMST1.A99 -- M38h second half of resident Small-C symbol storage
+;
+; Must be linked immediately after SYMST0.R99.  3000 + 2176 = 5176,
+; one byte more than the 5175 bytes used by the compiler.  The spare
+; byte preserves an even module boundary; it is never part of ENDGLB.
+;*******************************************************************
+
+        ENT     symtab2
+symtab2:
+        BSS     2176
+        END

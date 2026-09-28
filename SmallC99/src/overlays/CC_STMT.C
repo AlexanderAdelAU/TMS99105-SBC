@@ -81,7 +81,7 @@
 
 #define AUTOMATIC 1
 
-#define NAMESIZE  9
+#define NAMESIZE  16
 
 #define ADDSP     2
 #define WORDn    38
@@ -110,9 +110,11 @@ extern int noloc;
 extern int declared;    /* # local bytes pending, -1 when flushed */
 extern int ncmp;        /* # open compound statements             */
 extern int swactive;    /* inside a switch?                       */
+extern int stmtovlinit;  /* resident first-use flag for page 2      */
 extern int swdefault;   /* default label #, else 0                */
 extern int *swnext;     /* next free (label,value) slot in swstab */
-extern int *swend;      /* last valid slot start (see CC_DATA)    */
+extern int *swend;      /* last valid slot start (see CC_STMT_R)  */
+extern int swstab[];    /* page 2 of OVL_STMT at >9000            */
 
 extern char *locptr;
 extern char *lptr;
@@ -121,15 +123,16 @@ extern char *cptr2;
 extern char ssname[];
 
 /*
-** ==== M32b: SEVEN FUNCTIONS RELOCATED TO CC_RESIDENT.C ====
+** ==== STATEMENT SERVICES LIVE IN OVL_STMT PAGE 2 (>9000) ====
 **
 ** doexpr, dobreak, docont, dogoto, dolabel, addlabel and dodefault
-** now live resident. The M32 switch trio pushed this module to
+** live in CC_STMT_R, now the second page of this same overlay.  The M32
+** switch trio originally pushed this first module to
 ** 0x12A0 = 4768 bytes, 672 past its 4KB page (DREL spec 2.5,
 ** SEGMENT OVERRUN). These seven are the page-independent leaves --
 ** each calls only resident services, never a same-page sibling --
-** so they join kill/illname/multidef/needsub/decl below the
-** window. Calls from this page resolve as clean EXTs; do NOT add
+** so they remain split from this first page. Calls from this page
+** resolve as clean EXTs into >9000; do NOT add
 ** "extern" declarations for them (see the CC_EXPR header).
 **
 ** Pure relocation: zero p-code changes, all blessed logs valid.
@@ -147,6 +150,15 @@ extern char ssname[];
 */
 statement()
 {
+    /* Initialise page-2 switch state once per compiler run.  The flag
+       stays resident, so this does not depend on paged RAM being zeroed. */
+    if(stmtovlinit == 0) {
+        swdefault = 0;
+        swnext = swstab;
+        swend = swstab + 178;
+        stmtovlinit = 1;
+    }
+
     if(ch == 0 && eof)
         return lastst;
 
@@ -168,6 +180,14 @@ statement()
             declloc(UINT);
             ns();
         }
+    }
+    else if(amatch("struct", 6)) {      /* parser is OVL_STRD */
+        declloc(R_STRUCT(0, 1));
+        ns();
+    }
+    else if(amatch("union", 5)) {
+        declloc(R_STRUCT(1, 1));
+        ns();
     }
     else {
         if(declared >= 0) {
@@ -256,7 +276,7 @@ statement()
 */
 declloc(type) int type;
 {
-    int id, sz, alloc;
+    int id, sz, alloc, t, t2;
 
     if(swactive)     error("not allowed in switch");
     if(noloc)        error("not allowed with goto");
@@ -265,7 +285,13 @@ declloc(type) int type;
     while(1) {
         if(endst()) return;
 
-        decl(type, ARRAY, &id, &sz);
+        t = type;               /* per declarator: char *a, b; */
+        decl(&t, ARRAY, &id, &sz);
+        if(id == ARRAY) {       /* further [..]: rows (CC_STRD) */
+            t2 = R_STRUCT(2, t);
+            if(t2 != t) sz = sz / elsize(t) * elsize(t2);
+            t = t2;
+        }
 
         /* TMS ABI: sz is the C object size and must remain exact so
         ** sizeof(local) sees the logical size.  alloc is the physical
@@ -278,7 +304,7 @@ declloc(type) int type;
         if(alloc & 1) ++alloc;
 
         declared += alloc;
-        addsym(ssname, id, type, sz, csp - declared,
+        addsym(ssname, id, t, sz, csp - declared,
                &locptr, AUTOMATIC);
 
         if(match(",") == 0) return;
@@ -520,10 +546,10 @@ dofor()
 ** is a break target but never a continue target, and docont()
 ** already skips zero-WQLOOP entries by design.
 **
-** Cases accumulate (label,value) pairs in resident swstab through
-** swnext -- resident because constexpr() maps CC_EXPR over this
-** page while parsing each case value. On close, the collected
-** pairs are emitted after the body:
+** Cases accumulate (label,value) pairs in OVL_STMT page 2 through
+** swnext. constexpr() temporarily maps CC_EXPR over the window, but the
+** trampoline restores the complete OVL_STMT row before returning. On close,
+** the collected pairs are emitted after the body:
 **
 **     JMPm endlab            jump over the body
 **     <body, LABm per case>
@@ -587,12 +613,15 @@ doswitch()
 
 /*
 ** Compile one case label. CCC1 docase(). constexpr() crosses to the
-** expression engine through R_CEXPR, so swnext MUST be resident.
-** The swnext > swend bound is real here -- see the CC_DATA note on
+** expression engine through R_CEXPR. The trampoline restores OVL_STMT
+** before constexpr() returns, so the page-2 switch table is mapped again.
+** The swnext > swend bound is real here -- see the CC_STMT_R note on
 ** the baseline calloc/scaled-pointer bound bug.
 */
 docase()
 {
+    int val;
+
     if(swactive == 0)
         error("not in switch");
 
@@ -602,6 +631,17 @@ docase()
     }
 
     gen(LABm, *swnext++ = getlabel());
-    constexpr(swnext++);
+
+    /* DO NOT restore the CCC1 baseline "constexpr(swnext++)".
+    ** swstab lives at >9000 on OVL_STMT page 14.  While constexpr()
+    ** runs, R_CEXPR has OVL_EXPR mapped, so >9000 is CC_EXPR_B (test())
+    ** on page 5.  Passing swnext directly stores the case value into
+    ** test()'s code (first case -> >9008); the next if/while then
+    ** executes it: INT2, PC >900A.  The value must go through a stack
+    ** local and be stored only after OVL_STMT is mapped back. */
+    val = 0;
+    constexpr(&val);
+    *swnext++ = val;
+
     need(":");
 }

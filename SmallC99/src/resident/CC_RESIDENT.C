@@ -33,7 +33,7 @@
 
 #define SYMAVG  12
 #define NUMLOCS 25
-#define SYMTBSZ 3500
+#define SYMTBSZ 3520
 #define LITMAX  255
 
 #define WQTABSZ 30
@@ -64,7 +64,7 @@ extern char *cptr;
 extern char *cptr2;
 extern char *cptr3;
 
-char ssname[9];
+char ssname[16];
 int monitor;
 
 extern char *line;
@@ -75,7 +75,7 @@ extern int usexpr;
 extern int declared;
 extern int ncmp;
 extern int swactive;
-extern int swdefault;
+extern int stmtovlinit;
 extern int ccode;
 extern int pptr;
 extern int macptr;
@@ -83,9 +83,6 @@ extern int iflevel;
 extern int skiplevel;
 extern int incunit;
 extern int oldseg;
-extern int *swnext;
-extern int *swend;
-extern int swstab[];
 extern int ch;
 extern int nch;
 
@@ -133,13 +130,7 @@ ccinit()
     declared = -1;
     ncmp = 0;
     swactive = 0;
-
-    /* M32: switch table. swend is the CORRECTED bound -- the last
-    ** valid (label,value) pair start = swstab + 178. See CC_DATA
-    ** for why baseline's SWTABSZ-SWSIZ expression is a bound bug. */
-    swdefault = 0;
-    swnext = swstab;
-    swend = swstab + 178;
+    stmtovlinit = 0;
 
     /* M33: preprocessor state. ccode YES = parsing C, not #asm. */
     ccode = 1;
@@ -193,9 +184,11 @@ needsub()
 ** inside the statement overlay's -- the deepest TRSTACK path M30
 ** exercises.
 */
-decl(type, aid, id, sz) int type, aid, *id, *sz;
+decl(tp, aid, id, sz) int *tp, aid, *id, *sz;
 {
-    int n, p;
+    int n, p, type;
+
+    type = *tp;             /* the caller's per-declarator copy */
 
     if(match("("))
         p = 1;
@@ -205,10 +198,11 @@ decl(type, aid, id, sz) int type, aid, *id, *sz;
     if(match("*")) {
         *id = POINTER;
         *sz = BPW;
+        while(match("*")) type = type + 64;     /* depth, bits 6-7 */
     }
     else {
         *id = VARIABLE;
-        *sz = type >> 2;
+        *sz = elsize(type);     /* struct-aware: CC_STRU */
     }
 
     if((n = symname(ssname)) == 0)
@@ -222,7 +216,11 @@ decl(type, aid, id, sz) int type, aid, *id, *sz;
             error("try (*...)()");
         need(")");
     }
-    else if(*id == VARIABLE && match("[")) {
+    else if(match("[")) {
+        if(*id == POINTER) {                    /* *name[]: array of  */
+            type = type + 64;                   /* pointers           */
+            *sz = BPW;
+        }
         *id = aid;
 
         if((*sz *= needsub()) == 0) {
@@ -233,6 +231,7 @@ decl(type, aid, id, sz) int type, aid, *id, *sz;
         }
     }
 
+    *tp = type;
     return n;
 }
 
@@ -368,6 +367,12 @@ litchar()
     if(ch == 'n') {
         gch();
         return 10;
+    }
+
+    if(ch == 'r') {
+        gch();
+        return 13;      /* CR.  Without this, '\r' fell through to the
+                        ** octal branch and compiled as the LETTER 'r'. */
     }
 
     if(ch == 't') {

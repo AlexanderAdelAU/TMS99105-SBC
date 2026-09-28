@@ -94,18 +94,17 @@
 ** ending CR, NUL. Every puts("...\n") in the harness does the same,
 ** which is why terminal output has looked correct all along.
 **
-** M33a shipped with NEWLINE 10 and cost a debugging session: inline()
-** never found a line end, swallowed the whole 101-byte fixture as one
-** line, and dodefine()'s "while(putmac(gch()))" -- which consumes to
-** end of line -- ate the entire rest of the program as MAX's
-** replacement text. parse() then saw eof with nothing compiled, so the
-** p-code log came out EMPTY.
+** M33a shipped with NEWLINE 10 while smallcp still compiled '\n' as
+** CR, so inline() never found a line end and swallowed the whole
+** fixture as one line.  That mismatch is gone: '\n' is 10 in both
+** compilers, and IOLIB's getc() returns LF for every line ending on
+** a text stream - CR, LF or CR+LF alike.  NEWLINE must therefore be
+** LF (10) to match what getc() actually delivers.
 **
-** CR and LF are both recognised as terminators by inline() below and
-** normalised to one NEWLINE, so this survives M34 when real CP/M files
-** (CR+LF) replace the memory source.
+** inline() below accepts CR and LF and normalises to one NEWLINE, so
+** a raw CP/M file read on a binary stream would still work.
 */
-#define NEWLINE  13
+#define NEWLINE  10
 #define CR       13
 #define LF       10
 #define CTRLZ    26
@@ -113,8 +112,8 @@
 #define YES       1
 #define NO        0
 
-#define NAMESIZE  9
-#define NAMEMAX   8
+#define NAMESIZE  16
+#define NAMEMAX   15
 #define LINEMAX 127
 
 /*
@@ -130,7 +129,7 @@
 ** search() wraps forever on a full table rather than reporting it, so
 ** watch the page budget line if this is ever raised.
 */
-#define MACNBR   200
+#define MACNBR   150
 #define MACNSIZE (MACNBR*(NAMESIZE+2))
 #define MACQSIZE (MACNBR*7)
 #define MACMAX   (MACQSIZE-1)
@@ -142,6 +141,7 @@ extern char *cptr;
 extern char *cptr2;
 extern int srcunit;    /* open primary source-file unit */
 extern int incunit;    /* open one-level include-file unit, or zero */
+extern int lineno;     /* primary-source line number, for error reports */
 
 extern char mline[];
 extern char pline[];
@@ -224,7 +224,10 @@ inline()
 
         k = 0;
         while(k < LINEMAX) {
-            if(c == CR) {
+            /*  A text stream gives LF for every line ending; CR is
+            **  accepted too so a binary-mode or raw CP/M file still
+            **  terminates correctly.  Either becomes one NEWLINE.  */
+            if(c == CR || c == LF) {
                 line[k++] = NEWLINE;
                 break;
             }
@@ -248,6 +251,9 @@ inline()
         }
 
         line[k] = NULL;
+        if(unit == srcunit) ++lineno;   /* includes keep the #include line */
+        if(k >= LINEMAX && line[k - 1] != NEWLINE)
+            error("line too long");     /* the rest reads as another line */
         bump(0);
         return;
     }

@@ -1,16 +1,18 @@
+#asm
+	AORG 9000H
+#endasm
+
 /*
-** CC_STMT_R.C -- resident statement services (milestone 32c)
+** CC_STMT_R.C -- page 2 of OVL_STMT (resident-headroom recovery)
 **
-** The seven page-independent statement leaves, relocated OUT of the
-** OVL_STMT page when the M32 switch code pushed CC_STMT 672 bytes
-** past its 4KB page (DREL spec 2.5, SEGMENT OVERRUN) -- and then
-** OUT of CC_RESIDENT when they pushed THAT module past its own 4KB
-** spec-2.5 cap (CC_RESIDENT was at 3902 bytes; every module,
-** resident or paged, must fit 4KB). This module is the natural
-** seam the linker's error message asks for.
+** These seven page-independent statement leaves originally moved out of
+** CC_STMT when that single 4KB page overflowed.  OVL_STMT is now a
+** two-page overlay: CC_STMT stays at >8000 and this module occupies
+** >9000.  Both pages are mapped together, so calls between them remain
+** ordinary direct calls while removing this module from scarce resident RAM.
 **
-** Each function calls only resident services -- never a same-page
-** CC_STMT sibling -- which is what made them movable. Bodies are
+** Each function calls only common/resident services -- never a CC_STMT
+** sibling -- which is what makes this second page safe. Bodies are
 ** UNCHANGED from the blessed M30/M31 overlay originals: pure
 ** relocation, zero p-code differences, every golden log valid.
 **
@@ -61,8 +63,9 @@ extern char ssname[];
 ** module is the conceptual home anyway: it is the statement
 ** services module, and this is statement state.
 **
-** Resident because docase()'s constexpr() maps CC_EXPR over the
-** statement page between one case and the next.
+** The switch state now lives in OVL_STMT page 2.  R_CEXPR/R_EXPRVAL
+** restore the complete OVL_STMT row before returning, so the physical
+** page (and its state) survives temporary expression-overlay mappings.
 **
 ** swstab holds (label,value) int pairs: 90 cases = 180 ints = 360
 ** bytes = baseline SWTABSZ (90*SWSIZ) BYTES, allocated statically
@@ -72,8 +75,8 @@ extern char ssname[];
 ** baseline sets swend = swnext+(SWTABSZ-SWSIZ), which in scaled
 ** int-pointer arithmetic lands 712 bytes into a 360-byte
 ** allocation, so its "too many cases" check can never fire before
-** memory past the table is destroyed. ccinit() (CC_RESIDENT)
-** computes the bound correctly: swend = swstab + 178, the last
+** memory past the table is destroyed. statement() initialises the
+** corrected bound once per compile: swend = swstab + 178, the last
 ** valid pair start. Do NOT "restore" the baseline expression.
 */
 int swdefault;

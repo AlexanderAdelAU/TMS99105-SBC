@@ -89,10 +89,10 @@
 
 #define IDENT     0
 #define CLASS     2
-#define SYMMAX   23
+#define SYMMAX   16
 #define SYMAVG   12
 #define NUMLOCS  25
-#define NUMGLBS 140
+#define NUMGLBS 200
 #define FUNCTION  4
 #define AUTOEXT   4
 

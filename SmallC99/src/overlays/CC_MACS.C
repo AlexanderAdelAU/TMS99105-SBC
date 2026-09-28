@@ -29,11 +29,12 @@
 ** no remap, nothing to think about at the call site.
 **
 ** DO NOT give this module a second AORG, and do not let it grow past
-** its page: the pools are sized so 200 macros plus putmac() fit with
-** roughly 400 bytes spare, and the build prints the number.
+** its page: with 15-char names (NAMESIZE 16) the pools are sized so
+** 150 macros plus putmac() fit with roughly 280 bytes spare. MACNBR was
+** reduced from 200 when NAMESIZE widened 9->16 grew macn past the page.
 */
 
-#define NAMESIZE  9
+#define NAMESIZE  16
 
 /*
 ** MUST MATCH THE SAME BLOCK IN CC_PREP.C. Duplicated deliberately --
@@ -44,7 +45,7 @@
 **     macn   MACNBR * (NAMESIZE+2)   name + NUL + 2-byte macq index
 **     macq   MACNBR * 7              replacement text, NUL-separated
 */
-#define MACNBR   200
+#define MACNBR   150
 #define MACNSIZE (MACNBR*(NAMESIZE+2))
 #define MACQSIZE (MACNBR*7)
 #define MACMAX   (MACQSIZE-1)

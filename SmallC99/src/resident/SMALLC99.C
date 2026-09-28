@@ -4,7 +4,7 @@
 ** Active TMS99105 SBC driver, built as SMALLC99.EXE. The older 8086
 ** driver remains in SMALLC99.C for reference only. This driver reuses
 ** the common Hendrix front end and overlay manager with the CC_CD99
-** resident output layer and CC_CG99 template overlay.
+** resident output layer and two-page CC_CG99/CC_CG99T template overlay.
 */
 
 #define YES 1
@@ -12,6 +12,7 @@
 #define NAMEMAX 14
 
 extern PORT_INIT();
+extern int errcnt;          /* error count (CC_DATA); error() in CC_SCAN_SYM */
 extern R_GETOPTS();
 extern R_PREP();
 extern ccinit();
@@ -25,12 +26,15 @@ extern puts();
 
 extern int srcunit;
 extern int outunit;
+extern int tmsbad;
 extern int eof;
 extern int tmsfail;
 
 char srcname[NAMEMAX+1];
 char outname[NAMEMAX+1];
+char pcbuf[4];
 int verbose;
+int mainflg;
 
 main(argc, argv)
 int argc;
@@ -108,7 +112,7 @@ firstline()
 
 closefile()
 {
-    if(fclose(outunit) == 0) {
+    if(fclose(outunit) != 0) {
         outunit = 0;
         fclose(srcunit);
         srcunit = 0;
@@ -128,8 +132,16 @@ finish()
 {
     if(tmsfail) {
         puts("SMALLC99: compilation failed; output is not valid assembly\n");
+        pcbuf[0] = 48 + (tmsbad / 10);
+        pcbuf[1] = 48 + (tmsbad - (tmsbad / 10) * 10);
+        pcbuf[2] = 0;
+        puts("SMALLC99: bad p-code = ");
+        puts(pcbuf);
+        puts("\n");
         return;
     }
+
+    if(errcnt) R_ERROR(0);          /* "SMALLC99: N error(s)" (CC_CL99) */
 
     if(eof == 0)
         puts("SMALLC99: warning: parse returned before EOF\n");

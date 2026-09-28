@@ -8,8 +8,8 @@
 R0      EQU     0               ; backend/helper scratch
 R1      EQU     1               ; backend/helper scratch, MPY/DIV pair
 R2      EQU     2               ; backend/helper scratch
-R3      EQU     3               ; primary accumulator and return value
-R4      EQU     4               ; secondary operand, normally clobbered
+R3      EQU     3               ; secondary / left operand
+R4      EQU     4               ; primary accumulator, C return value / result
 R5      EQU     5               ; argument count / shift helper input
 R6      EQU     6               ; reserved, preserved by runtime helpers
 R7      EQU     7               ; reserved, preserved by runtime helpers

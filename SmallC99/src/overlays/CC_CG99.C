@@ -1,17 +1,21 @@
 #asm
-        AORG 0A000H
+        AORG 08000H
 #endasm
 
 /*
-** CC_CG99.C -- M38d native TMS99000 byte/word template overlay
+** CC_CG99.C -- M38e native TMS99000 codegen engine, page 1 of OVL_CGEN
 **
-** M38d retains the M38c r1 word operations and adds ED2-derived
-** byte movement: WP caches the current workspace, byte stores read R3's
-** low byte directly from workspace memory, and byte loads normalize to a
-** 16-bit value in R3. Unsupported operations still fail visibly.
+** OVL_CGEN is now two pages mapped simultaneously: this >8000 page owns
+** ccout(), badcode(), and the hot code[] pointer table. CC_CG99T.C at
+** >9000 owns setcodes() and every template literal. Calls/references between
+** the two pages are direct because OVLMGR maps both under OVL_CGEN ID 6.
+**
+** DREL ANCHOR: ccout() -> P_CCOUT. Physical page 11, virtual segment 8.
+** The code[] table intentionally stays with ccout(); only initialization and
+** template strings moved, so the per-pcode hot path remains on the original page.
 */
 
-#define PCODEMAX 74
+#define PCODEMAX 75
 #define NAME     7
 #define YES      1
 #define NO       0
@@ -89,6 +93,7 @@
 #define SWAP1s   71
 #define SWITCH   72
 #define XOR12    73
+#define LSR12    74
 
 extern int litlab;
 extern int errflag;
@@ -102,72 +107,7 @@ extern error();
 
 char *code[PCODEMAX];
 
-setcodes()
-{
-    int i;
-
-    i = 0;
-    while(i < PCODEMAX) code[i++] = 0;
-
-    /* Arithmetic, logic, shifts, calls, and stack operations. */
-    code[ADD12]   = ".\tA R4,R3\n";
-    code[ADDSP]   = ".?\tAI SP,<n>\n??";
-    code[AND12]   = ".\tINV R4\n\tSZC R4,R3\n";
-    code[ANEG1]   = ".\tNEG R3\n";
-    code[ARGCNTn] = ".?\tLI R5,<n>?\tCLR R5?\n";
-    code[ASL12]   = ".\tMOV R3,R0\n\tMOV R4,R3\n\tSLA R3,0\n";
-    code[ASR12]   = ".\tMOV R3,R0\n\tMOV R4,R3\n\tSRA R3,0\n";
-    code[CALL1]   = ".\tBL *R3\n";
-    code[CALLm]   = ".\tBL @<m>\n";
-    code[COM1]    = ".\tINV R3\n";
-    code[DBL1]    = ".\tA R3,R3\n";
-    code[DBL2]    = ".\tA R4,R4\n";
-    code[MOVE21]  = ".\tMOV R3,R4\n";
-    code[OR12]    = ".\tSOC R4,R3\n";
-    code[POP2]    = ".\tMOV *SP+,R4\n";
-    code[PUSH1]   = ".\tDECT SP\n\tMOV R3,*SP\n";
-    code[rDEC1]   = ".#\tDEC R3\n#";
-    code[rINC1]   = ".#\tINC R3\n#";
-    code[SUB12]   = ".\tS R4,R3\n";
-    code[SWAP12]  = ".\tMOV R3,R0\n\tMOV R4,R3\n\tMOV R0,R4\n";
-    code[SWAP1s]  = ".\tMOV *SP,R0\n\tMOV R3,*SP\n\tMOV R0,R3\n";
-    code[XOR12]   = ".\tXOR R4,R3\n";
-
-    /* Function entry and return. */
-    code[ENTER]   = ".\tSTWP WP\n\tDECT SP\n\tMOV R11,*SP\n\tDECT SP\n\tMOV FP,*SP\n\tMOV SP,FP\n";
-    code[RETURN]  = ".\tMOV FP,SP\n\tMOV *SP+,FP\n\tMOV *SP+,R11\n\tB *R11\n";
-
-    /* Addresses and word/byte memory access. */
-    code[POINT1l] = ".\tLI R3,_<l>+<n>\n";
-    code[POINT1m] = ".\tLI R3,<m>\n";
-    code[POINT1s] = ".\tMOV FP,R3\n?\tAI R3,<n>\n??";
-
-    code[GETw1m]  = ".\tMOV @<m>,R3\n";
-    code[GETw1n]  = ".?\tLI R3,<n>?\tCLR R3?\n";
-    code[GETw1p]  = ".?\tMOV @<n>(R4),R3?\tMOV *R4,R3?\n";
-    code[GETw2n]  = ".?\tLI R4,<n>?\tCLR R4?\n";
-    code[PUTwm1]  = ".\tMOV R3,@<m>\n";
-    code[PUTwp1]  = ".\tMOV R3,*R4\n";
-
-    code[GETb1m]  = ".\tMOVB @<m>,R3\n\tSRA R3,8\n";
-    code[GETb1mu] = ".\tMOVB @<m>,R3\n\tSRL R3,8\n";
-    code[GETb1p]  = ".?\tMOVB @<n>(R4),R3?\tMOVB *R4,R3?\n\tSRA R3,8\n";
-    code[GETb1pu] = ".?\tMOVB @<n>(R4),R3?\tMOVB *R4,R3?\n\tSRL R3,8\n";
-    code[PUTbm1]  = ".\tMOVB @2*R3+1(WP),@<m>\n";
-    code[PUTbp1]  = ".\tMOVB @2*R3+1(WP),*R4\n";
-
-    /* Native R99 data and label emitters. */
-    code[BYTE_]   = ".\tBYTE ";
-    code[BYTEn]   = ".\tBYTE <n>\n";
-    code[BYTEr0]  = ".\tBSS <n>\n";
-    code[WORD_]   = ".\tWORD ";
-    code[WORDn]   = ".\tWORD <n>\n";
-    code[WORDr0]  = ".\tBSS <n>\n";
-    code[NEARm]   = ".\tWORD _<n>\n";
-    code[REFm]    = "._<n>";
-    code[JMPm]    = ".\tB @_<n>\n";
-    code[LABm]    = "._<n>:\n";
-}
+#define BLPFX  "\tBL @_cc"		/*  shared helper-call prefix   */
 
 badcode(pcode)
 int pcode;
@@ -176,10 +116,6 @@ int pcode;
         tmsbad = pcode;
     tmsfail = 1;
     errflag = 1;
-    error("unsupported TMS p-code");
-    pstr("; ERROR unsupported TMS p-code ");
-    pdec(pcode);
-    pnl();
 }
 
 ccout(pcode, value)
@@ -214,11 +150,18 @@ int value;
             ++cp;
             if(skip == NO) {
                 if(*cp == 'm') {
-                    pchar('_');
                     pstr(value + NAME);
                 }
                 else if(*cp == 'n') pdec(value);
                 else if(*cp == 'l') pdec(litlab);
+                /*  <e> emits R99's external marker.  It cannot be
+                    written literally: '#' opens the repeat construct
+                    below, so a bare ## in a template is swallowed and
+                    the reference assembles as undefined.  */
+                else if(*cp == 'e') { pchar('#'); pchar('#'); }
+                /*  <b> is the shared call.A99 helper prefix.  Helpers
+                    return directly in primary R4; no reload suffix exists.  */
+                else if(*cp == 'b') pstr(BLPFX);
             }
             cp += 2;
         }
