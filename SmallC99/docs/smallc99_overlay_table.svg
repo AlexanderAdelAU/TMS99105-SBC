@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="448" viewBox="0 0 720 448" font-family="Helvetica, Arial, sans-serif">
+<title>SMALLC99 overlay table</title>
+<rect width="720" height="448" fill="#FFFFFF"/>
+<g font-size="14" font-weight="bold" fill="#444441" text-anchor="middle"><text x="105" y="34">Overlay</text><text x="267" y="34">Seg 8</text><text x="390" y="34">Seg 9</text><text x="513" y="34">Seg A</text><text x="636" y="34">Seg B</text></g>
+<rect x="20" y="50" width="180" height="36" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="32" y="73" font-size="14" font-weight="bold" fill="#3C3489">1  EXPR</text><text x="100" y="73" font-size="12" fill="#534AB7">expressions</text>
+<rect x="210" y="50" width="115" height="36" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/><text x="267" y="73" font-size="12" text-anchor="middle" fill="#3C3489">EXPR_A · p4</text>
+<rect x="333" y="50" width="115" height="36" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/><text x="390" y="73" font-size="12" text-anchor="middle" fill="#3C3489">EXPR_B · p5</text>
+<rect x="456" y="50" width="115" height="36" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/><text x="513" y="73" font-size="12" text-anchor="middle" fill="#3C3489">EXPR_C · p7</text>
+<rect x="579" y="50" width="115" height="36" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/><text x="636" y="73" font-size="12" text-anchor="middle" fill="#3C3489">EXPR_D · p8</text>
+<rect x="20" y="94" width="180" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="32" y="117" font-size="14" font-weight="bold" fill="#085041">2  STMT</text><text x="100" y="117" font-size="12" fill="#0F6E56">statements</text>
+<rect x="210" y="94" width="115" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="267" y="117" font-size="12" text-anchor="middle" fill="#085041">STMT · p3</text>
+<rect x="333" y="94" width="115" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="390" y="117" font-size="12" text-anchor="middle" fill="#085041">STMT_R · p14</text>
+<rect x="456" y="94" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="579" y="94" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="20" y="138" width="180" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="32" y="161" font-size="14" font-weight="bold" fill="#085041">3  DECL</text><text x="100" y="161" font-size="12" fill="#0F6E56">declarations</text>
+<rect x="210" y="138" width="115" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="267" y="161" font-size="12" text-anchor="middle" fill="#085041">DECL · p2</text>
+<rect x="333" y="138" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="456" y="138" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="579" y="138" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="20" y="182" width="180" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="32" y="205" font-size="14" font-weight="bold" fill="#085041">4  PREP</text><text x="100" y="205" font-size="12" fill="#0F6E56">preprocessor</text>
+<rect x="210" y="182" width="115" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="267" y="205" font-size="12" text-anchor="middle" fill="#085041">PREP · p9</text>
+<rect x="333" y="182" width="115" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="390" y="205" font-size="12" text-anchor="middle" fill="#085041">MACS · p10</text>
+<rect x="456" y="182" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="579" y="182" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="20" y="226" width="180" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="32" y="249" font-size="14" font-weight="bold" fill="#085041">5  DFUN</text><text x="100" y="249" font-size="12" fill="#0F6E56">functions</text>
+<rect x="210" y="226" width="115" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="267" y="249" font-size="12" text-anchor="middle" fill="#085041">DFUN · p6</text>
+<rect x="333" y="226" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="456" y="226" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="579" y="226" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="20" y="270" width="180" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="32" y="293" font-size="14" font-weight="bold" fill="#085041">6  CGEN</text><text x="100" y="293" font-size="12" fill="#0F6E56">code generator</text>
+<rect x="210" y="270" width="115" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="267" y="293" font-size="12" text-anchor="middle" fill="#085041">CG99 · p11</text>
+<rect x="333" y="270" width="115" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="390" y="293" font-size="12" text-anchor="middle" fill="#085041">CG99T · p13</text>
+<rect x="456" y="270" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="579" y="270" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="20" y="314" width="180" height="36" rx="6" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="32" y="337" font-size="14" font-weight="bold" fill="#444441">7  CLI</text><text x="100" y="337" font-size="12" fill="#5F5E5A">cmd line, errors</text>
+<rect x="210" y="314" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="333" y="314" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="456" y="314" width="115" height="36" rx="6" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/><text x="513" y="337" font-size="12" text-anchor="middle" fill="#444441">CL99 · p12</text>
+<rect x="579" y="314" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="20" y="358" width="180" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="32" y="381" font-size="14" font-weight="bold" fill="#085041">8  STRD</text><text x="100" y="381" font-size="12" fill="#0F6E56">struct decls</text>
+<rect x="210" y="358" width="115" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="267" y="381" font-size="12" text-anchor="middle" fill="#085041">STRD · p15</text>
+<rect x="333" y="358" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="456" y="358" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<rect x="579" y="358" width="115" height="36" rx="6" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+<text x="360" y="424" font-size="12" text-anchor="middle" fill="#5F5E5A">pN = physical page N.  Dashed cells keep whatever was last mapped there.  CLI is the one-shot exception to "own segment 8".</text>
+</svg>
