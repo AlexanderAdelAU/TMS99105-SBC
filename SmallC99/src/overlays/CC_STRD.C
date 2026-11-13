@@ -208,7 +208,7 @@
 	*/
 	dobody(tag, isunion) int tag, isunion; {
 	  char *t, *m, mname[NAMESIZE];
-	  int mtype, mt, id, dim, msize, off, big;
+	  int mtype, mt, id, dim, msize, off, big, baseid, basesz;
 	  t = tagtab + tag * TAGSIZ;
 	  if(t[TAGCNT]) error("struct redefined");
 	  t[TAGFIRST] = nmembs;
@@ -216,18 +216,7 @@
 	  off = big = 0;
 	  while(match("}") == 0) {
 	    if(eof) return;
-	    if(amatch("char", 4)) mtype = CHR;
-	    else if(amatch("unsigned", 8)) {
-	      if(amatch("char", 4)) mtype = UCHR;
-	      else {
-	        amatch("int", 3);
-	        mtype = UINT;
-	        }
-	      }
-	    else if(amatch("int", 3)) mtype = INT;
-	    else if(amatch("struct", 6)) mtype = dostruct(0, 0);
-	    else if(amatch("union", 5)) mtype = dostruct(1, 0);
-	    else {
+	    if(typeintro(&mtype, &baseid, &basesz, 2) == 0) {
 	      error("need member type");
 	      kill();
 	      continue;
@@ -253,6 +242,7 @@
 	        msize = dim * elsize(mt);
 	        if(msize == 0) error("incomplete struct");
 	        }
+	      aliasfix(baseid, basesz, &mt, &id, &msize, 0);
 	      if((id == POINTER || elsize(mt) != 1) && (off & 1))
 	        ++off;                      /* words at even offsets */
 	      if(nmembs >= NUMMEMB) {
