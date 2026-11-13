@@ -150,29 +150,9 @@
 	  argtop = argstk + BPW;
 
 	  while(argstk) {
-	    if(amatch("char", 4)) {
-	      doargs(CHR);
-	      ns();
-	      }
-	    else if(amatch("int", 3)) {
-	      doargs(INT);
-	      ns();
-	      }
-	    else if(amatch("unsigned", 8)) {
-	      if(amatch("char", 4))
-	        doargs(UCHR);
-	      else {
-	        amatch("int", 3);
-	        doargs(UINT);
-	        }
-	      ns();
-	      }
-	    else if(amatch("struct", 6)) {     /* parser is OVL_STRD */
-	      doargs(R_STRUCT(0, 1));
-	      ns();
-	      }
-	    else if(amatch("union", 5)) {
-	      doargs(R_STRUCT(1, 1));
+	    int t, baseid, basesz;
+	    if(typeintro(&t, &baseid, &basesz, 1)) {
+	      doargs(t, baseid, basesz);
 	      ns();
 	      }
 	    else {
@@ -197,7 +177,7 @@
 	/*
 	** Declare argument types.
 	*/
-	doargs(type) int type; {
+	doargs(type, baseid, basesz) int type, baseid, basesz; {
 	  int id, sz, t;
 	  char *ptr;
 
@@ -206,6 +186,7 @@
 
 	    t = type;                 /* per declarator: char *a, b; */
 	    if(decl(&t, POINTER, &id, &sz)) {
+	      aliasfix(baseid, basesz, &t, &id, &sz, 1);
 	      if(id == POINTER) t = R_STRUCT(2, t);  /* int m[][4]: rows */
 	      if((t & 0xC2) == 2 && id == VARIABLE)  /* a struct, not ptr */
 	        error("pass structs by pointer");
