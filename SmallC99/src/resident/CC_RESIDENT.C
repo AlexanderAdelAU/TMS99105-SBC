@@ -75,6 +75,7 @@ char ssname[16];
 int monitor;
 
 extern char *line;
+extern char *lptr;
 extern int eof;
 extern int errflag;
 extern int nxtlab;
@@ -267,16 +268,16 @@ typeintro(tp, idp, sizep, local) int *tp, *idp, *sizep, local;
         else { amatch("int", 3); t = UINT; }
     }
     else if(amatch("int", 3)) t = INT;
-    else if(amatch("struct", 6)) t = R_STRUCT(0, 1);
-    else if(amatch("union", 5)) t = R_STRUCT(1, 1);
-    else if(amatch("enum", 4)) t = R_STRUCT(3, local ? 2 : 1);
+    else if(amatch("struct", 6)) t = R_STRUCT(0, local == 2 ? 0 : 1);
+    else if(amatch("union", 5)) t = R_STRUCT(1, local == 2 ? 0 : 1);
+    else if(amatch("enum", 4)) t = R_STRUCT(3, local == 1 ? 2 : 1);
     else {
         blanks();
         if(alpha(ch) == 0) return 0;
         save = lptr;
         symname(name);
         sym = 0;
-        if(local) sym = findloc(name);
+        if(local == 1) sym = findloc(name);
         if(sym == 0) sym = findglb(name);
         if(sym == 0 || sym[IDENT] != TYPEDEFNAME) {
             bump(save - lptr);
