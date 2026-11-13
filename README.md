@@ -61,3 +61,30 @@ The programming of the EPROMS can be a little tricky and the following memory ma
 </div>
 
 The method of loading software programmes into memory and executing them is described in the Building the Small OS page.
+
+## Software for the SBC – where to find it
+
+The software for this SBC has been split into its own repositories, so each project can be found and maintained separately. This repository now holds the hardware: schematics, memory structure, the Disc Monitor and SYSGEN.
+
+| Repository | What it contains |
+|---|---|
+| [SmallC99-TMS99105-Native-C-Compiler](https://github.com/AlexanderAdelAU/SmallC99-TMS99105-Native-C-Compiler) | **SMALLC99**, a Small-C compiler with structs, unions and multi-dimensional arrays that runs natively on this SBC using paged memory and overlays. Full source, tests, documentation and build scripts. |
+| [TMS99105-Native-Toolchain](https://github.com/AlexanderAdelAU/TMS99105-Native-Toolchain) | The other native tools that run on the SBC: **SBCR99** (assembler), **SBC LINK99** (linker) and **FileEdit** (full-screen editor), plus ready-built copies of all four native programs including `SMALLC99.EXE`. |
+| [Relocating-Assembler-and-Linker-Loader-for-TMS99000](https://github.com/AlexanderAdelAU/Relocating-Assembler-and-Linker-Loader-for-TMS99000) | The **Windows cross** assembler (`r99`), linker (`link99`) and object-file tool (`drel`) used to build the native tools. |
+| [Small-C-Plus-for-TMS9900-99000](https://github.com/AlexanderAdelAU/Small-C-Plus-for-TMS9900-99000) | The **Windows cross** C compiler (`smallcp`) used to build the native tools. |
+| [TMS99105-SBC-V4-Paged-Memory-System](https://github.com/AlexanderAdelAU/TMS99105-SBC-V4-Paged-Memory-System) | The 1MB transparent memory mapper and how programs use overlays. |
+| [BDOS-FOR-THE-TMS9900](https://github.com/AlexanderAdelAU/BDOS-FOR-THE-TMS9900) | The disk operating system. |
+| [Small-Shell-for-the-TMS9900](https://github.com/AlexanderAdelAU/Small-Shell-for-the-TMS9900) | The command shell. |
+
+### Cross and native toolchains
+
+There are two toolchains with the same tool names. The **cross toolchain** runs on Windows and is only needed to *build* the native tools. The **native toolchain** runs on the SBC and is what you use on the board. Once built, the native tools run independently of the PC:
+
+```
+Stage 1 – on Windows:  smallcp.exe ─► r99.exe ─► link99.exe
+                       builds SMALLC99.EXE, R99.COM, LINK99.EXE, FILEEDIT.EXE
+
+Stage 2 – on the SBC:  FILEEDIT ─► SMALLC99 ─► R99 ─► LINK99 ─► your program
+```
+
+To use the tools without building them, copy the `bin/` folder of [TMS99105-Native-Toolchain](https://github.com/AlexanderAdelAU/TMS99105-Native-Toolchain) to the SBC.
