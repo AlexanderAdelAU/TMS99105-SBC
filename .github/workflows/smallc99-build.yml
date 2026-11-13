@@ -15,9 +15,13 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path 'C:\Development-W11DEV\Eclipse Workspace\TMS99105_SBC\MONITOR'
+      - name: Copy SMALLC99 to short path on C drive for legacy tools
+        shell: pwsh
+        run: |
+          Copy-Item -LiteralPath (Join-Path $pwd 'SmallC99') -Destination 'C:\SC99' -Recurse -Force
       - name: Compile, assemble, link, and check overlay budgets
         shell: pwsh
-        working-directory: SmallC99
+        working-directory: C:\SC99
         run: |
           .\make_smallc99.ps1
       - name: Keep built compiler
@@ -25,5 +29,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SMALLC99-compiler
-          path: SmallC99/build_tms/SMALLC99.EXE
+          path: C:/SC99/build_tms/SMALLC99.EXE
           if-no-files-found: error
