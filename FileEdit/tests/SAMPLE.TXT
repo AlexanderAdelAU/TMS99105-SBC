@@ -1,3 +1,0 @@
-Overlay systems reuse memory.
-Resident data survives overlay swaps.
-Numbers 123 are counted too.
