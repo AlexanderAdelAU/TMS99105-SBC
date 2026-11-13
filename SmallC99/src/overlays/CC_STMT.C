@@ -73,6 +73,7 @@
 
 #define LABEL     0
 #define ARRAY     2
+#define TYPEDEFNAME 6
 
 #define CHR       4
 #define INT       8
@@ -150,6 +151,7 @@ extern char ssname[];
 */
 statement()
 {
+    int t, baseid, basesz;
     /* Initialise page-2 switch state once per compiler run.  The flag
        stays resident, so this does not depend on paged RAM being zeroed. */
     if(stmtovlinit == 0) {
@@ -162,31 +164,14 @@ statement()
     if(ch == 0 && eof)
         return lastst;
 
-    if(amatch("char", 4)) {
-        declloc(CHR);
+    if(amatch("typedef", 7)) {
+        if(typeintro(&t, &baseid, &basesz, 1))
+            declloc(t, 1, baseid, basesz);
+        else error("missing typedef type");
         ns();
     }
-    else if(amatch("int", 3)) {
-        declloc(INT);
-        ns();
-    }
-    else if(amatch("unsigned", 8)) {
-        if(amatch("char", 4)) {
-            declloc(UCHR);
-            ns();
-        }
-        else {
-            amatch("int", 3);
-            declloc(UINT);
-            ns();
-        }
-    }
-    else if(amatch("struct", 6)) {      /* parser is OVL_STRD */
-        declloc(R_STRUCT(0, 1));
-        ns();
-    }
-    else if(amatch("union", 5)) {
-        declloc(R_STRUCT(1, 1));
+    else if(typeintro(&t, &baseid, &basesz, 1)) {
+        declloc(t, 0, baseid, basesz);
         ns();
     }
     else {
@@ -274,7 +259,7 @@ statement()
 ** aid is ARRAY: an unsized "[]" is an error for a local, where
 ** doargs() passes POINTER because an array argument decays.
 */
-declloc(type) int type;
+declloc(type, deftype, baseid, basesz) int type, deftype, baseid, basesz;
 {
     int id, sz, alloc, t, t2;
 
@@ -287,6 +272,7 @@ declloc(type) int type;
 
         t = type;               /* per declarator: char *a, b; */
         decl(&t, ARRAY, &id, &sz);
+        aliasfix(baseid, basesz, &t, &id, &sz, 0);
         if(id == ARRAY) {       /* further [..]: rows (CC_STRD) */
             t2 = R_STRUCT(2, t);
             if(t2 != t) sz = sz / elsize(t) * elsize(t2);
@@ -303,9 +289,15 @@ declloc(type) int type;
         alloc = sz;
         if(alloc & 1) ++alloc;
 
-        declared += alloc;
-        addsym(ssname, id, t, sz, csp - declared,
-               &locptr, AUTOMATIC);
+        if(deftype) {
+            addsym(ssname, TYPEDEFNAME, t, sz, id,
+                   &locptr, AUTOMATIC);
+        }
+        else {
+            declared += alloc;
+            addsym(ssname, id, t, sz, csp - declared,
+                   &locptr, AUTOMATIC);
+        }
 
         if(match(",") == 0) return;
     }
