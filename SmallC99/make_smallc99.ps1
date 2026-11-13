@@ -234,7 +234,7 @@ Copy-Item -LiteralPath "src\overlays\CC_CL99.C" -Destination "build_tms\CC_CL99.
 Copy-Item -LiteralPath "src\fixtures\M38B.C" -Destination "build_tms\M38B.C" -Force
 Copy-Item -LiteralPath "src\fixtures\TEST.C" -Destination "build_tms\TEST.C" -Force
 Copy-Item -LiteralPath "src\fixtures\M38D.C" -Destination "build_tms\M38D.C" -Force
-Copy-Item -LiteralPath "src\harness\M38DPROBE.A99" -Destination "build_tms\M38DPROBE.A99" -Force
+Copy-Item -LiteralPath "src\harness\M38DPROBE.A99" -Destination "build_tms\M38DPRB.A99" -Force
 Copy-Item -LiteralPath "include\OVLDEFS.INC" -Destination "build_tms\OVLDEFS.INC" -Force
 # Copy binary runtime/library artifacts only.  No IOLIB99 source is used.
 # Libraries and their .NDX files are kept together in build_tms.
@@ -250,7 +250,7 @@ foreach ($tool in $HOST_TOOLS) {
 Set-Location -LiteralPath "build_tms"
 
 foreach ($tool in @("smallcp.exe","r99.exe","drel.exe","link99.exe")) { Require-File ".\$tool" }
-foreach ($input in @("SMALLC99.C","CC_CD99.C","CC_CG99.C","CC_CG99T.C","CC_CL99.C","M38B.C","TEST.C","M38D.C","M38DPROBE.A99","OVLDEFS.INC")) { Require-File ".\$input" }
+foreach ($input in @("SMALLC99.C","CC_CD99.C","CC_CG99.C","CC_CG99T.C","CC_CL99.C","M38B.C","TEST.C","M38D.C","M38DPRB.A99","OVLDEFS.INC")) { Require-File ".\$input" }
 foreach ($name in $LIB_INPUTS) { Require-File ".\$name" }
 
 $linkAscii = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Resolve-Path ".\link99.exe")))
@@ -529,7 +529,7 @@ if ($clLog -notmatch "======\s+getoptions\(\)") {
     throw "*** BUILD FAILED: CC_CL99 did not compile getoptions()"
 }
 
-Assemble-R99 "M38DPROBE"
+Assemble-R99 "M38DPRB"
 
 foreach ($overlay in $OVERLAYS) { Assemble-R99 $overlay.Name }
 
