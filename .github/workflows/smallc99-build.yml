@@ -1,0 +1,29 @@
+name: SMALLC99 Windows compiler build
+on:
+  push:
+    branches:
+      - feature/enum-typedef
+  workflow_dispatch:
+
+jobs:
+  compiler-build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout sources and toolchain
+        uses: actions/checkout@v4
+      - name: Create monitor destination required by build script
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -LiteralPath 'C:\Development-W11DEV\Eclipse Workspace\TMS99105_SBC\MONITOR'
+      - name: Compile, assemble, link, and check overlay budgets
+        shell: pwsh
+        working-directory: SmallC99
+        run: |
+          .\make_smallc99.ps1
+      - name: Keep built compiler
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SMALLC99-compiler
+          path: SmallC99/build_tms/SMALLC99.EXE
+          if-no-files-found: error
