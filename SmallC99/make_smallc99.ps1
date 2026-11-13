@@ -153,7 +153,8 @@ $OVERLAYS = @(
     @{ Name="CC_CG99";   Page=11; Descriptor="CC_CG99.R99=11,6,ccout:P_CCOUT" }
     @{ Name="CC_CG99T";  Page=13; Descriptor="CC_CG99T.R99=13,6,setcodes:P_SETCODES" }
     @{ Name="CC_CL99";   Page=12; Descriptor="CC_CL99.R99=12,7,getoptions:P_GETOPTS,errrep:P_ERRREP" }
-    @{ Name="CC_STRD";   Page=15; Descriptor="CC_STRD.R99=15,8,dostruct:T_STRUCT" }   # structs phase 1: struct/union declarations
+    @{ Name="CC_STRD";   Page=15; Descriptor="CC_STRD.R99=15,8,dostruct:T_STRUCT" }
+    @{ Name="CC_ENUM";   Page=1;  Descriptor="CC_ENUM.R99=1,8,doenum:-" }
 )
 
 # Overlay ownership contract.  Framed overlay dispatch saves/restores only
@@ -180,6 +181,7 @@ $required = @(
     "src\resident\SPYOUT.A99",
     "src\resident\CC_STRU.A99",
     "src\overlays\CC_STRD.C",
+    "src\overlays\CC_ENUM.C",
     "include\OVLDEFS.INC"
 )
 foreach ($path in $required) { Require-File $path }
@@ -215,7 +217,7 @@ foreach ($name in $commonC) {
 $commonOverlays = @(
     "CC_DECL.C", "CC_PREP.C", "CC_MACS.C", "CC_STMT.C",
     "CC_EXPR_A.C", "CC_EXPR_B.C", "CC_DFUN.C",
-    "CC_EXPR_C.C", "CC_EXPR_D.C", "CC_STRD.C"
+    "CC_EXPR_C.C", "CC_EXPR_D.C", "CC_STRD.C", "CC_ENUM.C"
 )
 foreach ($name in $commonOverlays) {
     Copy-Item -LiteralPath (Join-Path "src\overlays" $name) -Destination (Join-Path "build_tms" $name) -Force
@@ -442,6 +444,7 @@ Compile-C "CC_CG99"
 Compile-C "CC_CG99T"
 Compile-C "CC_CL99"
 Compile-C "CC_STRD"
+Compile-C "CC_ENUM"
 Compile-C "CC_DATA"
 Compile-C-Main "SMALLC99"
 
@@ -593,6 +596,22 @@ $stmtRow = [regex]::Match($tableText, '(?im)^\s*WORD\s+8,3[^\r\n]*;ID 2[^\r\n]*$
 Write-Output ("OVL_STMT final row: " + $stmtRow)
 if ($tableText -notmatch 'WORD\s+8,3,9,14,0,0,0,0,0,0\s*;ID 2') {
     throw "*** BUILD FAILED: OVL_STMT ID 2 is not mapped as >8000/page3 + >9000/page14"
+}
+
+
+# OVL_STRD has a second page at >9000 / physical page 1. Like the
+# STMT page-14 exception above, older DREL versions may omit it.
+if ($tableText -notmatch 'WORD\s+8,15,9,1,0,0,0,0,0,0\s*;ID 8') {
+    $oldStrdRow = '(?im)^\s*WORD\s+8,15,0,0,0,0,0,0,0,0\s*;ID 8[^\r\n]*$'
+    if ($tableText -notmatch $oldStrdRow) {
+        throw "*** BUILD FAILED: unexpected DREL OVL_STRD ID 8 row"
+    }
+    $tableText = [regex]::Replace(
+        $tableText, $oldStrdRow,
+        "`tWORD`t8,15,9,1,0,0,0,0,0,0`t;ID 8 (2 pages)",
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [Text.RegularExpressions.RegexOptions]::Multiline
+    )
+    [IO.File]::WriteAllText((Resolve-Path ".\OVLTABLE.INC"), $tableText, [Text.Encoding]::ASCII)
 }
 
 # HARD INVARIANT: every normal/nestable overlay must own segment 8.
