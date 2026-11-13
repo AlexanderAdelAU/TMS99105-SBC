@@ -60,6 +60,8 @@
 #define ARRAY    2
 #define POINTER  3
 #define FUNCTION 4
+#define ENUMCONST 5
+#define TYPEDEFNAME 6
 
 /* ---- values for TYPE ---- */
 #define CHR      4
@@ -168,8 +170,14 @@ primary(is)  int *is; {
   putint(0, is, 7 << LBPW);         /* clear "is" array */
   if(symname(sname)) {              /* is legal symbol */
     if(ptr = findloc(sname)) {      /* is local */
-      if(ptr[IDENT] == LABEL) {
+      if(ptr[IDENT] == LABEL || ptr[IDENT] == TYPEDEFNAME) {
         experr();
+        return 0;
+        }
+      if(ptr[IDENT] == ENUMCONST) {
+        is[TC] = INT;
+        is[CV] = getint(ptr + OFFSET, 2);
+        gen(GETw1n, is[CV]);
         return 0;
         }
       k = getint(ptr+OFFSET, 2);
@@ -192,6 +200,16 @@ primary(is)  int *is; {
       return 1;
       }
     if(ptr = findglb(sname)) {      /* is global */
+      if(ptr[IDENT] == TYPEDEFNAME) {
+        experr();
+        return 0;
+        }
+      if(ptr[IDENT] == ENUMCONST) {
+        is[TC] = INT;
+        is[CV] = getint(ptr + OFFSET, 2);
+        gen(GETw1n, is[CV]);
+        return 0;
+        }
       is[ST] = ptr;
       if(ptr[IDENT] != FUNCTION) {
         if(ptr[IDENT] == ARRAY) {
