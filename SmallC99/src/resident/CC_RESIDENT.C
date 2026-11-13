@@ -246,6 +246,26 @@ decl(tp, aid, id, sz) int *tp, aid, *id, *sz;
 
 
 /*
+** Enum constants are immediate int values, not addressable objects.
+** The expression overlay is page-bound, so keep the small service
+** that handles ENUMCONST and TYPEDEFNAME symbols resident.
+*/
+typedprimary(ptr, is) char *ptr; int is[];
+{
+    if(ptr[IDENT] == TYPEDEFNAME) {
+        error("typedef name used as expression");
+        return 1;
+    }
+    if(ptr[IDENT] == 5) {      /* ENUMCONST */
+        is[TC] = INT;
+        is[CV] = getint(ptr + OFFSET, 2);
+        gen(GETw1n, is[CV]);
+        return 1;
+    }
+    return 0;
+}
+
+/*
 ** A shared declaration type-specifier parser. Declaration overlays ask
 ** for the base type and, for typedef names, the type's pre-existing
 ** VARIABLE/POINTER/ARRAY shape. Does not create storage.
