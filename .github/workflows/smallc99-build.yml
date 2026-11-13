@@ -14,7 +14,7 @@ jobs:
       - name: Create monitor destination required by build script
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -LiteralPath 'C:\Development-W11DEV\Eclipse Workspace\TMS99105_SBC\MONITOR'
+          New-Item -ItemType Directory -Force -Path 'C:\Development-W11DEV\Eclipse Workspace\TMS99105_SBC\MONITOR'
       - name: Compile, assemble, link, and check overlay budgets
         shell: pwsh
         working-directory: SmallC99
