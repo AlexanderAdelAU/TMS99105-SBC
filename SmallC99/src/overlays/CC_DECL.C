@@ -27,6 +27,8 @@
 	#define ARRAY     2
 	#define POINTER   3
 	#define FUNCTION  4
+	#define TYPEDEFNAME 6
+	#define TYPEDEFDECL 5
 
 	#define CHR       4
 	#define INT       8
@@ -90,23 +92,13 @@
 	** Test for global declarations.
 	*/
 	dodeclare(class) int class; {
-	  if     (amatch("char",     4)) declglb(CHR,  class);
-	  else if(amatch("unsigned", 8)) {
-	    if   (amatch("char",     4)) declglb(UCHR, class);
-	    else {
-	      amatch("int", 3);
-	      declglb(UINT, class);
-	      }
+	  int t, baseid, basesz, deftype;
+	  deftype = amatch("typedef", 7);
+	  if(typeintro(&t, &baseid, &basesz, 0) == 0) {
+	    if(deftype) error("missing typedef type");
+	    return deftype;
 	    }
-	  else if(amatch("struct", 6))
-	    declglb(R_STRUCT(0, 1), class);
-	  else if(amatch("union", 5))
-	    declglb(R_STRUCT(1, 1), class);
-	  else if(amatch("int", 3) || class == EXTERNAL)
-	    declglb(INT, class);
-	  else
-	    return 0;
-
+	  declglb(t, deftype ? TYPEDEFDECL : class, baseid, basesz);
 	  ns();
 	  return 1;
 	  }
@@ -114,21 +106,23 @@
 	/*
 	** Declare a global/static object.
 	*/
-	declglb(type, class) int type, class; {
-	  int id, dim, t;
+	declglb(type, class, baseid, basesz) int type, class, baseid, basesz; {
+	  int id, dim, t, nstars;
 
 	  while(1) {
 	    if(endst()) return;
 	    t = type;                 /* per declarator: char *a, b; */
 
+	    id = baseid;
+	    dim = 1;
+	    if(baseid == POINTER) dim = 0;
+	    if(baseid == ARRAY) dim = basesz / elsize(t);
 	    if(match("*")) {
-	      id  = POINTER;
+	      id = POINTER;
 	      dim = 0;
-	      while(match("*")) t = t + 64;   /* pointer depth, bits 6-7 */
-	      }
-	    else {
-	      id  = VARIABLE;
-	      dim = 1;
+	      while(match("*")) t = t + 64;
+	      if(baseid == POINTER) t = t + 64;
+	      if(baseid == ARRAY) error("pointer to typedef array unsupported");
 	      }
 
 	    if(symname(ssname) == 0) illname();
@@ -145,15 +139,22 @@
 	        t   = R_STRUCT(2, t);   /* further [..]: rows (CC_STRD) */
 	        }
 	      }
-	    else if(match("[")) {     /* *name[n]: array of pointers */
-	      t   = t + 64;
+	    else if(id == POINTER && match("[")) {
+	      t   = t + 64;     /* array of pointer alias or declarator */
 	      id  = ARRAY;
 	      dim = needsub();
 	      t   = R_STRUCT(2, t);
 	      }
+	    else if(id == ARRAY && match("[")) {
+	      error("array of typedef array unsupported");
+	      dim = needsub();
+	      t = R_STRUCT(2, t);
+	      }
 	    if(t > 255) error("too many *");
 
-	    if(class == EXTERNAL)
+	    if(class == TYPEDEFDECL)
+	      ;                    /* no object storage for type aliases */
+	    else if(class == EXTERNAL)
 	      external(ssname, elsize(t), id);
 	    else if(id == FUNCTION)
 	      ;
@@ -164,7 +165,11 @@
 	    else
 	      initials(elsize(t), id, dim);
 
-	    if(id == POINTER)
+	    if(class == TYPEDEFDECL)
+	      addsym(ssname, TYPEDEFNAME, t,
+	             id == POINTER ? BPW : dim * elsize(t),
+	             id, &glbptr, STATIC);
+	    else if(id == POINTER)
 	      addsym(ssname, id, t, BPW, 0, &glbptr, class);
 	    else
 	      addsym(ssname, id, t, dim * elsize(t),
