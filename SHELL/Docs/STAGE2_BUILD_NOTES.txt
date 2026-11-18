@@ -1,0 +1,48 @@
+BUILDING SHELL 6.5
+==================
+MAKESHELL.bat is your original, extended.  It keeps your exact form:
+
+    A99 <name> SCHCLC        assemble C:<name>.A99  ->  C:<name>.R99 (+ .L99)
+    COPY *.H99 ..\MONITOR     publish, unchanged
+
+Three steps instead of one, in this order:
+
+  1. A99 SHELLV65 SCHCLC              the core; also writes C:SHELLV65.L99
+  2. MKCINC C:SHELLV65.L99 C:SHELLV65.A99 C:CORE.INC
+  3. A99 DIR SCHCLC  ... A99 TYPE SCHCLC   the nine command pages
+
+WHY THE ORDER
+-------------
+  - MKCINC reads the core's .L99 listing, so the core is assembled first.
+  - Every command source begins  INCL "C:CORE.INC"  so CORE.INC must be
+    on drive C before any command is assembled.  MKCINC writes it there.
+
+  The explicit  C:  on the include matters: INCL does NOT inherit the
+  drive of the source being assembled - it looks on the default drive.
+  Writing CORE.INC to C: and including "C:CORE.INC" makes the build work
+  regardless of the current drive.
+
+ONE THING TO CONFIRM ON YOUR SIDE
+---------------------------------
+Your batch publishes *.H99, but this A99 source emits *.R99.  Your
+Eclipse A99 evidently produces .H99 (or a later step renames R99->H99).
+Whatever that step is, it now applies to ten files instead of one - the
+core plus nine command pages - with no change needed, because every
+command is built with the identical  A99 <name> SCHCLC  line.  Just make
+sure MKCINC.EXE is on the path A99 runs from.
+
+BUILDING MKCINC (host, once)
+----------------------------
+  cc -o MKCINC MKCINC.C          any host C compiler; ANSI C, no libs.
+
+REBUILD RULES
+-------------
+  - Changed the CORE:   rerun all three steps.  Core addresses move, so
+    CORE.INC and every command must be rebuilt.
+  - Changed ONE command (e.g. a bigger DIR) and NOT the core:
+    just  A99 DIR SCHCLC.  CORE.INC is unchanged.
+
+SYSGEN
+------
+See MAKE_SYSGEN65.bat: SHELL.SYS and BDOS.SYS stay entries 0 and 1;
+the nine command pages follow as NAME.SHC data files.

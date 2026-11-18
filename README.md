@@ -1,5 +1,7 @@
 ## TMS9900/99105A Single Board Computer
 
+> **Build the complete Shell 6.5 operating system from source:** [BUILDING.md](BUILDING.md) describes `MAKE_SYSTEM.bat`, the four system modules, the Shell and the final `PAYLOAD65.HEX` output.
+
 > **SMALLC99 — a native C compiler that runs on this SBC** (structs, unions, multi-dimensional arrays, overlays in paged memory) now lives in its own repository: **[SmallC99-TMS99105-Native-C-Compiler](https://github.com/AlexanderAdelAU/SmallC99-TMS99105-Native-C-Compiler)**.
 
 > **Native toolchain** — the assembler (SBCR99), linker (SBC LINK99) and editor (FileEdit) that run on this SBC, with ready-built binaries: **[TMS99105-Native-Toolchain](https://github.com/AlexanderAdelAU/TMS99105-Native-Toolchain)**.
@@ -64,7 +66,7 @@ The method of loading software programmes into memory and executing them is desc
 
 ## Software for the SBC – where to find it
 
-The software for this SBC has been split into its own repositories, so each project can be found and maintained separately. This repository now holds the hardware: schematics, memory structure, the Disc Monitor and SYSGEN.
+This repository holds the hardware documentation, Disc Monitor, SYSGEN and now the integrated Shell 6.5 operating-system source build. The separate software repositories below remain available for independent development and historical reference.
 
 | Repository | What it contains |
 |---|---|

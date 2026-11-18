@@ -1,0 +1,1223 @@
+;-----------------------------------------------------------------------
+;	BDOS FOR THE TMS9900 / TMS99000 SBC
+;	AUTHOR: ALEXANDER CAMERON
+;
+;	REFACTORED FULL-CAPACITY BUILD (16.77 MB MAX IDE/SATA GEOMETRY)
+;-----------------------------------------------------------------------
+; ======================================================================
+;   TMS9900/TMS99000 BDOS IDE DISK LAYOUT & GEOMETRY (16.77 MB MAX)
+;   [ISOLATED SYSTEM BLOCK REVISION & ALIAS COMPARTMENTALIZATION]
+;
+;   1. IDE HARDWARE TRANSLATION
+;      1 IDE LBA      = 256 Bytes
+;      1 BDOS Sector  = 512 Bytes (2 IDE LBAs)
+;      1 BDOS Block   = 4,096 Bytes (8 BDOS Sectors)
+;
+;   2. FULLY ISOLATED DISK MAP (LBA vs SECTOR vs BLOCK)
+;      BLOCK 0:     BOOT (Sectors 0-7, LBA 0-15)
+;      BLOCK 1 & 2: BAT  (Sectors 8-23, LBA 16-47)
+;      BLOCK 3 - 6: DIR  (Sectors 24-55, LBA 48-111, 512 Files)
+;      BLOCK 7:     FOLDER ALIAS TABLE (Sectors 56-63, LBA 112-127)
+;      BLOCK 8+:    FILE DATA (Sectors 64+, LBA 128+)
+; ======================================================================
+
+; --- XOPs ---
+	DXOP	PUSHREG,4
+	DXOP	POPREG,5
+	DXOP	CALL,6
+	DXOP	RET,7
+	DXOP	PUSH,8
+	DXOP	POP,9
+	DXOP	WHEX,10
+	DXOP	DEBUG,15
+
+; --- REGISTERS ---
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+R3	EQU	3
+R4	EQU	4
+R5	EQU	5
+R6	EQU	6
+R7	EQU	7
+R8	EQU	8
+R9	EQU	9
+R10	EQU	10
+SP	EQU	10
+HALT	EQU	10FFH
+
+; --- OS MEMORY MAP ---
+MONITOR:	EQU	0F000H
+BDOS:	EQU	0E000H
+
+	AORG	BDOS
+
+;=====================================================================
+; MAIN BDOS ENTRY & DISPATCH TABLE
+; R2 = Function Number
+; R3 = Function Argument (Usually pointer to FCB)
+;=====================================================================
+	SLA	R2,1		; Multiply function number by 2 (Word lookup)
+	CI	R2,2*42	; Is the function number > 40?
+	JH	EXIT		; If yes, exit with error
+	MOV	@FUN00(R2),R0	; Load subroutine address from table
+	B	*R0		; Branch to subroutine
+
+FUN00	WORD	BDOS0			; 0: WARM BOOT
+FUN01	WORD	CIN			; 1: CONSOLE INPUT
+FUN02	WORD	COUT	 		; 2: CONSOLE OUTPUT
+FUN03	WORD	EXIT	
+FUN04	WORD	EXIT	
+FUN05	WORD	EXIT	
+FUN06	WORD	DCONIO			; 6: DIRECT CONSOLE I/O
+FUN07	WORD	EXIT	 
+FUN08	WORD	EXIT	
+FUN09	WORD	EXIT	
+FUN10	WORD	EXIT	
+FUN11	WORD	EXIT	
+FUN12	WORD	EXIT	
+FUN13	WORD	EXIT
+FUN14	WORD	DSKFUN			; 14: SELECT DISK
+FUN15	WORD	FOPEN	 		; 15: OPEN FILE
+FUN16	WORD	FCLOSE	 		; 16: CLOSE FILE
+FUN17	WORD	SEARCH1	 		; 17: SEARCH FIRST
+FUN18	WORD	SEARCH2			; 18: SEARCH NEXT
+FUN19	WORD	ERAFIL	 		; 19: ERASE FILE
+FUN20	WORD	RDSEQ	 		; 20: READ SEQUENTIAL
+FUN21	WORD	WRSEQ	 		; 21: WRITE SEQUENTIAL
+FUN22	WORD	MAKFIL	 		; 22: MAKE FILE
+FUN23	WORD	RENAME			; 23: RENAME FILE
+FUN24	WORD	EXIT	
+FUN25	WORD	CDFUNC			; 25: GET CURRENT DISK
+FUN26	WORD	DMAFUN			; 26: SET DMA ADDRESS
+FUN27	WORD	GETFRE			; 27: GET FREE CAPACITY
+FUN28	WORD	RMDIR			; 28: REMOVE FOLDER
+FUN29	WORD	EXIT
+FUN30	WORD	EXIT
+FUN31	WORD	EXIT
+FUN32	WORD	EXIT
+FUN33	WORD	RDRND	 		; 33: READ RANDOM
+FUN34	WORD	WRRND	 		; 34: WRITE RANDOM
+FUN35	WORD	GETSIZ			; 35: GET FILE SIZE
+FUN36	WORD	SETREL			; 36: SET RELATIVE RECORD
+FUN37	WORD	EXIT
+FUN38	WORD	EXIT
+FUN39	WORD	EXIT
+FUN40	WORD	EXIT
+FUN41	WORD	MKDIR			; 41: MAKE FOLDER
+FUN42	WORD	CHDIR			; 42: CHANGE FOLDER
+
+EXIT	SETO	R1			; Generic error exit (Return -1)
+	RET
+
+; --- BIOS VECTOR POINTERS ---
+MON_PTR	EQU	0086H
+MCONIN	EQU	MONITOR+3*4
+MCONOUT	EQU	MONITOR+4*4
+MSELDSK	EQU	MONITOR+5*4
+MRECAL	EQU	MONITOR+6*4
+MSEEK	EQU	MONITOR+7*4
+MRDID	EQU	MONITOR+10*4
+MWBOOT	EQU	MONITOR+11*4
+MRDREC	EQU	MONITOR+8*4
+MWRREC	EQU	MONITOR+9*4
+MRDDBR	EQU	MONITOR+14*4
+MWRDBR	EQU	MONITOR+15*4
+
+;=====================================================================
+; FILE CONTROL BLOCK (FCB) FIELD OFFSETS
+; Bytes 0-31 exist on the disk directory.
+; Bytes 32-35 are reserved RAM space for legacy 36-byte TPA alignment.
+;=====================================================================
+NAM	EQU	0			; 0-7: Filename
+FTY	EQU	11			; 11: File Extension/Type
+FSB	EQU	12			; 12-13: File Starting Block (Head of Chain)
+FSZ	EQU	14			; 14-15: File Size (in 512b sectors)
+FLA	EQU	16			; 16-17: Load Address in memory
+FLD_ID	EQU	18			; 18: FOLDER ID (0=Root, 1-255=Subfolders)
+LRBL	EQU	20			; 20-21: Bytes in last record
+CBN	EQU	24			; 24-25: Current Block Number (Cursor)
+CRN	EQU	26			; 26-27: Current Record Number (Cursor)
+RELB	EQU	28			; 28-29: Relative Block (Always 0 here)
+RELR	EQU	30			; 30-31: Relative Record Number
+
+;=====================================================================
+; GEOMETRY EQUATES (16.77 MB ISOLATED)
+;=====================================================================
+BYTSEC		EQU	512
+SECBLK		EQU	8
+SECBLK_SHIFT	EQU	3		; Shift left 3 = Multiply by 8
+
+NDSECT		EQU	32		; Directory sectors (512 files)
+DIRBLK_CNT	EQU	4
+
+RSVDSEC		EQU	1
+BOOT_LBA	EQU	0
+BAT_LBA         EQU	16
+DIR_LBA         EQU	48
+
+LASTBLK		EQU	0FF80H		; BAT EOF Sentinel
+FIRSTBLK	EQU	8		; Data starts at Block 8
+MAXBLK		EQU	4095
+NDATABLK	EQU	MAXBLK-FIRSTBLK+1
+LASTBAT		EQU	15		; 16 BAT Pages (0-15)
+
+BATSF		EQU	8		; Shift right 8 = Divide by 256
+BATMSK		EQU	0FFH		; Modulo 256 Mask
+BUFSIZ		EQU	BYTSEC
+
+NAMSIZ		EQU	11
+EXTSIZ		EQU	3
+NAMEOFF2	EQU	18
+DIRSIZ		EQU	32
+RDCMD		EQU	1
+WRCMD		EQU	2
+
+WILD		BYTE	'?'
+ALLONES		BYTE	-1
+ROOTID		BYTE	0FEH		; "the root, asked for explicitly"
+SPACE		BYTE	' '
+	EVEN
+
+; --- GLOBAL SYSTEM STATE VARIABLES ---
+DISK		WORD	0
+CAB		WORD	0	 	; Current Allocated Block
+CBP   		WORD	0		; Current BAT Pointer in memory
+CBO		WORD	0		; Current Block Offset
+CBSECT		WORD	-1		; Current Cached BAT Page (-1 = None)
+DIRENT		WORD	0		; Directory Entry Index
+WRADDR		WORD	DIRBUFF
+DMAADDR		WORD	0
+CDSECT		WORD	0	 	; Current Directory Sector
+CCMD		WORD	0	 	; Read or Write command state
+CFLD		BYTE	0		; CURRENT FOLDER ID (Defaults to 0 / Root)
+MKFLD		BYTE	0		; folder MAKFIL resolved on entry
+RNMSAV		BYTE	0		; RENAME: first char of the new name
+		EVEN
+BATCHG		WORD	0		; Is the cached BAT page dirty? (0=No)
+BATERR		WORD	0
+MCNT		WORD	0
+	EVEN
+
+;=====================================================================
+; SYSTEM CALL IMPLEMENTATIONS
+;=====================================================================
+
+; --- WARM BOOT (Flush state before rebooting) ---
+BDOS0	MOV	@BATCHG,R0
+	JEQ	BDOS0A			; If BAT is clean, skip write
+	CALL	@WRBAT			; Flush dirty BAT to disk
+	MOV	R1,R1
+	JLT	BDOS0E			; Error? Abort boot.
+BDOS0A	SETO	@CBSECT			; Invalidate BAT cache
+	CLR	@CAB
+	B	@MWBOOT
+BDOS0E	RET
+
+; --- CONSOLE I/O ---
+COUT	SWPB	R3
+	MOVB	R3,R2
+	CALL	@MCONOUT
+	RET
+
+CIN	CALL	@MCONIN
+	SWPB	R1
+	RET
+
+DCONIO	MOVB	@ALLONES,R0
+	CB	R3,R0
+	JEQ	CIN
+	JMP	COUT
+
+; --- DISK SELECTION ---
+DSKFUN	PUSH	R3
+	MOV	@BATCHG,R0
+	JEQ	DSKFUN1
+	CALL	@WRBAT
+	MOV	R1,R1
+	JLT	DSKFUNE
+DSKFUN1	POP	R3
+	MOV	R3,R2
+	MOV	R3,@DISK
+	SETO	@CBSECT			; Invalidate BAT cache for new disk
+	CLR	@CAB
+	CLR	@BATERR
+	SETO	@DIRENT
+	CLR	@CDSECT
+	B	@MSELDSK
+DSKFUNE	POP	R3
+	RET
+
+CDFUNC	MOV	@DISK,R1
+	RET
+
+DMAFUN	MOV	R3,@WRADDR
+	MOV	R3,@DMAADDR
+	RET
+
+_SETDMA	MOV	R2,@DMAADDR
+	RET
+
+;=====================================================================
+; FUNCTION 15: FILE OPEN
+; Finds the file in the directory and copies its metadata (FSB, FSZ, etc)
+; into the user's File Control Block in RAM.
+;=====================================================================
+FOPEN:	MOV	R3,R8			; Save FCB pointer to R8
+	CALL	@SEARCH1		; Look up filename in directory
+	MOV	R1,R1
+	JLT	OPENE			; If not found (R1 = -1), Error exit
+
+	; File Found! Copy 21 bytes of metadata from Directory Buffer to FCB
+	MOV	R8,R1			; R1 = Destination (User's FCB)
+	MOV	R3,R2			; R2 = Source (Directory Buffer)
+	AI	R1,NAMSIZ		; Skip the 11-byte filename
+	AI	R2,NAMSIZ
+	LI	R0,DIRSIZ-NAMSIZ	; Copy remaining 21 bytes
+
+OPENA:	MOVB	*R2+,*R1+
+	DEC	R0
+	JNE	OPENA
+
+OPENENT:CLR	R1
+ 	MOV	R1,@CBN(R8)		; Zero out runtime cursor (Block)
+ 	MOV	R1,@RELR(R8)		; Zero out runtime cursor (Random Rec)
+	MOV	R1,@RELB(R8)
+	MOV	R1,@CRN(R8)		; Zero out runtime cursor (Seq Rec)
+	RET
+
+OPENE:	SETO	R1			; File not found error
+	RET
+
+;=====================================================================
+; FUNCTION 16: FILE CLOSE
+; Saves any changes to File Size or Load Address back to the Directory.
+;=====================================================================
+FCLOSE:	MOV	R3,R8			; R8 = FCB Pointer
+	CALL	@SEARCH1		; Locate the file's directory entry
+	MOV	R1,R1
+	JLT	CLOSEB			; If missing, abort
+
+	MOV	R8,R1			; R1 = Source (User's FCB)
+	MOV	R3,R2			; R2 = Destination (Dir Buffer)
+	AI	R1,NAMSIZ
+	AI	R2,NAMSIZ
+	LI	R0,DIRSIZ-NAMSIZ
+
+FCLOSE1:MOVB	*R1+,*R2+		; Copy updated metadata back
+	DEC	R0
+	JNE	FCLOSE1
+
+	; Wipe cursors in the directory copy so they don't persist
+	CLR	@CBN(R3)
+	CLR	@CRN(R3)
+	CLR	@RELB(R3)
+	CLR	@RELR(R3)
+
+	CALL	@WRDIR			; Write the Directory Sector to disk
+	MOV	R1,R1
+	JLT	CLOSEB
+	MOV	@FSZ(R8),R1		; Check if file size is 0
+	JEQ	CLOSEB
+	CALL	@RECLAIM		; Free any allocated blocks beyond EOF
+CLOSEB	RET
+
+;=====================================================================
+; FUNCTION 21: WRITE SEQUENTIAL
+; Writes a 512-byte sector. Automatically allocates new 4KB blocks
+; if the file grows beyond its current allocation.
+;=====================================================================
+WRSEQ:	MOV	R3,R8
+	C	@CRN(R8),@FSZ(R8)
+	JH	WRSEQE			; Reject sparse writes (CRN > FSZ)
+
+	CALL	@CRNTBC			; Convert CRN to Block (R2) and Offset (R3)
+	MOV	R3,@CBO			; Save Sector Offset
+	MOV	R2,R3
+	CALL	@TRACE			; Walk the BAT to find physical block
+	MOV	@BATERR,R0
+	JNE	WRSEQ2			; Abort if BAT is corrupt
+	C	R1,R2
+	JEQ	WRSEQ0			; If we already own this block, jump to Write
+
+	; Block is unallocated. Find a new one.
+	CALL	@NXTBLK			; Returns free block number in R6, Pointer in R7
+	MOV	R1,R1
+	JLT	WRSEQ2			; Disk Full Error
+
+	LI	R1,LASTBLK
+	MOV	R1,*R7			; Mark the new block as End-Of-File (FF80H)
+	MOV	R7,@CBP
+	SETO	@BATCHG			; Mark BAT as dirty
+
+	; Link the previous EOF block to the newly allocated block
+	PUSH	R6			; Save new block number
+	MOV	@CAB,R3			; R3 = Old EOF Block Number
+	CALL	@GETBATP		; Fetch its BAT pointer
+	POP	R6
+	MOV	@BATERR,R1
+	JNE	WRSEQ2
+	MOV	R6,*R7			; Update Old EOF to point to New Block
+	MOV	R6,@CAB
+	SETO	@BATCHG
+
+WRSEQ0	MOV	@CAB,R2			; R2 = Physical Block Number
+	MOV	@CBO,R3			; R3 = Sector Offset
+	LI	R0,WRCMD
+	MOV	R0,@CCMD
+
+	CALL	@RWREC			; Perform the physical disk write
+	MOV	R1,R1
+	JLT	WRSEQ2			; Exit on hardware error
+
+	; High Water Mark: Increase File Size if we appended at the end
+	MOV	@CRN(R8),R0
+	INC	R0
+	C	R0,@FSZ(R8)
+	JH	WRSEQG
+WRSEQI	INC	@CRN(R8)		; Increment cursor for next write
+
+WRSEQ1	CLR	R1
+WRSEQ2	RET
+WRSEQG	MOV	R0,@FSZ(R8)
+	JMP	WRSEQI
+WRSEQE	SETO	R1
+	RET
+
+;=====================================================================
+; FUNCTION 20: READ SEQUENTIAL
+;=====================================================================
+RDSEQ:	MOV	R3,R8
+	C	@CRN(R8),@FSZ(R8)
+	JHE	RDSEQ1			; Reject if trying to read past EOF
+	CALL	@CRNTBC			; Get relative Block and Offset
+	MOV	R3,@CBO
+	CALL	@TRACE			; Translate to Physical Block
+	MOV	@BATERR,R0
+	JNE	RDSEQ1
+	C	R1,R2
+	JNE	RDSEQ1
+	MOV	@CBO,R3
+	MOV	@CAB,R2
+	LI	R0,RDCMD
+	MOV	R0,@CCMD
+
+	CALL	@RWREC			; Read sector from disk
+	MOV	R1,R1
+	JLT	RDSEQ2
+	INC	@CRN(R8)		; Advance cursor
+	CLR	R1
+RDSEQ2	RET
+RDSEQ1	SETO	R1
+	RET
+
+; --- RANDOM I/O (Works by hijacking the Sequential cursors) ---
+RDRND:	MOV	R3,R8
+	MOV	@RELB(R8),R0
+	JNE	RDRNDE			; Require 16-bit absolute addressing (RELB=0)
+	DECT	SP
+	MOV	@CBN(R8),*SP		; Push Seq Block cursor
+	DECT	SP
+	MOV	@CRN(R8),*SP		; Push Seq Record cursor
+	CLR	@CBN(R8)
+	MOV	@RELR(R8),@CRN(R8)	; Load Random record into Seq cursor
+	MOV	R8,R3
+	CALL	@RDSEQ			; Call Seq Read
+	MOV	*SP+,@CRN(R8)		; Restore cursors
+	MOV	*SP+,@CBN(R8)
+	RET
+RDRNDE	SETO	R1
+	RET
+
+WRRND:	MOV	R3,R8
+	MOV	@RELB(R8),R0
+	JNE	WRRNDE
+	C	@RELR(R8),@FSZ(R8)
+	JH	WRRNDE
+	DECT	SP
+	MOV	@CBN(R8),*SP
+	DECT	SP
+	MOV	@CRN(R8),*SP
+	CLR	@CBN(R8)
+	MOV	@RELR(R8),@CRN(R8)
+	MOV	R8,R3
+	CALL	@WRSEQ
+	MOV	*SP+,@CRN(R8)
+	MOV	*SP+,@CBN(R8)
+	RET
+WRRNDE	SETO	R1
+	RET
+
+;=====================================================================
+; LOW-LEVEL LBA TRANSLATOR
+; Inputs: R2 = Physical Block (e.g. 7), R3 = Sector Offset (0 to 7)
+; Output: Issues IDE Request for 512 bytes (2 LBAs)
+;=====================================================================
+RWREC:
+	MOV	R2,R1			; R1 = Block
+	SLA	R1,3			; Multiply by 8 (Sectors per Block)
+	A	R1,R3			; Add Offset = Logical Sector Number
+	SLA	R3,1			; Multiply by 2 = IDE LBA
+
+	MOV	@CCMD,R0
+	CI	R0,WRCMD
+	JNE	RWREC_R
+	B	@WRREC
+RWREC_R:B	@RDREC
+
+;=====================================================================
+; FUNCTION 17: SEARCH FIRST
+; Scans the directory for the filename in the FCB.
+; Supports wildcards ('?'). Now filters by CFLD (Folder ID).
+;=====================================================================
+SEARCH1:	MOV	R3,R8
+	SETO	@DIRENT			; Reset Directory Entry Index
+	CLR	@CDSECT			; Start at Directory Sector 0
+	CALL	@DIROPN			; Load Sector 0 into RAM
+	MOV	R1,R1
+	JLT	SEARCHX
+	JMP	DLOOK			; Go to scanning loop
+
+SEARCH2:MOV	R3,R8
+	CALL	@DIROPN			; Continue from current index
+	MOV	R1,R1
+	JLT	SEARCHX
+	JMP	DLOOK
+SEARCHX	RET
+
+GETSIZ:	MOV	R3,R8
+	CALL	@SEARCH1
+	MOV	R1,R1
+	JLT	GETSIZ1
+	CLR	@RELB(R8)
+	MOV	@FSZ(R3),@RELR(R8)
+GETSIZ1:RET
+
+SETREL:	CLR	@RELB(R3)
+	MOV	@CRN(R3),@RELR(R3)
+	RET
+
+DLOOK:	CALL	@DIRBLK			; Fetch next 32-byte entry pointer into R3
+	JLT	NONTRY			; Reached end of directory? Exit.
+	MOV	R3,R2			; R2 points to the entry in RAM
+	MOVB	*R2,R0
+	JLT	DLOOK			; MSB Set (E5H) = Deleted entry. Skip.
+	JEQ	NONTRY_Z		; 00H = End of Directory. Stop searching.
+
+	; --- CLEVER FOLDER ALIAS FILTER ---
+	; >FE        the root, asked for explicitly
+	; >FF >20 00 no preference - use the active folder
+	; anything else, a literal folder ID
+	;
+	; >00 has to mean "no preference".  Every CP/M-style caller clears
+	; its FCB before use - IOLIB99's _newfcb does exactly that - so a
+	; zero here is the absence of an answer, not a request for the root.
+	; Reading it as the root made every C program root-only: SMALLC99
+	; could open JUNK.C from the root but not from [TOOLS].
+	MOVB	@FLD_ID(R8),R0		; Fetch Target ID from User's FCB (R8)
+	CB	R0,@ROOTID		; Is it >FE (explicit Root)?
+	JEQ	USE_ROOT
+	CB	R0,@ALLONES		; Is it >FF (Empty/Uninitialized)?
+	JEQ	USE_CFLD
+	CB	R0,@SPACE		; Is it >20 (Space/Blank)?
+	JEQ	USE_CFLD
+	MOVB	R0,R0			; Is it >00 (zeroed FCB)?
+	JEQ	USE_CFLD
+	JMP	COMPARE_ID		; It is a specific ID, use it!
+
+USE_ROOT:
+	CLR	R0			; Root is folder 0
+	JMP	COMPARE_ID
+
+USE_CFLD:
+	MOVB	@CFLD,R0		; Fallback to global active folder
+
+COMPARE_ID:
+	MOVB	@FLD_ID(R2),R1		; Fetch this file's Folder ID from disk
+	CB	R1,R0			; Does it match the target ID?
+	JNE	DLOOK			; If no, skip this file and keep searching
+	; ---------------------------
+
+DLOOK4	LI	R0,NAMSIZ		; Match 11 characters
+	MOV	R8,R5			; R5 = Target string in user's FCB
+
+NXTLTR	CB	*R5,@WILD		; Is user character a '?'
+	JNE	DLOOK5			; If no, do exact comparison
+	INC	R5			; Wildcard matches anything, skip to next char
+	INC	R2
+	JMP	DLOOK6
+
+DLOOK5	CB	*R2+,*R5+		; Do characters match exactly?
+	JNE	DLOOK			; If no, grab next directory entry.
+DLOOK6	DEC	R0
+	JNE	NXTLTR			; Loop until all 11 chars checked
+
+	CLR	R1			; Match found! Return 0.
+	JMP	DLOOKEX
+
+NONTRY_Z: CLR	R3			; Mark true end of directory
+NONTRY	SETO	R1			; Match not found! Return -1.
+
+DLOOKEX	RET
+
+;=====================================================================
+; FUNCTION 22: MAKE FILE
+; Finds an empty directory slot, stamps Folder ID, allocates 1 block, saves.
+;=====================================================================
+MAKFIL:	MOV	R3,R8			; R8 = FCB
+
+	; Resolve the caller's folder byte NOW - MKFIL2 below wipes bytes
+	; 11-31 of the FCB, byte 18 among them, so it has to be read first.
+	; Same rules as the DLOOK filter, or a file could be created in one
+	; folder and then not be found by a search for the same target.
+	MOVB	@FLD_ID(R8),R0
+	CB	R0,@ROOTID
+	JEQ	MK_ROOT
+	CB	R0,@ALLONES
+	JEQ	MK_CFLD
+	CB	R0,@SPACE
+	JEQ	MK_CFLD
+	MOVB	R0,R0
+	JNE	MK_KEEP
+MK_CFLD	MOVB	@CFLD,R0
+	JMP	MK_KEEP
+MK_ROOT	CLR	R0
+MK_KEEP	MOVB	R0,@MKFLD
+
+	CALL	@NXTBLK			; Find a free allocation block
+	MOV	R1,R1
+	JLT	MAKERR			; Disk Full
+
+ 	MOV	R6,@CAB
+	MOV	R7,@CBP
+
+	SETO	@DIRENT
+	CLR	@CDSECT
+	CALL	@DIROPN			; Open directory from Sector 0
+	MOV	R1,R1
+	JLT	MAKERR
+NTHR	CALL	@DIRBLK			; Fetch next slot
+	JLT	MAKERR			; Directory Full
+	MOVB	*R3,R0
+	JGT	NTHR			; Slot is occupied, keep looking
+
+	; Empty slot found (R3 points to it). Zero out the FCB fields.
+	CLR	R0
+	MOV	R8,R5
+	AI	R5,NAMSIZ
+	LI	R2,DIRSIZ-NAMSIZ
+
+MKFIL2	MOVB	R0,*R5+			; Wipe legacy metadata from user's FCB
+	DEC	R2
+	JNE	MKFIL2
+
+	; --- STAMP FOLDER ID ---
+	MOVB	@MKFLD,@FLD_ID(R8)	; Stamp the folder resolved on entry
+	; -----------------------
+
+	MOV	@CAB,@FSB(R8)		; Save Block ID to FCB
+	LI	R1,LASTBLK
+	MOV	@CBP,R0
+	MOV	R1,*R0			; Write Sentinel to BAT
+	SETO	@BATCHG			; Mark BAT dirty
+
+	CALL	@GETTYPE		; Parse extension (e.g. .COM)
+
+	; Copy filename and new FSB to the Directory Sector buffer
+	LI	R2,DIRSIZ
+	MOV	R8,R5
+
+MKFIL1	MOVB	*R5+,*R3+
+	DEC	R2
+	JNE	MKFIL1
+
+	CALL	@WRBAT			; Commit BAT to disk
+	MOV	R1,R1
+	JLT	MAKERR
+	CALL	@WRDIR			; Commit Directory Sector to disk
+	MOV	R1,R1
+	JLT	MAKERR
+	B	@OPENENT		; Simulate an FOPEN to init cursors
+MAKERR	SETO	R1
+	RET
+
+
+;;=====================================================================
+; FUNCTION 41: MAKE FOLDER (MKDIR)
+; R3 = Pointer to 11-byte Folder Name
+;=====================================================================
+MKDIR:	MOV	R3,R8			; <--- FIX: Save String Pointer to R8 safely
+	CLR	R1
+	CALL	@LDFOLD			; LDFOLD clobbers R3 and R4
+	MOV	R1,R1
+	JLT	MKERR
+	LI	R4,DIRBUFF
+	LI	R5,32
+MK1:	MOVB	*R4,R0
+	JEQ	MKFOUND
+	AI	R4,16
+	DEC	R5
+	JNE	MK1
+MKERR:	SETO	R1
+	RET
+MKFOUND:MOV	R5,R0
+	NEG	R0
+	AI	R0,33			; Calculate Folder ID (1 to 32)
+	SWPB	R0
+	MOVB	R0,*R4+
+	MOV	R8,R2			; <--- FIX: Restore String Pointer from R8 (not R3)
+	LI	R0,11
+MK2:	MOVB	*R2+,*R4+
+	DEC	R0
+	JNE	MK2
+	CLR	R1
+	B	@WRFOLD			; WRFOLD also clobbers R3 and R4
+
+;=====================================================================
+; FUNCTION 28: REMOVE FOLDER (RMDIR)
+; R3 = Pointer to 11-byte Folder Name
+;=====================================================================
+RMDIR:	MOV	R3,R8			; R8 holds target folder name safely
+	CLR	R1
+	CALL	@LDFOLD			; LDFOLD clobbers R3 and R4
+	MOV	R1,R1
+	JLT	RMD_ERR
+
+	LI	R4,DIRBUFF
+	LI	R5,32
+RMD1:	MOV	R8,R2			; Use safe pointer in R8
+	MOV	R4,R6
+	MOVB	*R6+,R7			; Fetch Folder ID into R7
+	JEQ	RMDNXT
+
+	LI	R0,11
+RMD2:	CB	*R2+,*R6+
+	JNE	RMDNXT
+	DEC	R0
+	JNE	RMD2
+	JMP	RMDFOUND
+
+RMDNXT:	AI	R4,16
+	DEC	R5
+	JNE	RMD1
+RMD_ERR:SETO	R1
+	RET
+
+RMDFOUND:
+	CB	R7,@CFLD
+	JEQ	RMD_ERR			; Cannot delete active folder
+
+	DECT	SP
+	MOV	R7,*SP			; Save Target ID
+	DECT	SP
+	MOV	R4,*SP			; Save Alias Slot Pointer
+
+	SETO	@DIRENT
+	CLR	@CDSECT
+	CLR	R1
+	CALL	@DIROPN			; Load Dir Sector 0
+	MOV	R1,R1
+	JLT	RMD_POP
+
+RMDLOOK:CALL	@DIRBLK
+	JLT	RMDPASS			; Reached end of directory safely!
+
+	MOVB	*R3,R0
+	JLT	RMDLOOK			; E5H = Deleted file. Skip.
+	JEQ	RMDPASS			; 00H = End of Directory marker. Pass!
+
+	MOVB	@FLD_ID(R3),R0
+	MOV	@2(SP),R7		; Read R7 from stack
+	CB	R0,R7
+	JEQ	RMD_POP			; Orphan found! Abort.
+	JMP	RMDLOOK
+
+RMD_POP:INCT	SP
+	INCT	SP
+	SETO	R1
+	RET
+
+RMDPASS:CLR	R1
+	CALL	@LDFOLD			; Reload Alias table
+	MOV	R1,R1
+	JLT	RMD_POP
+
+	MOV	*SP+,R4			; Restore Slot Pointer
+	MOV	*SP+,R7			; Restore Target ID
+
+	CLR	R0
+	MOVB	R0,*R4+			; Wipe ID to 00H
+	LI	R2,02020H		; Space character ' '
+	LI	R0,11
+RMWIPE:	MOVB	R2,*R4+
+	DEC	R0
+	JNE	RMWIPE
+
+	CLR	R1
+	CALL	@WRFOLD			; Commit Alias Table
+	MOV	R1,R1
+	JLT	RMD_ERR
+	CLR	R1
+	RET
+
+;=====================================================================
+; FUNCTION 42: CHANGE FOLDER (CHDIR)
+;=====================================================================
+CHDIR:	MOV	R3,R8			; <--- FIX: Save String Pointer to R8
+	CLR	R0
+	MOVB	*R8,R0			; Check first char via R8
+	CI	R0,02000H
+	JNE	CH1_GO
+	CLR	R0
+	MOVB	R0,@CFLD
+	CLR	R1
+	RET
+
+CH1_GO:	CALL	@LDFOLD			; LDFOLD clobbers R3 and R4
+	MOV	R1,R1
+	JLT	CHERR
+	LI	R4,DIRBUFF
+	LI	R5,32
+CH1:	MOV	R8,R2			; <--- FIX: Restore String Pointer from R8 (not R3)
+	MOV	R4,R6
+	INC	R6
+	LI	R0,11
+CH2:	CB	*R2+,*R6+
+	JNE	CHNXT
+	DEC	R0
+	JNE	CH2
+	MOVB	*R4,@CFLD
+	CLR	R1
+	RET
+CHNXT:	AI	R4,16
+	DEC	R5
+	JNE	CH1
+CHERR:	SETO	R1
+	RET
+;=====================================================================
+; FUNCTION 27: GET FREE DISK CAPACITY
+; Scans the BAT and returns free space in Kilobytes in R1
+;=====================================================================
+GETFRE:	DECT	SP
+	MOV	R5,*SP
+	DECT	SP
+	MOV	R8,*SP		; Save R8 (Safe Register)
+
+	CLR	R8		; R8 = Free Block Counter
+	LI	R5,NDATABLK	; Max data blocks on disk (4088)
+	LI	R0,FIRSTBLK
+GF_LOOP:MOV	R0,R3
+	CALL	@GETBATP	; Fetch BAT entry
+	MOV	@BATERR,R1
+	JNE	GF_ERR
+	MOV	*R7,R1
+	JNE	GF_NEXT		; If not 0000H, it is allocated
+	INC	R8		; 0000H found! Increment free block count
+GF_NEXT:INC	R0
+	DEC	R5
+	JNE	GF_LOOP
+
+	MOV	R8,R1
+	SLA	R1,2		; 1 Block = 4KB, so multiply free blocks by 4 (KB)
+
+	MOV	*SP+,R8		; Restore R8
+	MOV	*SP+,R5
+	RET
+GF_ERR:	MOV	*SP+,R8
+	MOV	*SP+,R5
+	SETO	R1
+	RET
+
+; --- Folder Helpers ---
+LDFOLD:	LI	R3,112		; Block 7 LBA
+	LI	R4,DIRBUFF
+	B	@MRDDBR
+WRFOLD:	LI	R3,112
+	LI	R4,DIRBUFF
+	B	@MWRDBR
+; --- EXTENSION PARSER ---
+EXT_TAB:TEXT	'COMBASBAT'
+CHRT:	BYTE	'T'
+CHRM:	BYTE	'M'
+CHRS:	BYTE	'S'
+EXT_END:BYTE	0
+	EVEN
+
+COM	EQU	1
+EXE	EQU	2
+TXT	EQU	3
+BAS	EQU	4
+PRO	EQU	5
+
+GETTYPE:MOV	R8,R4
+	CLR	R0
+	AI	R4,NAMSIZ-EXTSIZ
+	MOV	*R4,R1
+	CI	R1,'CO'
+	JNE	TRYBAS
+	INCT	R4
+	CB	*R4,@CHRM
+	JNE	TRYBAS
+	LI	R0,COM
+	JMP	STORETYPE
+
+TRYBAS:	CI	R1,'BA'
+	JNE	TRYTXT
+	INCT	R4
+	CB	*R4,@CHRS
+	JNE	TRYTXT
+	LI	R0,BAS
+	JMP	STORETYPE
+
+TRYTXT:	CI	R1,'TX'
+	JNE	STORETYPE
+	LI	R0,TXT
+	INCT	R4
+	CB	*R4,@CHRT
+	JEQ	STORETYPE
+	CLR	R0
+
+STORETYPE:SWPB	R0
+	MOVB	R0,@NAMSIZ(R8)
+	RET
+
+; --- RENAME FILE ---
+; The new name is passed at FCB+NAMEOFF2, and NAMEOFF2 and FLD_ID are
+; the SAME BYTE (18).  So DLOOK would read the first character of the
+; new name as a folder ID - 'N' is >4E, folder 78 - and the search could
+; never match, in a folder or in the root.  Blank the byte for the
+; duration of the search so the active folder is used, then put the
+; character back before the name is copied over the entry.
+;
+; A rename therefore always acts within the active folder.  Targeting a
+; specific folder would need the second name moved off byte 18.
+RENAME:	MOV	R3,R8
+	MOVB	@FLD_ID(R8),@RNMSAV	; save the new name's first character
+	MOVB	@SPACE,@FLD_ID(R8)	; blank = search the active folder
+	CALL	@SEARCH1
+	MOVB	@RNMSAV,@FLD_ID(R8)	; restore it - it is name data, not a target
+	MOV	R1,R1
+	JLT	RENAM2
+	LI	R0,NAMSIZ
+	MOV	R3,R2
+	MOV	R8,R1
+	AI	R1,NAMEOFF2
+RENAM1	MOVB	*R1+,*R2+
+	DEC	R0
+	JNE	RENAM1
+
+	CALL	@WRDIR
+RENAM2	RET
+
+; --- ERASE FILE ---
+ERAFIL:	MOV	R3,R8
+	CALL	@SEARCH1
+	MOV	R1,R1
+	JLT	ERAERR
+	LI	R1,8000H
+	SOCB	R1,@NAM(R3)		; Tombstone the entry (E5H)
+	MOV	@FSB(R3),@FSB(R8)
+	CALL	@WRDIR			; Persist deletion to disk
+	MOV	R1,R1
+	JLT	ERAERR
+	CLR	@FSZ(R8)		; Tell reclaim to free ALL blocks
+	CALL	@RECLAIM
+	RET
+
+;=====================================================================
+; RECLAIM: Frees unused blocks in the BAT.
+; Used during File Deletion (FSZ=0) or Truncation (FSZ>0).
+;=====================================================================
+RECLAIM:	MOV	@FSB(R8),R3
+	CI	R3,FIRSTBLK
+	JHE	RECLFSB
+	MOV	@FSZ(R8),R0
+	JEQ	ERA03
+	JMP	ERAERR
+RECLFSB	CI	R3,MAXBLK
+	JH	ERAERR
+
+	MOV	@FSZ(R8),R0
+	JEQ	RECLALL
+
+	DEC	R0
+	MOV	R0,R3
+	CALL	@RECTBC
+	CALL	@TRACE			; Find the last valid block
+	MOV	@BATERR,R0
+	JNE	ERAERR
+	C	R1,R2
+	JNE	ERAERR
+
+	MOV	*R7,R3
+	CI	R3,LASTBLK
+	JEQ	ERA02
+	CI	R3,FIRSTBLK
+	JL	ERAERR
+	CI	R3,MAXBLK
+	JH	ERAERR
+	LI	R1,LASTBLK
+	MOV	R1,*R7			; Terminate the retained chain
+	SETO	@BATCHG
+	LI	R5,NDATABLK
+	JMP	RECLLP
+
+RECLALL:MOV	@FSB(R8),R3
+	LI	R5,NDATABLK
+RECLLP:	CI	R3,FIRSTBLK
+	JL	ERAERR
+	CI	R3,MAXBLK
+	JH	ERAERR
+	CALL	@GETBATP		; Get pointer to BAT entry
+	MOV	@BATERR,R0
+	JNE	ERAERR
+	MOV	*R7,R3			; Read next link before erasing
+	CLR	*R7			; Write 0000H (Free Block) to BAT
+	SETO	@BATCHG
+	CI	R3,LASTBLK		; Was that the last block?
+	JEQ	ERA02
+	DEC	R5
+	JNE	RECLLP
+	JMP	ERAERR
+
+ERA02	CALL	@WRBAT
+	RET
+ERA03	CLR	R1
+	RET	
+ERAERR	SETO	R1
+	RET
+
+;=====================================================================
+; DIRECTORY BUFFER MANAGEMENT
+; DIROPN reads a directory sector. DIRBLK iterates 32-byte chunks.
+;=====================================================================
+DIROPN:	MOV	@CDSECT,R3		; Load current logical dir sector
+	SLA	R3,1			; Convert to LBA offset
+	AI	R3,DIR_LBA		; Add Base Directory LBA
+	LI	R4,DIRBUFF
+
+	CALL	@MRDDBR			; Read 512 bytes into DIRBUFF
+	MOV	R1,R1
+	JNE	DIROPNE
+	LI	R3,DIRBUFF
+	CLR	R1
+	RET
+DIROPNE	SETO	R1
+	RET
+
+DIRBLK:	INC	@DIRENT			; Increment slot index
+	MOV	@DIRENT,R3
+	SLA	R3,5			; Index * 32 Bytes
+	AI	R3,DIRBUFF		; Add to buffer base address
+	CI	R3,DIRBUFF+BUFSIZ
+	JL	DIRB01			; Still inside current 512b sector?
+
+	; Passed end of buffer. Need next sector.
+	INC	@CDSECT
+	MOV	@CDSECT,R3
+	CI	R3,NDSECT		; Have we checked all 32 Dir Sectors?
+	JHE	DIRB03			; Yes, End of Directory.
+	CALL	@DIROPN			; Load next sector from disk
+	MOV	R1,R1
+	JLT	DIRB03
+
+	SETO	@DIRENT			; Reset slot index to 0
+	LI	R3,DIRBUFF
+DIRB01:	CLR	R1
+DIRB02:	MOV	R1,R1
+	RET
+DIRB03:	SETO	R1
+	JMP	DIRB02
+
+; --- Convert Record (R3) to Block (R2) and Offset (R3) ---
+CRNTBC:	MOV	@CRN(R8),R3
+RECTBC	CLR	R2
+	LI	R0,SECBLK
+	DIV	R0,R2
+RECTBC1	RET
+
+;=====================================================================
+; NXTBLK: Finds the first free block (0000H) in the BAT.
+;=====================================================================
+NXTBLK:	MOV	@CAB,R0			; Start searching from last allocation
+	CI	R0,FIRSTBLK
+	JL	NXTBLK0
+	CI	R0,MAXBLK
+	JLE	NXTBLK1
+NXTBLK0	LI	R0,FIRSTBLK		; Wrap around to start if out of bounds
+NXTBLK1	LI	R5,NDATABLK		; Max search depth
+
+NXTBLK2	MOV	R0,R3
+	CALL	@GETBATP		; Fetch BAT slot
+	MOV	@BATERR,R1
+	JNE	NXTBLK3
+	MOV	*R7,R1
+	JEQ	NXTBLK4			; Is it 0000H? Yes, free slot found!
+
+	DEC	R5
+	JEQ	NXTBLK5			; Searched entire disk, none free.
+	INC	R0
+	CI	R0,MAXBLK
+	JLE	NXTBLK2
+	LI	R0,FIRSTBLK		; Wrap around if we hit the end
+	JMP	NXTBLK2
+
+NXTBLK4	MOV	R0,R6			; Return free block in R6
+	CLR	R1
+	RET
+NXTBLK5	SETO	R1			; Return Error
+NXTBLK3	MOV	R1,R1
+	RET 
+
+; --- MONITOR I/O DISPATCHERS ---
+RDREC:	MOV	@DMAADDR,R4
+	CALL	@MRDREC
+	MOV	R1,R1
+	JEQ	RDREC1
+	SETO	R1
+RDREC1	MOV	R1,R1
+	RET
+
+WRREC:	MOV	@DMAADDR,R4
+	CALL	@MWRREC
+	MOV	R1,R1
+	JEQ	WRREC_X
+	SETO	R1
+WRREC_X	MOV	R1,R1
+	RET
+
+;=====================================================================
+; TRACE: Walks the linked list of blocks in the BAT.
+; Input: R2 = Target sequential block index
+;=====================================================================
+TRACE:	MOV	@FSB(R8),R3
+	CI	R3,FIRSTBLK
+	JL	TRACE2
+	CI	R3,MAXBLK
+	JH	TRACE2
+
+	CLR	R1
+	LI	R5,NDATABLK
+TRACE1	CALL	@GETBATP
+	MOV	@BATERR,R0
+	JNE	TRACE2
+	MOV	*R7,R4
+	CI	R4,LASTBLK		; Reached end of chain?
+	JEQ	TRACE3
+	C	R1,R2			; Reached target index?
+	JEQ	TRACE3
+	CI	R4,FIRSTBLK
+	JL	TRACE2
+	CI	R4,MAXBLK
+	JH	TRACE2
+	DEC	R5
+	JEQ	TRACE2
+	INC	R1
+	MOV	R4,R3			; Follow link to next block
+	JMP	TRACE1
+TRACE2	SETO	@BATERR
+	SETO	R1
+	RET
+TRACE3	MOV	R7,@CBP
+	MOV	R3,@CAB
+	RET
+
+;=====================================================================
+; GETBATP: Translates physical block to BAT Page and Ram Offset.
+; Handles fetching the correct BAT page from disk if necessary.
+;=====================================================================
+GETBATP:CLR	@BATERR
+	PUSHREG	R5
+	MOV	R3,R1			; R1 = Physical Block
+	CI	R1,MAXBLK
+	JH	FBATERR
+	SRL	R1,8			; Divide by 256 to get Page Index (0-15)
+	C	R1,@CBSECT		; Is this page already in RAM?
+	JEQ	FBAT0			; Yes, skip disk read.
+
+	CALL	@RDBAT			; No, fetch from disk.
+	MOV	R1,R6
+	MOV	R6,R6
+	JLT	FBATERR
+
+FBAT0	POPREG	R5
+	MOV	R3,R7			; R7 = Physical Block
+	ANDI	R7,0FFH			; Modulo 256 (Index within page)
+	SLA	R7,1			; Multiply by 2 (Bytes per Word)
+	AI	R7,BATBUFF		; Add RAM base address
+	RET				; R7 now points directly to the BAT entry in RAM
+
+FBATERR	SETO	@BATERR
+	POPREG	R5
+	LI	R7,BATBUFF
+	RET
+
+;=====================================================================
+; RDBAT / WRBAT: BAT Page Caching Engine
+;=====================================================================
+RDBAT:	C	R1,@CBSECT		; Check Cache
+	JEQ	RDBATOK
+	CI	R1,LASTBAT		; Validate requested page (0-15)
+	JH	RDBATER
+	DECT	SP
+	MOV	R1,*SP
+
+	MOV	@BATCHG,R0		; Check if current page is dirty
+	JEQ	RDBAT1
+	CALL	@WRBAT			; Flush to disk before replacing
+	MOV	R1,R1
+	JLT	RDBATF
+
+RDBAT1	MOV	*SP,R2
+	SLA	R2,1			; Convert Page Index to LBA Offset (*2)
+	AI	R2,BAT_LBA		; Add Base BAT LBA
+	MOV	R2,R3			; R3 = Target LBA
+	LI	R4,BATBUFF		; R4 = Destination buffer in RAM
+	CALL	@MRDDBR			; Read from disk
+	MOV	R1,R1
+	JNE	RDBATF
+	MOV	*SP+,R2
+	MOV	R2,@CBSECT		; Update cache tag
+RDBATOK	CLR	R1
+	RET
+RDBATF	INCT	SP
+RDBATER	SETO	R1
+	RET
+
+WRBAT:	MOV	@BATCHG,R0
+	JEQ	WRBATOK			; If not dirty, skip write
+	MOV	@CBSECT,R2
+	CI	R2,LASTBAT
+	JH	WRB_ERR
+	SLA	R2,1
+	AI	R2,BAT_LBA
+	MOV	R2,R3
+	LI	R4,BATBUFF
+	CALL	@MWRDBR			; Write buffer to disk
+	MOV	R1,R1
+	JNE	WRB_ERR
+	CLR	@BATCHG			; Mark clean
+WRBATOK	CLR	R1
+	RET
+WRB_ERR	SETO	R1
+	RET
+
+; --- Directory Write Dispatcher ---
+WRDIR:	MOV	@CDSECT,R3
+	SLA	R3,1
+	AI	R3,DIR_LBA
+	LI	R4,DIRBUFF
+	CALL	@MWRDBR
+	MOV	R1,R1
+	JEQ	WRD_X
+	SETO	R1
+WRD_X	MOV	R1,R1
+	RET
+
+;=====================================================================
+; SYSTEM RAM BUFFERS (Guaranteed aligned block allocations)
+;=====================================================================
+BATBUFF:BSS	BUFSIZ			; 512 BYTES
+DIRBUFF:BSS	BUFSIZ			; 512 BYTES
+
+	END

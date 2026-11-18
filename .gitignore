@@ -1,0 +1,9 @@
+# Assembler working directories and generated payloads
+Build/
+**/Build/
+MONITOR/PAYLOAD65.HEX
+*.L99
+*.LOG
+
+# Local editor settings
+.DS_Store
