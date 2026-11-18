@@ -1,4 +1,4 @@
-# TMS99105 SBC — Shell 6.5 System Build
+# TMS99105 SBC — System Build
 
 This repository contains the current source build for the TMS99105 SBC
 operating-system volume: DSKINIT62, BDOS61, XMODEM59, standalone DIR2,
