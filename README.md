@@ -22,8 +22,7 @@ generates the Shell address include, runs SYSGEN and publishes the resulting
 | [`SRC/DISC_MONITOR`](SRC/DISC_MONITOR/README.md) | Independent Disc Monitor ROM source; not part of SYSGEN |
 | [`SRC/DSKINIT`](SRC/DSKINIT/README.md) | Disk initialiser 6.2 |
 | [`SRC/XMODEM`](SRC/XMODEM/README.md) | XMODEM 5.9 |
-| [`SRC/DIR2`](SRC/DIR2/README.md) | Standalone directory utility |
-| [`SRC/SHELL`](SRC/SHELL/README.md) | Shell 6.5 core and ten command pages |
+| [`SRC/SHELL`](SRC/SHELL/README.md) | Shell 6.5 core, ten command pages, and standalone DIR2 |
 | [`SRC/SYSGEN`](SRC/SYSGEN/README.md) | Host-side system volume packer (`sysgen.c`) |
 | `Includes` | Maintained assembler include files |
 | `Toolchain` | Windows A99 assembler and MKCINC utility |
