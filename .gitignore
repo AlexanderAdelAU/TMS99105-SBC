@@ -1,9 +1,11 @@
-# Assembler working directories and generated payloads
+# All generated assembly, listings, logs and payload files live here.
 Build/
-**/Build/
-MONITOR/PAYLOAD65.HEX
+MONITOR/
+
+# Generated files should never be committed alongside master sources.
+*.H99
 *.L99
 *.LOG
+*.HEX
 
-# Local editor settings
 .DS_Store
