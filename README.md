@@ -18,13 +18,13 @@ generates the Shell address include, runs SYSGEN and publishes the resulting
 
 | Folder | Purpose |
 | --- | --- |
-| `SRC/BDOS` | BDOS 6.1 and its regression-test source |
-| `SRC/DISC_MONITOR` | Independent Disc Monitor ROM source; not part of SYSGEN |
-| `SRC/DSKINIT` | Disk initialiser 6.2 |
-| `SRC/XMODEM` | XMODEM 5.9 |
-| `SRC/DIR2` | Standalone directory utility |
-| `SRC/SHELL` | Shell 6.5 core and ten command pages |
-| `SRC/SYSGEN` | Host-side system volume packer (`sysgen.c`) |
+| [`SRC/BDOS`](SRC/BDOS/README.md) | BDOS 6.1 and its regression-test source |
+| [`SRC/DISC_MONITOR`](SRC/DISC_MONITOR/README.md) | Independent Disc Monitor ROM source; not part of SYSGEN |
+| [`SRC/DSKINIT`](SRC/DSKINIT/README.md) | Disk initialiser 6.2 |
+| [`SRC/XMODEM`](SRC/XMODEM/README.md) | XMODEM 5.9 |
+| [`SRC/DIR2`](SRC/DIR2/README.md) | Standalone directory utility |
+| [`SRC/SHELL`](SRC/SHELL/README.md) | Shell 6.5 core and ten command pages |
+| [`SRC/SYSGEN`](SRC/SYSGEN/README.md) | Host-side system volume packer (`sysgen.c`) |
 | `Includes` | Maintained assembler include files |
 | `Toolchain` | Windows A99 assembler and MKCINC utility |
 | `Build` | Generated working files; created automatically |
@@ -33,7 +33,8 @@ generates the Shell address include, runs SYSGEN and publishes the resulting
 `SRC/DISC_MONITOR` contains the Disc Monitor source. It is built separately
 from the operating-system payload and is **not** included by SYSGEN.
 
-See [BUILDING.md](BUILDING.md) for prerequisites and build details.
+Each source component has its own README beside its source files.
+See [BUILDING.md](BUILDING.md) for the complete build instructions.
 
 The hardware drawings and historical project material remain available
 in the repository's earlier `main` history while this refactor is tested.
