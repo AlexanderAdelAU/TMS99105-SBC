@@ -31,6 +31,15 @@ is published unless the entire build succeeds.
 `SRC/BDOS/BDTEST62.A99` is supplied as a regression-test program; it is
 not part of the fourteen-file operating-system payload.
 
+## Disc Monitor and upload staging
+
+`SRC/DISC_MONITOR` holds `DISC_MONITOR_V56F.A99` and `IDE_DEBUG.A99`.
+These are the independent Disc Monitor ROM sources. They are **not** part of
+SYSGEN's fourteen-file OS payload and are not assembled by `MAKE_SYSTEM.bat`.
+
+The separate `MONITOR/` directory is the upload-staging location for files
+to be transferred to the SBC. It is not the monitor's source directory.
+
 `Build` and `MONITOR` outputs are generated locally and excluded from Git.
 The source build must be verified on Windows before merging the refactor
 into `main`.

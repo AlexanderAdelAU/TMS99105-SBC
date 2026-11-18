@@ -4,7 +4,7 @@ This repository contains the current source build for the TMS99105 SBC
 operating-system volume: DSKINIT62, BDOS61, XMODEM59, standalone DIR2,
 Shell 6.5 and its ten command pages.
 
-**One command builds the complete system:**
+**One command builds the complete operating-system volume:**
 
 ```bat
 MAKE_SYSTEM.bat
@@ -19,6 +19,7 @@ generates the Shell address include, runs SYSGEN and publishes the resulting
 | Folder | Purpose |
 | --- | --- |
 | `SRC/BDOS` | BDOS 6.1 and its regression-test source |
+| `SRC/DISC_MONITOR` | Independent Disc Monitor ROM source; not part of SYSGEN |
 | `SRC/DSKINIT` | Disk initialiser 6.2 |
 | `SRC/XMODEM` | XMODEM 5.9 |
 | `SRC/DIR2` | Standalone directory utility |
@@ -27,7 +28,10 @@ generates the Shell address include, runs SYSGEN and publishes the resulting
 | `Includes` | Maintained assembler include files |
 | `Toolchain` | Windows A99 assembler and MKCINC utility |
 | `Build` | Generated working files; created automatically |
-| `MONITOR` | Final payload destination; created automatically |
+| `MONITOR` | Upload-staging directory for files transferred to the SBC; created automatically |
+
+`SRC/DISC_MONITOR` contains the Disc Monitor source. It is built separately
+from the operating-system payload and is **not** included by SYSGEN.
 
 See [BUILDING.md](BUILDING.md) for prerequisites and build details.
 
