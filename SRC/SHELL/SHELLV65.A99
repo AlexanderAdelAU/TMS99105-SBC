@@ -1,0 +1,1940 @@
+;*******************************************************************
+;
+;  Original Version:
+;  Small/Shell 1.0 - A command processor for North Star DOS
+;  Copyright 1981 J.E. Hendrix, All rights reserved
+;  Written for PDS assembler
+;
+;  TMS9900 Port and Modern Revisions:
+;
+;  4.0   Initial TMS9900 version
+;  4.1   Filename extension handling (4 June 2010)
+;  4.6   Internal commands: DIR, SAVE, ERA
+;  4.7   Multisegment alignment; RETURN changed to RETF
+;  4.9   Intermediate paging work
+;
+;  5.4   Paged memory loader - first working version
+;        Transparent GAL mapping - no trampolines, no LDS/LDD
+;        LOADERCODE replaced with link99 v3.9 page map loader
+;        Sentinel detection: FFFF FFFF FFFF at file offset 6
+;        COM/EXE go direct to LOADERCODE (no pre-read)
+;        MAP_INIT called at shell entry and LOADERCODE entry
+;        .FILENAME load-only restored (reads flat, returns to prompt)
+;        R8 saves launch address across LDRCPY walk
+;        LDRRUN_F for raw/flat binaries
+;
+;  5.5   Paged memory loader - production version (June 2026)
+;  5.8   Fix EXE reload: read two sectors on staging overflow to match
+;        initial load. One-sector reload caused page 3 data corruption
+;        for EXE files larger than two sectors (> 1024 bytes).
+;        MAP_SET/MAP_INIT getter-setter pattern established
+;        LDRSEG calls MAP_SET - no inline CRU bit manipulation
+;        R8 saved in LDRPM before MAP_SET clobbers R9
+;  6.3   Raw COM C/D private-page execution.
+;        COMMON >02E8 launch gate: PSEL_EN / B *R8.
+;        COMMON >02F0 return gate: PSEL_DIS / B @RETURN.
+;        COMMON >02F6 BDOS gate: PSEL_DIS / CALL @BDOS / PSEL_EN / RET.
+;        RETURN explicitly restores C=0,D=0 before MAP_INIT.
+;        Proven with repeated XMODEM and R99 TEST H- through full return.
+;
+;        Folder target byte (FCB+18) re-encoded with BDOS 6.1:
+;          >FE          the root, asked for explicitly
+;          >FF >20 >00  no preference - use the active folder
+;          anything else  a literal folder ID
+;        Zero had meant the root, but zero is what every CP/M-style
+;        caller leaves after clearing its FCB, so every C program was
+;        root-only: SMALLC99 could open JUNK.C from the root but not
+;        from [TOOLS].  LOOK's root fallback now pokes >FE.
+;
+;        Command lookup rewritten (September 2026).  A bare name used to
+;        get extension '???', so SEARCH1 returned the first directory
+;        entry of that name whatever its type - typing HELLO ran
+;        HELLO.R99 instead of HELLO.COM and branched into an object
+;        file.  LOOK now walks EXEC_TAB.  The retry loop it replaces was
+;        already written for a table walk but was reading address >3F00.
+;        File type read from FCB+FTY at L_FOUND.  SET_FTY retained but
+;        unused: its codes are positional over EXT_TAB (BAS=3, BAT=4)
+;        and disagree with the BDOS (TXT=3, BAS=4, PRO=5).
+;
+;  6.4   EXE loader refuses any block that would land at or above
+;        >C000.  Nothing checked the address before: an EXE linked
+;        into C or D loaded straight over the shell's own pages, and one
+;        linked into C also pulled away the loader's own branch targets,
+;        which it reaches through its copy in segment C.  Checked on the
+;        address, not the page, so a page-0 block is caught too.  New
+;        message: --EXE block overlaps shell memory.
+;        END_LOADER_EXE moved above LDRHDR_RL.  The EXE loader copy ran
+;        >0300-0501 and its final RET at >0500 was overwritten by the
+;        first sector read into staging.  Harmless only because
+;        LDRHDR_RL is reached by absolute CALL and its copy never ran.
+;        It is no longer copied at all; the copy now ends at >04C5.
+;
+;  6.5   Internal commands moved out of the shell into their own pages.
+;        Each is a separate source, assembled at AORG >D000, and loaded
+;        at cold start by LDCMDS into its own physical page of segment
+;        D - D pages 2-10, one per command.  A command may grow to the
+;        full 4096 bytes of its page without affecting any other command
+;        or the core.  ICLIST carries a page byte per entry; ICMD maps
+;        segment D to that page, turns PSEL on and branches to >D000.
+;        A page whose file failed to load is marked >FF and refused.
+;        RETURN and NEXTCMD turn PSEL off again, and NEXTCMD puts D back
+;        on the shell's own page.  MAP_INIT and MAP_SET moved below >D000,
+;        where a command page can reach them.  Commands call the BDOS
+;        through the gate at >02F6; CORE.INC (from MKCINC) equates BDOS
+;        to it and withholds every core address at or above >D000.
+;        MKERR: removed a B @MONITOR that sat ahead of its message, so a
+;        SAVE that could not create its file dropped into the monitor.
+;        It now reports --Make error and returns to the prompt.
+;        LOAD refuses a block at or above >C000, as the EXE loader does.
+;
+;        Procedure processing connected.  DOPROC had never been called
+;        from anywhere, so PROCSW was never set, NEXTCMD always chose
+;        PROMPT and the whole PFETCH engine was unreachable.
+;        PROC_FCB provides dedicated engine workspace, decoupling it from CM_FCB.
+;        PRECS added: the engine's own record countdown.  MFSZ cannot
+;        serve, L_FOUND rewrites it for every command a procedure runs.
+;        DOPROC clears CRN, as LOAD does before its first RDSEQ.
+;
+;  6.5c  EXE block log removed.  The loader recorded every block in
+;        DBG_LOG (144 x 8 bytes) so SET_MEM_EXE could find FREEMEM and
+;        MEMLIMIT afterwards, and -D could print a load map.  Nothing
+;        stopped the log at 144: a larger EXE (SMALLC99.EXE, 153 blocks)
+;        overwrote the shell variables after it and crashed.  The 144
+;        limit assumed an EXE fits 64K; a paged EXE need not.  Now the
+;        loader keeps the two limits as it goes (LD_FREE, LD_LIMIT), with
+;        no block limit.  DBG_LOG, the -D load map and the DBG_ variables
+;        are gone: 1,152 bytes of log plus the dump code returned.
+;  6.5a  Procedure engine repaired (found by running it in an emulator):
+;        $n never substituted - PARMSUB subtracted >20 not '0', never
+;        stepped through PPTRS, and its end-of-parameter test was
+;        inverted.  $0 = procedure name, $1-$9 the arguments, $$ = $.
+;        DOPROC clears PPTRS, so a missing $n no longer finds a stale one.
+;        The __ pause did CALL @CIN (the BDOS function number, i.e. >0001);
+;        now CALL @INCHAR.  -V and _ notes no longer print a blank line.
+;        Banner says 6.5.
+;
+;  6.1a  DBG_LOG 80->144 records (1152 bytes): 96-block EXE (M31)
+;        overflowed the 80-record log into shell variables and the
+;        trace separator strings. 144 = provable max (64K/504+margin).
+;        DUMP_EXE_TRACE clamps to 144. Loader code path unchanged.
+;  6.0   LDRHDR_RL: save/restore R0 (page) and R2 (start) across its
+;        own BDOS calls -- both were live, already-decoded header
+;        fields when called from LDRB2/LDRB3, but neither was
+;        preserved before.
+;        LDRCHAIN_E: between-block sector fetch now checks both
+;        reads for real EOF instead of always assuming 2 full
+;        sectors are valid -- was reading stale/garbage bytes as a
+;        header when a file's true end landed inside this fetch.
+;        Multi-sector loading: LDRSEC direct DMA to paged memory
+;        BDOS passes DMA address unchanged through page mapper
+;        INT2_HANDLER: full debug dump (PC/WP/ST + map registers)
+;        INT2_VEC installed before every paged launch
+;        Paged execution confirmed: HELLO runs from seg 2 page 2
+;        Transparent memory model: XOPs safe from paged code
+;        Segment 0 COMMON always page 0 - workspace always visible
+;
+;*******************************************************************
+;  TMS99105 SBC V4 - SHELL V6.3 (FULLY DOCUMENTED)
+;
+;  Memory Map:
+;  >0230     SH_WP      Shell Workspace: R0-R15
+;  >0250     SH_CMD     Command Line: raw input string buffer
+;  >0280     CM_FCB     FCB (36 bytes) - System File Control Block
+;  >02A4     CM_VARS    Bridge Variables: pointers, status flags
+;  >0300     CM_BUF     512-byte Sector Buffer / LOADERCODE staging
+;
+;  Paged Memory Model (Rev 24Q hardware):
+;  Segment 0  (>0000->0FFF) COMMON - forced physical page 0
+;  Segments 1-E (>1000->EFFF) PAGED - selected by 6116 map registers
+;  Segment F  (>F000->FFFF) ROM - forced physical page 0
+;*******************************************************************
+
+	INCL	"C:DECLS.INC"	; registers, XOPs, EQUs - see DECLS.INC
+
+;==== THE REAL BDOS - the core calls it flat.  Command pages get
+;==== BDOS = BGATE from CORE.INC instead.
+BDOS:	EQU	0E000H		; BDOS entry point
+
+	AORG	SHELL
+	LWPI	WORKSP
+
+	LI	SP,STACKP
+	BL	@MAP_INIT	; CLEAR ALL MAP REGISTERS TO PAGE 0
+	B	@INIT
+
+CTLC	BYTE	03H		; ^C
+CTLX	BYTE	18H		; ^X
+CTLS	BYTE	13H		; ^S
+CTLY	BYTE	19H		; ^Y
+CTLZ	BYTE	1AH		; ^Z
+SPACE	BYTE	20H		; ' '
+	BYTE	0
+BS	BYTE	08H		; Backspace
+CR	BYTE	0DH		; \r (Carriage Return)
+LF	BYTE	0AH		; \n (Line Feed)
+DEL	BYTE	07H
+EOF	BYTE	0FFH
+CPMEOF	BYTE	01AH		; ^Z - what fills the tail of the last record
+COMT	BYTE	3AH		; ':'
+JUMP	BYTE	'.'		; '.'
+NULPARM	BYTE	'.'
+EXT	BYTE	'.'
+NOTE	BYTE	'_'		; '_'
+PROM	BYTE	'%'		; '%'
+SUBMARK	BYTE	'$'		; '$'
+SYSFILE	BYTE	'*'		; '*'
+DOSCMD	BYTE	'+'		; '+'
+ROOTID	BYTE	0FEH		; FCB+18 target: explicit Root fallback
+CONSOLE	EQU	0
+DEFDRV	EQU	0
+	EVEN
+
+;===================================================================
+; INIT - Cold Start Initialization
+; Clears map registers, sets up command line buffers, and installs
+; the application BDOS and Launch gates into COMMON memory.
+;===================================================================
+	EVEN
+INIT	LWPI	WORKSP
+	LI	SP,STACKP
+
+	;--- INIT OVERLAY MANAGER VARIABLES ---
+	CLR	R0
+	MOV	R0,@OVL_COUNT
+	MOV	R0,@OVL_CURR_ID
+	MOV	R0,@OVL_CURR_SEG
+
+	;--- INITIALIZE COMMAND LINE BUFFER ---
+	LI	R1,CMDLINE
+	LI	R2,CMDLINE2
+CMDLOOP:MOVB	*R2+,*R1+
+	JNE	CMDLOOP
+
+	MOVB	@CR,@CMDLINE
+	LI	R0,CMDLINE
+	MOV	R0,@CMDL_PTR
+	CLR	@CMDL_SIZE
+	LI	R0,COMM_BUF
+	MOV	R0,@BUFF_PTR
+	LI	R0,COMM_FCB
+	MOV	R0,@FCB_PTR
+
+INIT22
+	; Install the mapped-COM launch gate at COMMON >02E8.
+	LI	R1,LSRC
+	LI	R2,LGATE
+LGCP:	MOV	*R1+,*R2+
+	CI	R1,LEND
+	JL	LGCP
+
+	; Install the mapped-COM return gate at COMMON >02F0.
+	LI	R1,RSRC
+	LI	R2,RGATE
+RGCP:	MOV	*R1+,*R2+
+	CI	R1,REND
+	JL	RGCP
+
+	; Install the application BDOS gate at COMMON >02F6.
+	LI	R1,BSRC
+	LI	R2,BGATE
+BGCP:	MOV	*R1+,*R2+
+	CI	R1,BEND
+	JL	BGCP
+
+	; SHELL_PTR: B @RGATE
+	LI	R0,0460H
+	LI	R1,RGATE
+	MOV	R0,@SHELL_PTR
+	MOV	R1,@SHELL_PTR+2
+
+	; BDOS_PTR: B @BGATE
+	LI	R0,0460H
+	LI	R1,BGATE
+	MOV	R0,@BDOS_PTR
+	MOV	R1,@BDOS_PTR+2
+
+	LI	R0,TPA
+	MOV	R0,@FREEMEM
+	LI	R0,SHELL
+	MOV	R0,@MEMLIMIT
+
+	;--- FORCE ROOT DIRECTORY ON COLD BOOT ---
+	LI	R4,FCB
+	LI	R2,11
+INIT_RT:MOVB	@SPACE,*R4+
+	DEC	R2
+	JNE	INIT_RT
+	LI	R2,FCHDIR
+	LI	R3,FCB
+	CALL	@BDOS
+	; ---------------------------------------
+
+	CALL	@LDCMDS			; 6.5: load each command into its page
+	MESG	@SINON
+
+;===================================================================
+; DOCMD - Process Next Shell Command
+; Reads the first character of CMDLINE to determine if it's an
+; internal command, special control character, or an external file.
+;===================================================================
+DOCMD	MOV	@SKIPSW,R0
+	CLR	@SKIPSW
+	MOV	R0,R0
+	JNE	DOCMD2A
+	LI	R3,CMDLINE
+	CLR	R1
+	MOVB	*R3,R1
+	CB	R1,@CR
+	JEQ	DOCMD2A
+
+CHKSYS	CI	R1,0
+	JNE	DOCMD1
+	B	@CMDERR
+
+DOCMD1	CB	R1,@CTLX
+	JNE	DOCMDAA
+	BLWP	@BANNER
+DOCMDAA	CB	R1,@CTLY
+	JNE	DOCMD2
+
+DOCMD2	CB	R1,@SPACE
+	JH	DOCMD4
+
+DOCMD2A	B	@NEXTCMD
+
+DOCMD4	CB	R1,@JUMP
+	JNE	DOCMD3
+	LI	R3,CMDLINE+1
+	CB	*R3,@SPACE
+	JH	LOOK
+	B	@GOPROG
+
+DOCMD3	CB	R1,@DOSCMD
+	JNE	LOOK
+DOCMD9	B	@RETURN
+
+;===================================================================
+; LOOK - Look Up Named File (With Explicit Root Fallback)
+; Parses the command, builds an FCB, and searches the active folder.
+; If not found, it sets the FCB+18 byte to >FE (Explicit Root) and
+; tries again, allowing system tools to run from anywhere.
+;===================================================================
+LOOK:	CLR	@FB_FLAG		; Reset fallback flag on new lookup
+
+	; ---> PREVENT STICKY ROOT OVERRIDE
+	; Force target byte to space so BDOS defaults to CFLD for the local search
+	MOVB	@SPACE,@FCB+18
+
+	CALL	@PARSENAME		; Put parsed filename into FCB
+	CALL	@ICMD			; Check if it's an internal command first
+	CALL	@SEG_SWITCH
+
+	; CHECK IF JUST FILE NAME TYPED IN (No extension)
+	CLR	@EXTWALK		; 0 = EXPLICIT EXTENSION, NO WALK
+	CB	@FCB+EXTOFF,@SPACE
+	JNE	L_START			; Extension exists, do direct search
+
+	; NO EXTENSION TYPED - WALK EXEC_TAB IN ORDER: COM, EXE, PRO
+	LI	R0,EXEC_TAB
+	MOV	R0,@EXTWALK
+
+L_TRY:	MOV	@EXTWALK,R0
+	MOVB	*R0,R1			; FIRST BYTE OF TABLE ENTRY
+	JEQ	LOOK_FB_CHK		; END OF LOCAL TABLE -> CHECK ROOT FALLBACK
+	LI	R4,FCB+EXTOFF
+	MOVB	*R0+,*R4+
+	MOVB	*R0+,*R4+
+	MOVB	*R0,*R4			; Write extension to FCB
+
+L_START:LI	R3,FCB
+	LI	R2,SEARCH1
+	CALL	@BDOS
+	MOV	R1,R1
+	JLT	L_RETRY			; File not found, retry next extension
+	JMP	L_FOUND
+
+L_RETRY	MOV	@EXTWALK,R0		; WAS THIS A WILDCARD WALK?
+	JEQ	LOOK_FB_CHK		; NO - EXPLICIT EXTENSION FAILED -> CHECK ROOT FALLBACK
+	AI	R0,3			; YES - NEXT TABLE ENTRY
+	MOV	R0,@EXTWALK
+	JMP	L_TRY
+
+LOOK_FB_CHK:
+	MOV	@FB_FLAG,R0
+	JNE	LOOKERR			; Already tried root fallback, truly not found
+
+	SETO	@FB_FLAG		; Mark that we are trying root fallback
+
+	; --- CLEVER BDOS FALLBACK ---
+	; Tell BDOS to specifically target the Root directory
+	; >FE, not 0.  Zero now means "no preference, use CFLD" for legacy C programs.
+	MOVB	@ROOTID,@FCB+18		; Poke >FE (explicit Root) into the target byte
+
+	; Restart extension walk / lookup in root
+	MOV	@EXTWALK,R0		; Check pointer: was this a wildcard walk? (0 = explicit)
+	JEQ	FB_EXPR			; If explicit, just jump straight to search
+	LI	R0,EXEC_TAB		; If implicit, restart the extension table from the top
+	MOV	R0,@EXTWALK
+	JMP	L_TRY
+FB_EXPR:
+	JMP	L_START
+
+LOOKERR:B	@CMDERR
+
+L_FOUND:
+	LI	R2,FOPEN
+	LI	R3,FCB
+	CALL	@BDOS
+	MOV	R1,R1
+	JLT	LOOKERR
+
+L_FND_OK:
+	LI	R4,FCB
+	MOV	@FSZ(R4),@MFSZ
+	MOVB	@FTY(R4),R1		; FILE TYPE FROM DIRECTORY ENTRY
+	MOVB	R1,@MFTY		; KEEP FOR LOAD1
+	SRL	R1,8
+	CI	R1,PRO
+	JEQ	L_PROC			; PROCEDURE FILE - INTERPRET, DON'T LOAD
+	B	@LOAD
+L_PROC:	B	@DOPROC
+
+;===================================================================
+; STRING HELPERS: PADSPACE and CHKCHAR
+;===================================================================
+PADSPACE:
+	MOV	R2,R2
+	JLE	PADRETS
+PADLOOP:MOVB	@SPACE,*R4+
+	DEC	R2
+	JH	PADLOOP
+PADRETS:RET
+
+CHKCHAR:MOVB	*R3,R1
+	SRL	R1,8
+	CI	R1,'$'			; Allow $ for temporary/system files
+	JEQ	VALID
+	CI	R1,'?'			; Allow explicit ? wildcards
+	JEQ	VALID
+	CI	R1,'*'			; Allow * wildcards
+	JEQ	VALID
+	CI	R1,'0'
+	JL	INVALID
+	CI	R1,'9'
+	JLE	VALID
+	ANDI	R1,00DFH		; Force uppercase for check
+	AI	R1,-'A'
+	CI	R1,001AH
+	JH	INVALID
+VALID:	CLR	R1
+	JMP	SETFLAG
+INVALID:LI	R1,1
+SETFLAG:MOV	R1,R1
+	RET
+
+SEG_SWITCH:	RET
+SSWERR:	B	@PARSMSG
+
+;===================================================================
+; PARSENAME - Parse Filename from Command Line into FCB
+; Handles * wildcard expansion for both Name and Extension fields
+;===================================================================
+PARSENAME:
+	MOVB	@SPACE,@FCB+18		; Reset sticky folder override (default to Active)
+	LI	R4,FCB
+	LI	R2,NAMSIZ - EXTSIZ
+	CLR	R0
+
+PARSE1:	CALL	@CHKCHAR
+	JNE	FILLNAME
+	CB	*R3,@SYSFILE		; Is it a '*' wildcard?
+	JEQ	STARNAM			; Branch to name expansion
+	MOVB	*R3+,*R4+
+	DEC	R2
+	JEQ	FINDDOT
+	JMP	PARSE1
+
+STARNAM:INC	R3			; Skip '*'
+	LI	R1,'?'*256		; Fill rest of name field with '?'
+STARNL:	MOVB	R1,*R4+
+	DEC	R2
+	JNE	STARNL
+	JMP	FINDDOT			; Move on to extension processing
+
+FILLNAME:	CALL	@PADSPACE
+
+FINDDOT:CB	*R3+,@EXT
+	JEQ	GETEXT
+	DEC	R3
+	LI	R2,EXTSIZ
+	LI	R4,FCB + NAMSIZ - EXTSIZ
+	CALL	@PADSPACE
+	RET
+
+EXT_TAB:TEXT	'COM'
+	TEXT	'EXE'
+	TEXT	'BAS'
+	TEXT	'BAT'
+EXT_END:BYTE	0
+	EVEN
+
+EXEC_TAB:TEXT	'COM'
+	TEXT	'EXE'
+	TEXT	'PRO'
+EXEC_END:BYTE	0
+	EVEN
+
+GETEXT:	LI	R2,EXTSIZ
+	LI	R4,FCB + NAMSIZ - EXTSIZ
+NEXTEXT:CALL	@CHKCHAR
+	JNE	FILLEXT
+	CB	*R3,@SYSFILE		; Is it a '*' wildcard?
+	JEQ	STAREXT			; Branch to extension expansion
+	MOVB	*R3+,R1
+	MOV	R1,R0
+	SRL	R0,8
+	CI	R0,'A'
+	JL	EXTSTORE
+	CI	R0,'Z'
+	JLE	EXTSTORE
+	CI	R0,'a'
+	JL	EXTSTORE
+	CI	R0,'z'
+	JH	EXTSTORE
+	ANDI	R1,0DF00H		; Force uppercase letters only
+EXTSTORE:
+	MOVB	R1,*R4+
+	DEC	R2
+	JEQ	FILLEXT
+	JMP	NEXTEXT
+
+STAREXT:INC	R3			; Skip '*'
+	LI	R1,'?'*256		; Fill rest of extension field with '?'
+STAREL:	MOVB	R1,*R4+
+	DEC	R2
+	JNE	STAREL
+	; Fall through to FILLEXT
+
+FILLEXT:
+	B	@PADSPACE		; Pad remaining extension with spaces
+
+;===================================================================
+; SET_FTY - Derive file type from FCB extension, store in MFTY
+;===================================================================
+SET_FTY:
+	LI	R5,EXT_TAB		; TABLE BASE
+	CLR	R7			; TYPE CODE (0=SYS)
+SFTY_LOOP:
+	MOV	R5,R6			; R6 = ENTRY WALK POINTER
+	MOVB	*R6+,R0			; BYTE 1
+	JEQ	SFTY_NONE		; END OF TABLE
+	INC	R7			; NEXT TYPE CODE
+	CB	R0,@FCB+EXTOFF		; COMPARE BYTE 1
+	JNE	SFTY_NEXT
+	MOVB	*R6+,R0			; BYTE 2
+	CB	R0,@FCB+EXTOFF+1	; COMPARE BYTE 2
+	JNE	SFTY_NEXT
+	MOVB	*R6,R0			; BYTE 3
+	CB	R0,@FCB+EXTOFF+2	; COMPARE BYTE 3
+	JEQ	SFTY_FOUND
+SFTY_NEXT:
+	AI	R5,3			; NEXT ENTRY
+	JMP	SFTY_LOOP
+SFTY_NONE:
+	CLR	R7			; NO MATCH - SYS=0
+SFTY_FOUND:
+	SWPB	R7			; TYPE TO HIGH BYTE FOR MOVB
+	MOVB	R7,@MFTY		; STORE TYPE CODE
+	RET
+
+;===================================================================
+; LOAD - Load executable file into RAM
+; Determines if file is .COM (Flat) or .EXE (Paged) and reads first sector
+;===================================================================
+LOAD:	CLR	R1
+	MOVB	R1,@CMDLINE-2
+	LI	R4,FCB
+	MOV	@FLA(R4),R3		; Check File Load Address
+	JNE	LOAD2
+	LI	R3,TPA			; DEFAULT FOR NON EXE OR COM FILES
+LOAD2	MOV	R3,@LADDR
+	CLR	@CRN(R4)		; Reset record cursor
+
+	CB	@CMDLINE,@JUMP
+	JNE	LOADRUN
+LOADF3	DECT	SP
+	MOV	R3,*SP
+LOADF0	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	MOV	*SP+,R3
+	CI	R1,-1			; EOF?
+	JEQ	LOADF1
+	AI	R3,BLKSIZ
+	JMP	LOADF3
+LOADF1
+	MOV	R3,@FREEMEM
+	B	@NEXTCMD
+
+LOADRUN:
+	MOVB	@FTY(R4),R1
+	SRL	R1,8
+	CI	R1,COM
+	JNE	LT2
+	B	@GOPROG			; Route to Flat Binary Loader
+LT2	CI	R1,EXE
+	JNE	LT3
+	B	@GOPROG_EXE		; Route to Paged EXE Loader
+
+LT3	CI	R1,0
+	JNE	LT4
+	B	@GOPROG
+LT4
+	CLR	@CRN(R4)
+LOAD3	DECT	SP
+	MOV	R3,*SP
+LOAD0	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	MOV	*SP+,R3
+	CI	R1,-1
+	JEQ	LOAD1
+	AI	R3,BLKSIZ
+	JMP	LOAD3
+LOAD1	MOV	R3,@FREEMEM
+
+	MOVB	@MFTY,R1
+	SRL	R1,8
+	CI	R1,PRO
+	JNE	LOAD1B
+	B	@NEXTCMD
+LOAD1B	CI	R1,TXT
+	JNE	LOAD1C
+	B	@NEXTCMD
+LOAD1C	B	@NEXTCMD
+
+;===================================================================
+; GOPROG - Run Flat Loaded Program via LOADERCODE
+;===================================================================
+GOPROG	LI	R4,CMDLINE
+GOLOOP	INC	R4
+	CB	*R4,@SPACE
+	JH	GOLOOP
+	CLR	R1
+	MOVB	R1,@CMDLINE-1
+	LI	R0,SHELL_PTR
+	DECT	SP
+	MOV	R0,*SP
+	CALL	@INIT_LOADER
+	B	@LOADER			; Branch to RAM >0300
+
+INIT_LOADER:
+	LI	R2,LOADER		; >0300
+	LI	R1,LOADERCODE
+IL0:	MOV	*R1+,*R2+
+	CI	R1,END_LOADER
+	JL	IL0
+	RET
+
+;===================================================================
+; GOPROG_EXE - Run Paged EXE via LOADERCODE_EXE
+;===================================================================
+GOPROG_EXE:
+	LI	R4,CMDLINE
+GOLOOP_E:
+	INC	R4
+	CB	*R4,@SPACE
+	JH	GOLOOP_E
+	CLR	R1
+	MOVB	R1,@CMDLINE-1
+	LI	R0,SHELL_PTR
+	DECT	SP
+	MOV	R0,*SP
+	CALL	@INIT_LOADER_EXE
+	B	@LOADER			; Branch to RAM >0300
+
+INIT_LOADER_EXE:
+	LI	R2,LOADER
+	LI	R1,LOADERCODE_EXE
+ILE0:	MOV	*R1+,*R2+
+	CI	R1,END_LOADER_EXE
+	JL	ILE0
+	RET
+
+;===================================================================
+; LOADERCODE_EXE - Paged Executable Loader (Multi-Sector Chain)
+; Parses the custom EXE header format, programs the 6116 map
+; registers, and DMAs blocks directly into mapped physical pages.
+; Target segments are protected via PSEL_EN/PSEL_DIS bounds.
+;===================================================================
+LOADERCODE_EXE:
+	LI	R12,MAP_WIN_BASE	; >80C0: Base CRU address for 6116 Map Registers
+	CLR	R0			; Target Page 0
+	LI	R1,NUM_SEGS		; Initialize all 16 map segments
+LDRCL_E:
+	LDCR	R0,BYTEWIDE		; Write Page 0 to current map register
+	INCT	R12			; Advance to next map register
+	DEC	R1
+	JNE	LDRCL_E			; Loop until all 16 are cleared
+
+	LI	R9,01000H		; 6.5c: FREEMEM/MEMLIMIT are worked out
+	MOV	R9,@LD_FREE		; while loading: end of the page-0
+	LI	R9,0C000H		; blocks, lowest paged segment
+	MOV	R9,@LD_LIMIT
+
+	; --- Read First Two Sectors (1024 Bytes) to Staging ---
+	CLR	R0
+	LI	R3,0500H		; >0500: Primary Sector Staging Buffer
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	CI	R1,-1			; EOF hit on first read?
+	JNE	LDREDET_E
+	B	@LDRRUN			; Execute immediately if empty/EOF
+
+LDREDET_E:
+	MOV	R1,R1
+	JLT	LDRERR_B		; Negative return = Hard disk error
+	JMP	LDREDET_OK
+LDRERR_B:
+	B	@LDRERR
+
+LDREDET_OK:
+	LI	R3,0700H		; >0700: Secondary Sector Staging Buffer
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+
+	LI	R6,0500H		; R6 = Start of read cursor
+	LI	R4,0900H		; R4 = End of 1024-byte staging area
+	CLR	R8
+
+	; --- Parse Block Header ---
+LDRBLK_E:
+	MOV	R6,R7
+	MOV	*R6+,R5			; R5 = Next Link/Chain pointer
+	C	R6,R4
+	JNE	LDRB1
+	CALL	@LDRHDR_RL		; Staging overflowed, fetch next sector
+LDRB1:
+	MOV	*R6+,R0			; R0 = Target Physical Page
+	C	R6,R4
+	JNE	LDRB2
+	CALL	@LDRHDR_RL
+LDRB2:
+	MOV	*R6+,R2			; R2 = Target Load Address (Virtual)
+	C	R6,R4
+	JNE	LDRB3
+	CALL	@LDRHDR_RL
+LDRB3:
+	MOV	*R6+,R3			; R3 = Byte Count for this block
+
+
+	; --- Refuse any block that would land at or above >C000 ---
+	; C and D are the shell's own pages, E is the BDOS, F the ROM.
+	; The loader also takes its absolute branches through its copy
+	; in segment C, so a block remapping C would pull the loader out
+	; from under itself.  Checked on the address, not the page, so
+	; a page-0 block aimed at >C000 is caught as well.
+	CI	R2,0C000H		; Block starts at or above >C000?
+	JHE	LDRPROT_J
+	MOV	R2,R9
+	A	R3,R9			; R9 = first address past the block
+	JOC	LDRPROT_J		; Wrapped past >FFFF
+	CI	R9,0C000H
+	JLE	LDRBOK			; Ends at or below >C000: accept
+LDRPROT_J:
+	B	@LDRPROT		; Absolute: the exit runs from the C copy
+LDRBOK:
+	MOV	R0,R0			; 6.5c: running limits (R9 = end of block)
+	JNE	LDRLIMP
+	C	R9,@LD_FREE		; page 0: FREEMEM = highest end
+	JLE	LDRLIMX
+	MOV	R9,@LD_FREE
+	JMP	LDRLIMX
+LDRLIMP:
+	MOV	R2,R9			; paged: MEMLIMIT = lowest segment
+	ANDI	R9,0F000H
+	C	R9,@LD_LIMIT
+	JHE	LDRLIMX
+	MOV	R9,@LD_LIMIT
+LDRLIMX:
+	MOV	R8,R8
+	JNE	LDRMAP_E
+	MOV	R2,R8			; Save initial launch address into R8
+
+LDRMAP_E:
+	MOV	R0,R0
+	JEQ	LDRCPY_E
+	MOV	R2,R9			; Calculate Logical Segment
+	SRL	R9,12			; Shift Virtual Address right 12 to get Segment ID (0-15)
+	BL	@MAP_SET		; Program the 6116 CRU with new page
+
+LDRCPY_E:
+	PSEL_EN				; Enable physical page selection
+LDRCPYB_E:
+	MOVB	*R6+,*R2+		; Copy byte from staging to mapped memory
+	DEC	R3			; Decrement block byte count
+	JEQ	LDRDONE_E		; Block finished?
+	C	R6,R4			; Staging buffer exhausted?
+	JL	LDRCPYB_E
+
+	; --- Refill Staging Buffer ---
+LDRSEC_E:
+	PSEL_DIS			; Disable PSEL so BDOS can safely use Segment 0 workspace
+	PUSH	R8
+	PUSH	R7
+	PUSH 	R5
+	PUSH	R3
+	PUSH	R2
+	LI	R3,0500H		; Reset DMA to start of staging
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	CI	R1,-1
+	JEQ	LDRSEC_E_NONE
+	LI	R3,0700H		; Queue secondary sector
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	CI	R1,-1
+	JEQ	LDRSEC_E_HALF
+	LI	R0,0900H		; Both sectors read (Cursor end = >0900)
+	JMP	LDRSEC_RESTORE
+LDRSEC_E_HALF:
+	LI	R0,0700H		; One sector read (Cursor end = >0700)
+	JMP	LDRSEC_RESTORE
+LDRSEC_E_NONE:
+	CLR	R0
+LDRSEC_RESTORE:
+	MOV	*SP+,R2
+	MOV	*SP+,R3
+	MOV	*SP+,R5
+	MOV	*SP+,R7
+	MOV	*SP+,R8
+	MOV	R0,R0
+	JEQ	LDRSEC_E_DONE
+	PSEL_EN
+	LI	R6,0500H		; Reset read cursor to start of buffer
+	MOV	R0,R4
+	JMP	LDRCPYB_E
+LDRSEC_E_DONE:
+	B	@LDRRUN
+
+LDRDONE_E:
+	PSEL_DIS
+	MOV	R5,R5			; Is there a next link in the chain?
+	JNE	LDRCHAIN_E
+	B	@LDRRUN			; Chain is 0, execute program
+
+LDRCHAIN_E:
+	A	R5,R7
+	MOV	R7,R6
+	C	R6,R4
+	JHE	LDRCHAIN_FAR
+	B	@LDRBLK_E
+LDRCHAIN_FAR:
+	DECT	SP
+	MOV	R8,*SP
+	LI	R3,0500H
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	CI	R1,-1
+	JEQ	LDRCH_NONE
+	LI	R3,0700H
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	CI	R1,-1
+	JEQ	LDRCH_HALF
+	LI	R0,0900H
+	JMP	LDRCH_RST
+LDRCH_HALF:
+	LI	R0,0700H
+	JMP	LDRCH_RST
+LDRCH_NONE:
+	CLR	R0
+LDRCH_RST:
+	MOV	*SP+,R8
+	MOV	R0,R0
+	JEQ	LDRCH_DONE
+	LI	R6,0500H
+	MOV	R0,R4
+	B	@LDRBLK_E
+LDRCH_DONE:
+	B	@LDRRUN
+
+;-------------------------------------------------------------------
+; END_LOADER_EXE sits ABOVE LDRHDR_RL.  LDRHDR_RL is reached only by
+; absolute CALL, so it always runs from its copy here in segment C and
+; never needs copying to >0300.  Left inside the copied region it put
+; the copy at >0300-0501, and its final RET at >0500 was overwritten
+; by the first sector read into staging - harmless only because that
+; copy was never executed.  Now the copy ends well below >0500.
+;-------------------------------------------------------------------
+END_LOADER_EXE:	EQU	$+0
+
+LDRHDR_RL:
+	PSEL_DIS
+	PUSH	R8
+	PUSH	R5
+	PUSH	R2
+	PUSH	R0
+	LI	R3,0500H
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	CI	R1,-1
+	JEQ	LDRHD_EOF
+	LI	R3,0700H
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+LDRHD_EOF:
+	MOV	*SP+,R0
+	MOV	*SP+,R2
+	MOV	*SP+,R5
+	MOV	*SP+,R8
+	LI	R6,0500H
+	LI	R4,0900H
+	RET
+
+LDRPROT:
+	MESG	@TXT_LDRPROT
+	B	@RETURN			; RETURN clears every map register
+
+TXT_LDRPROT:	TEXT	'--EXE block overlaps shell memory'
+		BYTE	0DH,0AH,0
+		EVEN
+
+;===================================================================
+; LOADERCODE - Flat Binary (.COM) Loader
+; Reads legacy flat binaries into the standard TPA (Transient Program Area).
+; Can optionally isolate them in physical Page 1 (Segments C & D).
+;===================================================================
+LOADERCODE:
+	CLR	R15
+	ORI	R15,0007H		; Unmask all interrupts and clear status flags
+	LST	R15			; Load Status Register
+
+	CLR	R0
+	LI	R3,0500H		; Target BDOS DMA to Staging
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	CI	R1,-1
+	JNE	LDRDET
+	B	@LDRRUN_F		; EOF hit immediately, execute
+LDRDET:	MOV	R1,R1
+	JLT	LDRDET_ERR
+	JMP	LDRRAW
+LDRDET_ERR:
+	B	@LDRERR
+
+LDRRAW:
+	LI	R3,0500H		; Staging buffer read cursor
+	MOV	@LADDR,R4		; Target memory write cursor (e.g., >1000)
+LDRRAW1:
+	MOV	*R3+,*R4+		; Direct memory copy loop
+	CI	R3,0700H		; Loop until 512 bytes are copied
+	JL	LDRRAW1
+	MOV	@LADDR,R3
+	AI	R3,BYTSEC		; Advance target address by 512
+	MOV	R3,@FREEMEM		; Update system boundary
+
+LDRRAWS:DECT	SP
+	MOV	R3,*SP
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	MOV	*SP+,R3
+	CI	R1,-1
+	JNE	LDRRAWS1
+	B	@LDRRUN_F
+LDRRAWS1:
+	MOV	R1,R1
+	JLT	LDRRAWS_ERR
+	AI	R3,BYTSEC
+	MOV	R3,@FREEMEM
+	JMP	LDRRAWS
+LDRRAWS_ERR:
+	B	@LDRERR
+
+LDRRUN_F:
+	MOV	@LOAD_ONLY,R0
+	JEQ	LDRRUN_F1
+	B	@LDRRUN_LOAD		; Shell requested LOAD without execution
+LDRRUN_F1:
+	PSEL_DIS
+	CLR	R15
+	ORI	R15,0007H		; Ensure interrupts are unmasked before launch
+
+	; --- Page 1 Isolation for .COM Binaries ---
+	LI	R12,MAP_WIN_BASE+(SEGC*2) ; CRU address for Segment C (>C000) map register
+	LI	R0,APAGE		; R0 = 1 (Private physical page for COM execution)
+	SLA	R0,8
+	LDCR	R0,BYTEWIDE		; Map Segment C to Page 1
+	INCT	R12
+	LDCR	R0,BYTEWIDE		; Map Segment D (>D000) to Page 1
+
+	LI	R0,0E000H		; Protect BDOS area (>E000) from program overwrite
+	MOV	R0,@MEMLIMIT
+	MOV	@LADDR,R8		; Launch address loaded into R8 for LGATE trampoline
+	B	@LGATE			; Branch to COMMON >02E8 launch gate
+
+LDRERR:	MESG	@TXT_LDRERR
+	B	@RETURN
+
+TXT_LDRERR:	TEXT	'--Loader read error'
+		BYTE	0DH,0AH,0
+		EVEN
+TXT_LOADED:	TEXT	'Loaded'
+		BYTE	0DH,0AH,0
+		EVEN
+
+END_LOADER:	EQU	$+0
+
+LDRRUN:	CALL	@SET_MEM_EXE
+	MOV	@LOAD_ONLY,R0
+	JNE	LDRRUN_LOAD
+	CLR	R15
+	ORI	R15,0007H
+	LST	R15
+	PSEL_EN
+	B	*R8
+
+LDRRUN_LOAD:
+	PSEL_DIS
+	CLR	R0
+	MOV	R0,@LOAD_ONLY
+	MESG	@TXT_LOADED
+	B	@NEXTCMD
+
+SET_MEM_EXE:
+	MOV	@LD_FREE,@FREEMEM	; 6.5c: worked out by the loader
+	MOV	@LD_LIMIT,@MEMLIMIT
+	RET
+
+	EVEN
+
+LSRC:
+	PSEL_EN
+	B	*R8
+LEND:
+
+RSRC:
+	PSEL_DIS
+	B	@RETURN
+REND:
+
+BSRC:
+	PSEL_DIS
+	CALL	@BDOS
+	PSEL_EN
+	RET
+BEND:
+
+;===================================================================
+; RETURN - Program Exit / Warm Boot
+; Restores memory maps and resets workspace before prompting user.
+;===================================================================
+RETURN:
+	PSEL_DIS			; 6.5: command pages exit here with PSEL on
+	LI	R12,MAP_WIN_BASE+(SEGC*2)
+	CLR	R0
+	LDCR	R0,BYTEWIDE
+	INCT	R12
+	LDCR	R0,BYTEWIDE
+	BL	@MAP_INIT
+	LI	R0,TPA
+	MOV	R0,@FREEMEM
+	LI	R0,SHELL
+	MOV	R0,@MEMLIMIT
+	MOVB	R1,@CMDLINE-2
+	LWPI	WORKSP
+	LI	SP,STACKP
+	CLR	R15
+	MOVB	@CMDLINE-2,R1
+	SRA	R1,8
+	CI	R1,-1
+	JNE	NEXTCMD
+	CLR	R1
+	MOVB	R1,@CMDLINE-2
+	MOV	R1,R1
+	JEQ	NEXTCMD
+	B	@UNPROC
+
+;===================================================================
+; NEXTCMD / PROMPT (With Directory Display)
+;===================================================================
+NEXTCMD	PSEL_DIS			; 6.5: command pages exit here with PSEL on
+	LI	R12,MAP_WIN_BASE+(SEGD*2)
+	CLR	R0
+	LDCR	R0,BYTEWIDE		; segment D back on the shell's own page
+	MOVB	@PROCSW,R1
+	JEQ	PROMPT
+	B	@PFETCH
+
+PROMPT:
+	LI	R4,CURDIR
+	CB	*R4,@SPACE
+	JEQ	PR_STD			; If no active directory, show standard prompt
+
+	LI	R3,05B00H		; '['
+	CALL	@OUTCHAR
+
+	LI	R4,CURDIR
+	LI	R5,11
+PR_DIR:	MOVB	*R4+,R3			; Print active directory name
+	CB	R3,@SPACE
+	JEQ	PR_BRK
+	CALL	@OUTCHAR
+	DEC	R5
+	JNE	PR_DIR
+
+PR_BRK:	LI	R3,05D00H		; ']'
+	CALL	@OUTCHAR
+
+PR_STD:	MOVB	@PROM,R3		; '%'
+	CALL	@OUTCHAR
+	LI	R4,CMDLINE
+	LI	R5,CLSZ
+
+	;--- CONSOLE INPUT LOOP ---
+CINLOOP	MOV	@CONSOLE,R1
+	CALL	@INCHAR
+	CB	R1,@BS
+	JEQ	RUBOUT
+	CB	R1,@DEL
+	JEQ	RUBOUT
+	CB	R1,@CTLC
+	JNE	STOWIT
+	MOVB	@CR,R1
+	MOVB	R1,@CMDLINE
+
+	;--- STOWIT: INTERACTIVE UPPERCASE CONVERSION ---
+STOWIT	MOV	R1,R0
+	SRL	R0,8			; Shift character to low byte for math
+	CI	R0,61H			; Is it < 'a' (Hex 61)?
+	JL	STOWIT2			; If yes, it's not lowercase
+	CI	R0,7AH			; Is it > 'z' (Hex 7A)?
+	JH	STOWIT2			; If yes, it's not lowercase
+	AI	R0,-20H			; Convert to uppercase (Subtract Hex 20)
+	SWPB	R0			; Swap back to high byte
+	MOVB	R0,*R4+			; Store uppercase character in buffer
+	JMP	STOWIT2+2		; Skip standard store
+STOWIT2	MOVB	R1,*R4+			; Store unmodified character
+
+	DEC	R5
+	JLE	CIOERR
+	CB	R1,@SPACE
+	JHE	ECHO
+	CLR	R0
+	MOVB	@CR,R1
+	MOVB	R0,*R4
+ECHO	MOV	R1,R3
+	CALL	@OUTCHAR
+	CLR	@SKIPSW
+	CB	R1,@LF
+	JEQ	GODOCMD
+	JMP	CINLOOP
+RUBOUT	CI	R5,CLSZ
+	JHE	CINLOOP
+	INC	R5
+	DEC	R4
+	DECT	SP
+	MOV	R4,*SP
+	LI	R4,RUBMSG
+	CALL	@OUTSTR
+	MOV	*SP+,R4
+	JMP	CINLOOP
+GODOCMD	LI	R0,CMDLINE
+	S	R0,R4
+	MOV	R4,@CMDL_SIZE
+	B	@DOCMD
+CIOERR	B	@LINERR
+
+;===================================================================
+; INTERNAL COMMAND DISPATCH TABLE
+;===================================================================
+CMDCNT	EQU	10		; Number of internal commands
+;  Each entry: name, 0, D page, entry address.  The page byte is
+;  0 for a command resident in the core, 2-15 for one in its own
+;  page of segment D, and >FF once LDCMDS has found its file
+;  missing or bad.  Every command page is entered at >D000.
+ICLIST	TEXT	"DIR"
+	BYTE	0
+	BYTE	2			; D page: DIR.SHC
+	WORD	0D000H
+	TEXT	"SAVE"
+	BYTE	0
+	BYTE	3			; D page: SAVE.SHC
+	WORD	0D000H
+	TEXT	"ERA"
+	BYTE	0
+	BYTE	4			; D page: ERA.SHC
+	WORD	0D000H
+	TEXT	"TYPE"
+	BYTE	0
+	BYTE	5			; D page: TYPE.SHC
+	WORD	0D000H
+	TEXT	"LOAD"
+	BYTE	0
+	BYTE	6			; D page: LOAD.SHC
+	WORD	0D000H
+	TEXT	"MKDIR"
+	BYTE	0
+	BYTE	7			; D page: MKDIR.SHC
+	WORD	0D000H
+	TEXT	"CHDIR"
+	BYTE	0
+	BYTE	8			; D page: CHDIR.SHC
+	WORD	0D000H
+	TEXT	"RMDIR"
+	BYTE	0
+	BYTE	9			; D page: RMDIR.SHC
+	WORD	0D000H
+	TEXT	"REN"
+	BYTE	0
+	BYTE	10			; D page: REN.SHC
+	WORD	0D000H
+	TEXT	"COPY"
+	BYTE	0
+	BYTE	11			; D page: COPY.SHC
+	WORD	0D000H
+	EVEN
+;
+RNBUF	BSS	NAMSIZ		; REN: holds old name during rename operation
+	EVEN
+;
+BUFPNT	WORD	0
+RECCNT	WORD	0
+LOAD_ONLY:	WORD	0
+SADDR	WORD	0
+SWITCH	BYTE	'-'
+	EVEN
+
+ICMD	LI	R1,ICLIST
+	LI	R4,FCB
+	LI	R5,CMDCNT
+ICMD0	CB	*R4+,*R1+
+	JEQ	ICMD0
+	DEC	R1
+	DEC	R4
+	CB	*R4,@SPACE
+	JH	ICMD1
+	MOVB	*R1,R0
+	JNE	ICMD1
+	INC	R1			; step over the name's terminator
+	MOVB	*R1+,R6			; this command's D page
+	MOVB	*R1+,R2			; entry address, byte at a time -
+	SWPB	R2			;   the table is not word aligned
+	MOVB	*R1+,R2
+	SWPB	R2
+	MOV	*SP+,R0			; discard ICMD's own return address
+	; R3 must survive: TYPE takes its argument from where
+	; PARSENAME left R3.  Nothing below touches it.
+	SRL	R6,8
+	JEQ	ICMDGO			; page 0: resident, run in place
+	CI	R6,0FFH
+	JEQ	ICMDNA			; its file did not load at cold start
+	MOV	R6,R0
+	LI	R9,SEGD
+	BL	@MAP_SET		; segment D -> the command's page
+	PSEL_EN				; mapping on: >D000 is now the command
+ICMDGO	B	*R2
+ICMDNA	MESG	@TXT_CMDNA
+	B	@NEXTCMD
+ICMD1	DEC	R5
+	JEQ	ICMDE
+ICMD2	MOVB	*R1+,R0
+	JNE	ICMD2
+	AI	R1,3			; skip page byte and entry address
+	LI	R4,FCB
+	JMP	ICMD0
+ICMDE	RET
+
+;===================================================================
+; DATA SHARED BY THE INTERNAL COMMANDS (the commands themselves now
+; live in their own pages - see LDCMDS)
+;===================================================================
+BAR	TEXT	' : '
+	BYTE	0
+CRLF	BYTE	0DH,0AH,0
+SEP	TEXT	'  '
+	BYTE	0
+MNOFILE	TEXT	'NO FILES'
+	BYTE	0DH,0AH,0
+	EVEN
+DIRCOLS	EQU	4
+CCOUNT	WORD	0
+	EVEN
+
+;===================================================================
+; SHARED WITH THE COMMAND PAGES   (6.5)
+;
+; Everything from here to the end of LDCMDS must stay below >D000.
+; A command reaches it while segment D is mapped to the command's
+; page, so anything in the shell's own page D0 is invisible to it.
+; MKCINC withholds every address >=D000 from CORE.INC, so a symbol
+; that drifts up past >D000 becomes an assembly error in whichever
+; command uses it, not a silent read of the wrong page.
+;===================================================================
+CURDIR	 TEXT	'           '		; 11 spaces = Root
+	 EVEN
+
+;--- Error handlers ---
+WRITERR	MESG	@ERRMSG4
+	JMP	MKERR2
+MKERR	MESG	@ERRMSG3		; 6.5: a B @MONITOR sat ahead of this
+	JMP	MKERR2
+CLOSERR	MESG	@ERRMSG1
+	JMP	MKERR2
+PARSMSG	MESG	@ERRMSG2
+	B	@NEXTCMD
+LARGERR	MESG	@ERRMSG5
+	JMP	MKERR2
+MKERR2	PSEL_DIS			; 6.5: flat before calling the BDOS
+	LI	R2,FCLOSE
+	LI	R3,FCB
+	CALL	@BDOS
+	B	@RETURN
+
+;===================================================================
+; MAP_INIT - Clear all 16 map registers to page 0
+;===================================================================
+MAP_INIT:
+	CLR	R15
+	LST	R15
+	LI	R12,MAP_WIN_BASE
+	CLR	R0
+	LI	R1,NUM_MAP_ENTRIES
+MAPI_L:	LDCR	R0,BYTEWIDE
+	INCT	R12
+	DEC	R1
+	JNE	MAPI_L
+	RT
+
+;===================================================================
+; MAP_SET - Program one 6116 map register
+;===================================================================
+MAP_SET:
+	LI	R12,MAP_WIN_BASE
+	SLA	R9,1
+	A	R9,R12
+	SLA	R0,8
+	LDCR	R0,BYTEWIDE
+	RT
+
+;===================================================================
+; LDCMDS - load each internal command into its own page   (6.5)
+;
+; Walks ICLIST.  For every entry whose page byte is not 0 it opens
+; <NAME>.SHC in the root folder, reads it a sector at a time into
+; STAGING with the BDOS running flat, and copies each sector into
+; segment D with that page mapped and PSEL on.  A file that is
+; missing, empty, larger than 4096 bytes, or does not start with
+; B @ (>0460) has its entry's page byte set to >FF, so ICMD refuses
+; the command cleanly instead of branching into an empty page.
+;
+; The BDOS clobbers registers, so the loop state lives in LDC_ words.
+;===================================================================
+LDCMDS:	LI	R0,ICLIST
+	MOV	R0,@LDC_ENT		; start of the current entry
+	LI	R0,CMDCNT
+	MOV	R0,@LDC_CNT
+LDC_NX:	LI	R4,FCB			; fresh FCB: name and type blank
+	LI	R2,NAMSIZ
+LDC_BL:	MOVB	@SPACE,*R4+
+	DEC	R2
+	JNE	LDC_BL
+	LI	R4,FCB+12		; ...bytes 12-35 clear, as DSKDIR does
+	LI	R2,12
+LDC_CL:	CLR	*R4+
+	DEC	R2
+	JNE	LDC_CL
+	MOVB	@ROOTID,@FCB+18		; the command files live in root
+	MOV	@LDC_ENT,R1		; name from the table, up to its 0
+	LI	R4,FCB
+LDC_NM:	MOVB	*R1+,R0
+	JEQ	LDC_NE
+	MOVB	R0,*R4+
+	JMP	LDC_NM
+LDC_NE:	MOV	R1,@LDC_PGA		; R1 now points at the page byte
+	LI	R1,LDC_EXT
+	LI	R4,FCB+8
+	MOVB	*R1+,*R4+
+	MOVB	*R1+,*R4+
+	MOVB	*R1+,*R4+
+	MOV	@LDC_PGA,R1
+	MOVB	*R1,R0
+	SRL	R0,8
+	JEQ	LDC_SK			; page 0: resident, nothing to load
+	MOV	R0,@LDC_PG
+	LI	R0,0D000H
+	MOV	R0,@LDC_DST
+	LI	R2,FOPEN
+	LI	R3,FCB
+	CALL	@BDOS
+	MOV	R1,R1
+	JLT	LDC_BD			; not found
+LDC_SC:	LI	R3,STAGING
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R2,RDSEQ
+	LI	R3,FCB
+	CALL	@BDOS
+	CI	R1,-1
+	JEQ	LDC_EF
+	MOV	@LDC_DST,R0
+	CI	R0,0E000H		; page already full?
+	JHE	LDC_BC			; command larger than 4096 bytes
+	MOV	@LDC_PG,R0		; copy this sector into the page
+	LI	R9,SEGD
+	BL	@MAP_SET
+	PSEL_EN
+	LI	R1,STAGING
+	MOV	@LDC_DST,R5
+	LI	R2,256			; 256 words = one 512-byte sector
+LDC_CP:	MOV	*R1+,*R5+
+	DEC	R2
+	JNE	LDC_CP
+	PSEL_DIS
+	MOV	R5,@LDC_DST
+	JMP	LDC_SC
+LDC_EF:	LI	R2,FCLOSE
+	LI	R3,FCB
+	CALL	@BDOS
+	MOV	@LDC_DST,R0
+	CI	R0,0D000H		; nothing read?
+	JEQ	LDC_BD
+	MOV	@LDC_PG,R0		; must start B @entry (>0460)
+	LI	R9,SEGD
+	BL	@MAP_SET
+	PSEL_EN
+	MOV	@0D000H,R0
+	PSEL_DIS
+	CI	R0,0460H
+	JEQ	LDC_SK
+	JMP	LDC_BD
+LDC_BC:	LI	R2,FCLOSE		; opened but refused: close it
+	LI	R3,FCB
+	CALL	@BDOS
+LDC_BD:	MOV	@LDC_PGA,R1
+	LI	R0,0FF00H
+	MOVB	R0,*R1			; ICMD will refuse this command
+	MESG	@TXT_LDCF
+	MOV	@LDC_ENT,R1
+	MESG	*R1			; the command's name
+	MESG	@CRLF
+LDC_SK:	MOV	@LDC_PGA,R1
+	AI	R1,3			; past page byte and entry address
+	MOV	R1,@LDC_ENT
+	DEC	@LDC_CNT
+	JEQ	LDC_DN
+	B	@LDC_NX
+LDC_DN:	CLR	R0			; leave D on the shell's own page
+	LI	R9,SEGD
+	BL	@MAP_SET
+	RET
+
+LDC_ENT	WORD	0
+LDC_CNT	WORD	0
+LDC_PGA	WORD	0
+LDC_PG	WORD	0
+LDC_DST	WORD	0
+LDC_EXT	TEXT	'SHC'
+	EVEN
+TXT_LDCF TEXT	'--Cannot load command '
+	BYTE	0
+	EVEN
+TXT_CMDNA TEXT	'--Command not loaded'
+	BYTE	0DH,0AH,0
+	EVEN
+
+;===================================================================
+; ASCII CONVERSION UTILITIES
+;===================================================================
+ATOD	CLR	R3
+	LI	R8,10
+ATOD00	MOV	@BUFPNT,R0
+	MOVB	*R0,R2
+	SRL	R2,8
+	AI	R2,-'0'
+	JLT	ATOD03
+	CI	R2,10
+	JLT	ATOD04
+ATOD03	MOV	R3,R1
+	RET
+ATOD04	MOV	R2,R0
+	MOV	R3,R2
+	MPY	R8,R2
+	A	R0,R3
+	INC	@BUFPNT
+	JMP	ATOD00
+
+CATOH	CLR	R2
+LOOP	MOV	@BUFPNT,R0
+	CLR	R1
+	MOVB	*R0,R1
+	CI	R1,'0'*256
+	JL	NOTHEX
+	CI	R1,'9'*256
+	JLE	GOTONE
+	CI	R1,'A'*256
+	JL	NOTHEX
+	CI	R1,'F'*256
+	JH	NOTHEX
+	AI	R1,0900H
+GOTONE	SLA	R1,4
+	SRL	R1,12
+	SLA	R2,4
+	A	R1,R2
+	INC	@BUFPNT
+	JMP	LOOP
+NOTHEX	MOV	R2,R1
+	RET
+
+;===================================================================
+; ERROR MESSAGES
+;===================================================================
+ERRMSG1	TEXT	'--Close error'
+	BYTE	0DH,0AH,0
+ERRMSG2	TEXT	'--Parse error'
+	BYTE	0DH,0AH,0
+ERRMSG3	TEXT	'--Make error'
+	BYTE	0DH,0AH,0
+ERRMSG4	TEXT	'--Write error'
+	BYTE	0DH,0AH,0
+ERRMSG5	TEXT	'--File too large error'
+	BYTE	0DH,0AH,0
+	EVEN
+
+;===================================================================
+; PROCEDURE ENGINE (.PRO SCRIPT PARSER)
+;===================================================================
+PFETCH	LI	R4,CLSZ-1
+	MOV	R4,@CMDBYTES
+	LI	R4,CMDLINE
+	MOV	R4,@CMDADDR
+	CLR	@SUBFLAG
+PLOOP	MOV	@MCNT,R4
+	JNE	BUFMOVE
+	MOV	@PRECS,R4
+	JEQ	PROCERR1
+
+	; Read from PROC_FCB, not user FCB
+	LI	R3,DEFDRV
+	LI	R2,SELDSK
+	CALL	@BDOS
+	LI	R3,PRBUF
+	LI	R2,SETDMA
+	CALL	@BDOS
+	LI	R3,PROC_FCB
+	LI	R2,RDSEQ
+	CALL	@BDOS
+	MOV	R1,R1
+	JLT	PROCERR0
+
+	LI	R1,BLKSIZ
+	MOV	R1,@MCNT
+	LI	R4,PRBUF
+	MOV	R4,@MADDR
+	DEC	@PRECS
+	JMP	BUFMOVE
+PROCERR0:B	@SHELLERR
+PROCERR1:B	@UNPROC
+
+BUFMOVE	MOV	@MADDR,R4
+	MOVB	*R4+,R1
+	MOV	R4,@MADDR
+	DEC	@MCNT
+	DECT	SP
+	MOV	R1,*SP
+	MOV	@SUBFLAG,R0
+	JNE	PARMSUB
+	MOV	*SP+,R1
+	CB	R1,@SUBMARK		; Parameter Substitution? ($)
+	JNE	BUFMOV2
+	SETO	@SUBFLAG
+	JMP	PLOOP
+BUFMOV2	CB	R1,@EOF
+	JEQ	BUFMOV4
+	CB	R1,@PAD
+	JEQ	BUFMOV4
+	CB	R1,@CPMEOF
+	JEQ	BUFMOV4
+BUFMOV3	CB	R1,@LF
+	JEQ	PLOOP
+
+	; --- STORE SCRIPT CHARACTER ---
+BUFPUT	MOV	@CMDADDR,R4
+
+	; --- 1. AUTO-UPPERCASE FOR .PRO FILES ---
+	MOV	R1,R0
+	SRL	R0,8
+	CI	R0,61H			; Is it < 'a'? (Hex 61)
+	JL	BUFPUT1
+	CI	R0,7AH			; Is it > 'z'? (Hex 7A)
+	JH	BUFPUT1
+	AI	R0,-20H			; Convert to uppercase
+	SWPB	R0
+	MOV	R0,R1
+	; ----------------------------------------
+
+BUFPUT1	MOVB	R1,*R4
+	CB	R1,@CR
+	JNE	BUFPUT2
+	; --- CMDL_SIZE MUST MATCH GODOCMD, THE INTERACTIVE PATH ---
+	; GODOCMD computes the length with R4 still ON the CR, so the
+	; count EXCLUDES the terminator.  IOLIB's _setargs blanks the
+	; byte at CMDLINE+count-1; report two bytes more and the CR and
+	; LF stay inside the last token - IOLIB99.LIB never matches and
+	; the library search silently finds nothing.
+	LI	R0,CMDLINE
+	S	R0,R4			; R4 = length, still positioned on the CR
+	MOV	R4,@CMDL_SIZE
+	A	R0,R4			; restore R4 to the CR
+	; --- MATCH INTERACTIVE LINE ENDINGS ---
+	INC	R4
+	LI	R1,0A00H		; Load Line Feed (\n)
+	MOVB	R1,*R4			; Append \n after \r
+	INC	R4
+	CLR	R1
+	MOVB	R1,*R4			; Null-terminate the string
+	JMP	PEOL
+	; ----------------------------------------
+BUFPUT2	INC	R4
+	MOV	R4,@CMDADDR
+	DEC	@CMDBYTES
+	JEQ	MOVERR
+	JMP	PLOOP
+BUFMOV4	B	@UNPROC
+MOVERR	B	@LINERR
+
+; $n - the character after '$' is on the stack.  '0'-'9' substitutes
+; parameter n ($0 = the procedure name, $1 = first argument).  Any other
+; character is kept as typed, so $$ gives a literal $.
+; 6.5a: it subtracted >20, not '0', so no digit ever matched; the walk
+; never stepped past PPTRS[0]; and the end-of-parameter test was
+; inverted, stopping at the first printable character.
+PARMSUB	CLR	@SUBFLAG
+	MOV	*SP+,R1
+	DECT	SP
+	MOV	R1,*SP
+	SRL	R1,8
+	AI	R1,-30H			; '0'..'9' -> 0..9
+	JLT	NOSUB
+	CI	R1,9
+	JGT	NOSUB
+	MOV	*SP+,R2			; drop the saved character
+	SLA	R1,1
+	MOV	@PPTRS(R1),R3		; parameter n's text, 0 = not given
+	JEQ	NULLPARM
+SUBLOOP2:MOVB	*R3,R1
+	CB	R1,@SPACE		; space or CR ends the parameter
+	JLE	SUBDONE
+	INC	R3
+	MOV	@CMDADDR,R4
+	MOVB	R1,*R4+
+	MOV	R4,@CMDADDR
+	DEC	@CMDBYTES
+	JEQ	LINERR
+	JMP	SUBLOOP2
+SUBDONE	B	@PLOOP
+NOSUB	MOV	*SP+,R1
+	JMP	BUFMOV2
+NULLPARM:LI	R1,0A00H
+	JMP	BUFMOV3
+
+PEOL	MOVB	@CMDLINE,R1
+	CB	@COMT,R1
+	JEQ	BPFETCH
+	CB	@NOTE,R1
+	JEQ	VIEW
+	MOV	@VSW,R1
+	JEQ	CKNSW
+VIEW	MESG	@CMDLINE		; 6.5a: the line already ends CR LF;
+					;   OUTSTR added a second LF after the CR
+CKNSW	MOV	@NSW,R1
+	JNE	BPFETCH
+	MOVB	@CMDLINE,R1
+	CB	@NOTE,R1
+	JNE	BTDOCMD
+	LI	R4,CMDLINE
+	INC	R4
+	CB	*R4,@NOTE
+	JNE	BPFETCH
+WAIT	LI	R4,WAITMSG
+	CALL	@OUTSTR
+	CLR	R1
+	CALL	@INCHAR			; 6.5a: was CALL @CIN - CIN is the BDOS
+	PUSH	R1			;   function number 1, so it jumped to >0001
+	MOVB	@CR,R3
+	CALL	@OUTCHAR
+	POP	R1
+	CB	R1,@CR
+	JEQ	BPFETCH
+	CB	R1,@CTLC
+	JEQ	UNPROC
+	CB	R1,@CTLS
+	JNE	WAIT
+	SETO	@SKIPSW
+BPFETCH	B	@PFETCH
+BTDOCMD	B	@DOCMD
+
+;--- Procedure Command Dispatch Errors ---
+CMDERR	LI	R4,CMDLINE
+	JMP	ERROUT
+LINERR	MOV	@CR,R2
+	LI	R4,LINEMSG
+	JMP	ERROUT
+PARMERR	LI	R4,PARMSG
+	JMP	ERROUT
+SHELLERR:LI	R4,SHELLMSG
+	JMP	ERROUT
+HARDERR	LI	R4,HARDMSG
+	JMP	ERROUT
+NULLERR	LI	R4,NULLMSG
+	JMP	ERROUT
+NESTERR	LI	R4,NESTMSG
+	JMP	ERROUT
+ERROUT:
+	MESG	@QUESTMSG
+	MESG	*R4
+	MESG	@CRLF
+
+UNPROC	CLR	@PROCSW
+	LI	R4,CHKSYS
+	INCT	R4
+	MOVB	@SYSFILE,*R4
+	B	@RETURN
+
+DOPROC	MOV	@PROCSW,R1
+	JNE	NESTERR
+	SETO	R1
+	MOV	R1,@PROCSW
+
+	; --- ONE-TIME INITIALIZATION OF PROC_FCB ---
+	LI	R4,FCB
+	CLR	@CRN(R4)
+	LI	R3,FCB
+	LI	R4,PROC_FCB		; Copy to our new dedicated engine FCB
+	LI	R2,FCBSIZ
+	CALL	@BMOVE
+
+	MOV	@MFSZ,@PRECS
+	CLR	R4
+	MOV	R4,@MCNT
+	CLR	@VSW
+	CLR	@NSW
+	LI	R4,PPTRS
+	MOV	R4,@PPADDR
+	LI	R1,11			; 6.5a: clear all 11 pointers, or a
+PPCLR	CLR	*R4+			;   $n not given this time found the
+	DEC	R1			;   one an earlier procedure left
+	JNE	PPCLR
+	LI	R3,PBUF
+	LI	R4,CMDLINE
+	LI	R2,10
+	CLR	R0
+
+	; --- PROCEDURE FLAG PARSER ---
+PARSLOOP:CLR	R1
+	MOVB	*R4+,R1		; Fetch character
+	CI	R1,2D00H	; Is it '-' (Hex 2D)?
+	JNE	PARS1
+	MOV	R0,R0
+	JNE	PARS0B
+	INC	R4
+	MOVB	*R4,R1
+	DEC	R4
+	CI	R1,2000H	; Space (Hex 20)?
+	JH	PARS0B
+	MOVB	*R4,R1
+	CI	R1,5600H	; 'V' (Hex 56)
+	JNE	PARS0A
+	MOV	R1,@VSW
+PARS0	INC	R4
+	JMP	PARSLOOP
+PARS0A	CI	R1,4E00H	; 'N' (Hex 4E)
+	JNE	PARS0B
+	LI	R1,2D00H	; '-'
+	MOV	R1,@NSW
+	JMP	PARS0
+PARS0B	LI	R1,2D00H
+PARS1	MOVB	R1,*R3+
+	CI	R1,0D00H	; '\r' (Carriage Return)
+	JEQ	PARSEND
+	CI	R1,2000H	; ' ' (Space)
+	JH	PARS2
+	MOV	R0,R0
+	JEQ	PARSLOOP
+	CLR	R0
+	JMP	PARSLOOP
+PARS2	MOV	R0,R0
+	JNE	PARSLOOP
+	SETO	R0
+	DEC	R2
+	JLT	PARMERR
+	DECT	SP
+	MOV	R4,*SP
+	DECT	SP
+	MOV	R3,*SP
+	DEC	R3
+	MOVB	*R4,R1
+	CI	R1,2000H
+	JGT	PARS3
+	CB	*R3,@NULPARM
+	JNE	PARS3
+	LI	R1,2000H
+	MOVB	R1,*R3
+PARS3	MOV	@PPADDR,R4
+	MOV	R3,*R4+
+	MOV	R4,@PPADDR
+	MOV	*SP+,R3
+	MOV	*SP+,R4
+	JMP	PARSLOOP
+PARSEND	CLR	@PPADDR
+	B	@PFETCH
+
+BMOVE	MOVB	*R3+,*R4+
+	DEC	R2
+	JNE	BMOVE
+	RET
+
+;===================================================================
+; CONSOLE I/O
+;===================================================================
+INCHAR	LI	R2,CIN
+	CALL	@BDOS
+	SWPB	R1
+	RET
+
+OUTCHAR	DECT	SP
+	MOV	R3,*SP
+	SWPB	R3
+	LI	R2,COUT
+	CALL	@BDOS
+	MOV	*SP+,R3
+	CB	R3,@CR
+	JNE	OUT0
+	MOVB	@LF,R3
+	SWPB	R3
+	LI	R2,COUT
+	CALL	@BDOS
+	LI	R3,0D0AH
+OUT0	RET
+
+OUTSTR	MOVB	*R4,R3
+	JEQ	STR0
+	INC	R4
+	CALL	@OUTCHAR
+	JMP	OUTSTR
+STR0	RET
+
+;===================================================================
+; VARIABLES & WORKING STORAGE
+;===================================================================
+FB_FLAG		WORD	0
+LD_FREE		WORD	0		; 6.5c: FREEMEM worked out by the EXE loader
+LD_LIMIT	WORD	0		; 6.5c: MEMLIMIT, likewise
+		EVEN
+CMDADDR		WORD	0
+CMDBYTES	WORD	0
+DOSV		WORD	0
+HDERRV		WORD	0
+DOSERRV		WORD	0
+PROCSW		WORD	0
+SKIPSW		WORD	0
+VSW		WORD	0
+NSW		WORD	0
+SUBFLAG		WORD	0
+LADDR		WORD	0
+
+VMENTRY		WORD	0
+CMDLINE2	BYTE	0DH,00
+		EVEN
+		BSS	CLSZ
+		EVEN
+
+		EVEN
+PROC_FCB	BSS	FCBSIZ
+		EVEN
+MFTY		WORD	0
+EXTWALK		WORD	0
+MFSZ		WORD	0
+PRECS		WORD	0
+PRBUF		BSS	BLKSIZ
+		EVEN
+		BSS	8
+MCNT		WORD	0
+MADDR		WORD	0
+
+;===================================================================
+; SYSTEM MESSAGES
+;===================================================================
+	EVEN
+
+SINON	BYTE	0DH,0AH
+	TEXT	'Shell Version 6.5'
+	BYTE	0DH,0AH
+	TEXT	'TMS99105 SBC V4 - Paged Memory'
+	BYTE	0DH,0AH
+NULLMSG	BYTE	0
+	EVEN
+
+QUESTMSG	TEXT	"?"
+		BYTE	0
+		EVEN
+NESTMSG		TEXT	"Program name expected:"
+		BYTE	0DH,00
+		EVEN
+SHELLMSG	TEXT	"Shell error:"
+		BYTE	0DH,00H
+		EVEN
+RUBMSG		BYTE	08H,20H,08H,0
+		EVEN
+PARMSG		TEXT	"Too many parameters:"
+		BYTE	0DH,00
+		EVEN
+LINEMSG		TEXT	"Line too long:"
+		BYTE	0DH,00
+		EVEN
+HARDMSG		TEXT	"Hard disc error"
+		BYTE	0DH,00
+		EVEN
+WAITMSG		TEXT	"--waiting..."
+		BYTE	0
+		EVEN
+
+PPTRS	BSS	22
+PBUF	BSS	64
+PPADDR	WORD	0
+
+	END

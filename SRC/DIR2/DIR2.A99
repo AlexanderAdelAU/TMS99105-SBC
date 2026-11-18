@@ -1,0 +1,422 @@
+;-----------------------------------------------------------------------
+; DIR2 - extended directory listing for BDOS 6.1
+;
+; Lists the current drive in directory order as:
+;
+;     FILENAME TYPE    SIZE    LOAD
+;
+; SIZE is displayed in bytes.  The directory metadata convention is:
+;
+;     size = 512 * (FSZ - 1) + LRBL
+;
+; For compatibility with older files whose LRBL was left at zero, a
+; non-empty file with LRBL=0 is displayed as FSZ*512 bytes.
+;
+; LOAD is the FLA word of the entry (bytes 16-17), the file load
+; address, shown as four hex digits.
+;
+; Uses BDOS functions 17, 18, and 27 (Get Free Capacity).
+;-----------------------------------------------------------------------
+;
+        DXOP    CALL,6
+        DXOP    RET,7
+        DXOP    PUSH,8
+        DXOP    POP,9
+;
+; Registers.
+;
+R0      EQU     0
+R1      EQU     1
+R2      EQU     2
+R3      EQU     3
+R4      EQU     4
+R5      EQU     5
+R6      EQU     6
+R7      EQU     7
+R8      EQU     8
+R9      EQU     9
+SP      EQU     10
+;
+; System entry pointers.
+;
+TPA     EQU     0500H
+SHELL   EQU     080H
+BDOS    EQU     084H
+;
+; BDOS functions.
+;
+COUT    EQU     2
+SEARCH1 EQU     17
+SEARCH2 EQU     18
+GETFRE  EQU     27
+;
+; BDOS59 directory/FCB offsets.
+;
+NAM     EQU     0
+EXT     EQU     8
+FTY     EQU     11
+FSZ     EQU     14
+FLA     EQU     16
+FLD_ID  EQU     18
+LRBL    EQU     20
+FCBSIZ  EQU     36
+;
+BYTSEC  EQU     512
+;
+        AORG    TPA
+        JMP     START
+;
+;-----------------------------------------------------------------------
+; Program entry.
+;-----------------------------------------------------------------------
+START:
+        CLR     @FILECNT
+        CALL    @INIT_FCB
+
+        LI      R0,HEADER
+        CALL    @PRINTMSG
+        LI      R0,CRLF
+        CALL    @PRINTMSG
+
+        LI      R2,SEARCH1
+        LI      R3,DIRFCB
+        CALL    @BDOS
+        MOV     R1,R1
+        JLT     SEARCH_DONE
+
+DIR_LOOP:
+        MOV     R3,@ENTPTR       ; Save DMA directory entry address from BDOS
+        INC     @FILECNT
+        CALL    @PRINT_ENTRY
+
+        LI      R2,SEARCH2
+        LI      R3,DIRFCB        ; SEARCH2 still needs the pristine wildcard FCB
+        CALL    @BDOS
+        MOV     R1,R1
+        JLT     SEARCH_DONE
+        JMP     DIR_LOOP
+
+SEARCH_DONE:
+        MOV     @FILECNT,R0
+        JNE     DIR_CAPACITY
+        LI      R0,NO_FILES
+        CALL    @PRINTMSG
+
+DIR_CAPACITY:
+        LI      R2,GETFRE        ; Call new BDOS Function 27
+        CALL    @BDOS
+        MOV     R1,R1
+        JLT     DIR_EXIT_OK      ; Abort capacity check gracefully if BDOS error
+
+        MOV     R1,@FREE_KB      ; Save the KB count
+
+        LI      R0,CRLF
+        CALL    @PRINTMSG
+        LI      R0,FREE_MSG
+        CALL    @PRINTMSG
+
+        ; Reuse PRINT_SIZE to print the 16-bit KB count
+        CLR     @SIZEHI
+        MOV     @FREE_KB,@SIZELO
+        CALL    @PRINT_SIZE
+
+        LI      R0,KB_MSG
+        CALL    @PRINTMSG
+
+DIR_EXIT_OK:
+        CLR     R1
+        B       @SHELL
+;
+;-----------------------------------------------------------------------
+; INIT_FCB - clear the 36-byte FCB and put '?' in all 11 name bytes.
+;-----------------------------------------------------------------------
+INIT_FCB:
+        LI      R0,FCBSIZ/2
+        LI      R1,DIRFCB
+IF_CLEAR:
+        CLR     *R1+
+        DEC     R0
+        JNE     IF_CLEAR
+
+        ; ---> THE FIX: Prevent Sticky Root Override <---
+        MOVB    @SPACE,@DIRFCB+FLD_ID
+
+        LI      R0,11
+        LI      R1,DIRFCB
+        LI      R2,03F00H        ; '?' in the source byte used by MOVB
+IF_WILD:
+        MOVB    R2,*R1+
+        DEC     R0
+        JNE     IF_WILD
+        RET
+;
+;-----------------------------------------------------------------------
+; PRINT_ENTRY - print one directory entry from ENTPTR.
+;-----------------------------------------------------------------------
+PRINT_ENTRY:
+        MOV     @ENTPTR,R0
+        LI      R1,8
+        CALL    @PRINT_FIELD
+
+        LI      R0,NAME_GAP
+        CALL    @PRINTMSG
+
+        MOV     @ENTPTR,R0
+        AI      R0,EXT
+        LI      R1,3
+        CALL    @PRINT_FIELD
+
+        LI      R0,SIZE_GAP
+        CALL    @PRINTMSG
+
+        MOV     @ENTPTR,R8
+        CALL    @COMPUTE_SIZE
+        CALL    @PRINT_SIZE
+
+        LI      R0,LOAD_GAP
+        CALL    @PRINTMSG
+
+; --- READ FLA AT OFFSET 16 FROM DMA BUFFER ---
+        MOV     @ENTPTR,R1       ; R1 -> DMA entry
+        MOV     @FLA(R1),R0      ; Fetch word at offset 16 relative to R1
+        CALL    @PRINT_HEX4
+
+        LI      R0,CRLF
+        CALL    @PRINTMSG
+        RET
+;
+;-----------------------------------------------------------------------
+; PRINT_FIELD
+;-----------------------------------------------------------------------
+PRINT_FIELD:
+PF_LOOP:
+        CLR     R3
+        MOVB    *R0+,R3
+        SWPB    R3
+        ANDI    R3,007FH
+        PUSH    R0
+        PUSH    R1
+        CALL    @PUTC
+        POP     R1
+        POP     R0
+        DEC     R1
+        JNE     PF_LOOP
+        RET
+;
+;-----------------------------------------------------------------------
+; COMPUTE_SIZE
+;-----------------------------------------------------------------------
+COMPUTE_SIZE:
+        CLR     @SIZEHI
+        CLR     @SIZELO
+
+        MOV     @FSZ(R8),R2
+        JEQ     CS_DONE
+
+        MOV     @LRBL(R8),R5
+        JEQ     CS_FULL_RECORDS
+        CI      R5,BYTSEC
+        JH      CS_FULL_RECORDS
+
+        DEC     R2
+        LI      R4,BYTSEC
+        MPY     R4,R2            ; R2:R3 = (FSZ-1)*512
+        A       R5,R3
+        JNC     CS_STORE
+        INC     R2
+CS_STORE:
+        MOV     R2,@SIZEHI
+        MOV     R3,@SIZELO
+        RET
+
+CS_FULL_RECORDS:
+        LI      R4,BYTSEC
+        MPY     R4,R2            ; R2:R3 = FSZ*512
+        MOV     R2,@SIZEHI
+        MOV     R3,@SIZELO
+CS_DONE:
+        RET
+;
+;-----------------------------------------------------------------------
+; PRINT_SIZE
+;-----------------------------------------------------------------------
+PRINT_SIZE:
+        MOV     @SIZEHI,@CURHI
+        MOV     @SIZELO,@CURLO
+        LI      R0,PLACES
+        MOV     R0,@PLACEPTR
+        LI      R0,7
+        MOV     R0,@PLACECOUNT
+        CLR     @STARTED
+
+PS_NEXT:
+        CLR     @DIGIT
+        MOV     @PLACEPTR,R4
+
+PS_TRY:
+        MOV     @CURHI,R0
+        C       R0,*R4
+        JH      PS_SUBTRACT
+        JEQ     PS_TEST_LOW
+        JMP     PS_EMIT
+
+PS_TEST_LOW:
+        MOV     @CURLO,R0
+        C       R0,@2(R4)
+        JHE     PS_SUBTRACT
+        JMP     PS_EMIT
+
+PS_SUBTRACT:
+        MOV     @CURLO,R0
+        C       R0,@2(R4)
+        JHE     PS_NO_BORROW
+        S       *R4,@CURHI
+        DEC     @CURHI
+        JMP     PS_SUB_LOW
+
+PS_NO_BORROW:
+        S       *R4,@CURHI
+PS_SUB_LOW:
+        S       @2(R4),@CURLO
+        INC     @DIGIT
+        JMP     PS_TRY
+
+PS_EMIT:
+        MOV     @DIGIT,R0
+        MOV     @STARTED,R1
+        JNE     PS_PRINT_DIGIT
+        MOV     R0,R0
+        JNE     PS_BEGIN_DIGITS
+
+        MOV     @PLACECOUNT,R1
+        CI      R1,1
+        JEQ     PS_BEGIN_DIGITS
+        LI      R3,' '
+        CALL    @PUTC
+        JMP     PS_ADVANCE
+
+PS_BEGIN_DIGITS:
+        SETO    @STARTED
+PS_PRINT_DIGIT:
+        AI      R0,'0'
+        MOV     R0,R3
+        CALL    @PUTC
+
+PS_ADVANCE:
+        MOV     @PLACEPTR,R0
+        AI      R0,4
+        MOV     R0,@PLACEPTR
+        DEC     @PLACECOUNT
+        JNE     PS_NEXT
+        RET
+;
+;-----------------------------------------------------------------------
+; PRINT_HEX4 - print R0 as four hex digits, high nibble first.
+;-----------------------------------------------------------------------
+PRINT_HEX4:
+        MOV     R0,@HEXVAL
+        LI      R0,4
+        MOV     R0,@HEXCNT
+PH_LOOP:
+        MOV     @HEXVAL,R0
+        SRC     R0,12            ; rotate left 4, next nibble into bits 0-3
+        MOV     R0,@HEXVAL
+        ANDI    R0,000FH
+        CI      R0,10
+        JL      PH_DIGIT
+        AI      R0,7             ; bridge '9'+1 up to 'A'
+PH_DIGIT:
+        AI      R0,'0'
+        MOV     R0,R3
+        CALL    @PUTC
+        DEC     @HEXCNT
+        JNE     PH_LOOP
+        RET
+;
+;-----------------------------------------------------------------------
+; Console helpers.
+;-----------------------------------------------------------------------
+PRINTMSG:
+        MOVB    *R0+,R3
+        JEQ     PM_DONE
+        SWPB    R3
+        PUSH    R0
+        CALL    @PUTC
+        POP     R0
+        JMP     PRINTMSG
+PM_DONE:
+        RET
+
+PUTC:
+        LI      R2,COUT
+        CALL    @BDOS
+        RET
+;
+;-----------------------------------------------------------------------
+; Text.
+;-----------------------------------------------------------------------
+HEADER:
+        BYTE    0DH,0AH
+        TEXT    'FILENAME TYPE    SIZE    LOAD'
+        BYTE    0DH,0AH
+        TEXT    '-------- ---- -------    ----'
+        BYTE    0
+        EVEN
+NAME_GAP:
+        TEXT    '  '
+        BYTE    0
+        EVEN
+SIZE_GAP:
+        TEXT    '   '
+        BYTE    0
+        EVEN
+LOAD_GAP:
+        TEXT    '  '
+        BYTE    0
+        EVEN
+NO_FILES:
+        TEXT    'NO FILES'
+        BYTE    0DH,0AH,0
+        EVEN
+CRLF:
+        BYTE    0DH,0AH,0
+        EVEN
+FREE_MSG:
+        TEXT    'FREE CAPACITY: '
+        BYTE    0
+        EVEN
+KB_MSG:
+        TEXT    ' KB'
+        BYTE    0DH,0AH,0
+        EVEN
+SPACE:
+        BYTE    ' '
+        EVEN
+
+PLACES:
+        WORD    0000FH,04240H     ; 1,000,000
+        WORD    00001H,086A0H     ;   100,000
+        WORD    00000H,02710H     ;    10,000
+        WORD    00000H,003E8H     ;     1,000
+        WORD    00000H,00064H     ;       100
+        WORD    00000H,0000AH     ;        10
+        WORD    00000H,00001H     ;         1
+
+FILECNT:        WORD    0
+ENTPTR:         WORD    0
+SIZEHI:         WORD    0
+SIZELO:         WORD    0
+CURHI:          WORD    0
+CURLO:          WORD    0
+PLACEPTR:       WORD    0
+PLACECOUNT:     WORD    0
+STARTED:        WORD    0
+DIGIT:          WORD    0
+HEXVAL:         WORD    0
+HEXCNT:         WORD    0
+FREE_KB:        WORD    0
+
+DIRFCB:         BSS     FCBSIZ
+        EVEN
+
+        END

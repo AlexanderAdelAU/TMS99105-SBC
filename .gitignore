@@ -1,0 +1,11 @@
+# All generated assembly, listings, logs and payload files live here.
+Build/
+MONITOR/
+
+# Generated files should never be committed alongside master sources.
+*.H99
+*.L99
+*.LOG
+*.HEX
+
+.DS_Store
