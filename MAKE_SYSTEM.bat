@@ -7,7 +7,7 @@ REM    SRC\<component>\    assembly and C source
 REM    Includes\          hand-maintained include files
 REM    Toolchain\         a99.exe and mkcinc.exe
 REM    Build\             all staging files and generated outputs
-REM    MONITOR\           upload staging: PAYLOAD65.HEX and utilities
+REM    ..\MONITOR\        sibling upload staging for payload and utilities
 REM
 REM  A99 and the assembly INCL statements use C: relative filenames.
 REM  Stage all sources and tools together in Build and run from there.
@@ -18,7 +18,7 @@ CD /D "%~dp0" || EXIT /B 1
 
 SET "ROOT=%CD%"
 SET "WORK=%ROOT%\Build"
-SET "DEST=%ROOT%\MONITOR"
+SET "DEST=%ROOT%\..\MONITOR"
 SET "OUT=PAYLOAD65.HEX"
 SET "PAGES=DIR SAVE ERA REN MKDIR CHDIR RMDIR LOAD TYPE COPY"
 REM Standalone programs for upload; not packed into PAYLOAD65.HEX.

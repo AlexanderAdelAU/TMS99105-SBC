@@ -23,7 +23,7 @@ From the repository root, run `MAKE_SYSTEM.bat`.
    `SRC/Utilities` into standalone `.H99` files; these are **not** passed to SYSGEN.
 7. Pack the fourteen OS files into `Build/PAYLOAD65.HEX` using SYSGEN.
 8. After a successful build, copy the four utility `.H99` files and then
-   the completed payload to `MONITOR/` for upload to the SBC.
+   the completed payload to the sibling `../MONITOR/` directory for SBC upload.
 
 **Important:** The packer must keep `SHELL.SYS` and `BDOS.SYS` as the first
 two directory entries because the bootloader locates them by position.
@@ -48,8 +48,9 @@ See [the Utilities README](SRC/Utilities/README.md) before running them.
 and is not assembled by `MAKE_SYSTEM.bat`; the utility copy of `IDE_DEBUG`
 under `SRC/Utilities` **is** assembled as a standalone uploadable program.
 
-The separate `MONITOR/` directory is the upload-staging location for files
+The sibling `../MONITOR/` directory is the upload-staging location for files
 to be transferred to the SBC. It is not the monitor's source directory.
 
-`Build` and `MONITOR` outputs are generated locally and excluded from Git.
+`Build/` is generated and ignored by Git; the `../MONITOR/` staging
+folder is outside the repository.
 The complete build requires Windows and should be verified there.

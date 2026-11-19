@@ -2,7 +2,7 @@
 
 These sources are assembled by the root `MAKE_SYSTEM.bat`, but **none is
 included in `PAYLOAD65.HEX` or SYSGEN's fourteen-file OS volume**.
-They are copied as `.H99` Intel HEX files into the generated `MONITOR/`
+They are copied as `.H99` Intel HEX files into the sibling `../MONITOR/`
 upload-staging directory for transfer to the SBC as needed.
 
 | Source | Staged file | Purpose | Entry address |
@@ -16,7 +16,7 @@ upload-staging directory for transfer to the SBC as needed.
 
 Run `MAKE_SYSTEM.bat` from the repository root on Windows. The master batch
 stages the utility sources in `Build/`, assembles each with A99, checks for
-successful `.H99` generation, then copies the four outputs into `MONITOR/`
+successful `.H99` generation, then copies the four outputs into `../MONITOR/`
 only after the system payload and all utilities have built successfully.
 Upload an individual `.H99` using the Disc Monitor's `U` command. The three
 monitor-oriented utilities are assembled to start at `>0500`; load and run

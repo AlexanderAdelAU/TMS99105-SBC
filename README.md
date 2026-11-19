@@ -12,8 +12,8 @@ MAKE_SYSTEM.bat
 
 The script stages every component in `Build`, assembles all modules,
 generates the Shell address include, runs SYSGEN and publishes the resulting
-`PAYLOAD65.HEX` to `MONITOR`. It also builds the standalone utilities
-from `SRC/Utilities` and copies their `.H99` files to `MONITOR` for individual
+`PAYLOAD65.HEX` to the sibling `../MONITOR` directory. It also builds the standalone utilities
+from `SRC/Utilities` and copies their `.H99` files to `../MONITOR` for individual
 upload; they are not included in the SYSGEN volume.
 
 ## Repository layout
@@ -30,7 +30,7 @@ upload; they are not included in the SYSGEN volume.
 | `Includes` | Maintained assembler include files |
 | `Toolchain` | Windows A99 assembler and MKCINC utility |
 | `Build` | Generated working files; created automatically |
-| `MONITOR` | Upload-staging directory for `PAYLOAD65.HEX` and individual utility `.H99` files; created automatically |
+| `../MONITOR` | Sibling upload-staging directory for `PAYLOAD65.HEX` and utility `.H99` files; created automatically |
 
 `SRC/DISC_MONITOR` contains the Disc Monitor source. It is built separately
 from the operating-system payload and is **not** included by SYSGEN.

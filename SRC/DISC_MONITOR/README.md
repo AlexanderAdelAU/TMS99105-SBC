@@ -1,9 +1,10 @@
 # DISC_MONITOR — TMS9900 ROM monitor
 
-> This directory contains `DISC_MONITOR_V56F.A99` and `IDE_DEBUG.A99`.
-> The ROM monitor is independent of SYSGEN and is not assembled by
-> `MAKE_SYSTEM.bat`. The separate root `MONITOR/` folder is only the
-> upload-staging destination for files transferred to the SBC.
+> This directory contains `DISC_MONITOR_V56F.A99` and an `IDE_DEBUG.A99`
+> reference copy. The ROM monitor is independent of SYSGEN and is not
+> assembled by `MAKE_SYSTEM.bat`. The `SRC/Utilities` copy of IDE_DEBUG
+> is built as a standalone tool. The sibling `../MONITOR/` folder is
+> the upload-staging destination for files transferred to the SBC.
 
 The ROM Memory Resident Monitor is responsible for providing the core IO and DISC interfaces required to the Single Board Computer.   
 For example all the XOP Defintions are defined, such as CALL, PUSH, POP, RET etc as well as all the interfaces routines required
