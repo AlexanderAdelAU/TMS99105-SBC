@@ -50,10 +50,12 @@ this build, with its original directory names:
 - [`ovl99_demo`](ovl99_demo/) — OVLDEMO, a minimal OVL99 overlay application: sources, map, runtime, tools and a one-step Windows build.
 - [`images`](images/) — hardware photographs and illustrations.
 
-The root also contains [`SBC_Schematic.pdf`](SBC_Schematic.pdf),
-[`SBC_Schematic.png`](SBC_Schematic.png),
-[`Memory Mapping Schematic.png`](Memory%20Mapping%20Schematic.png), and
-[`Memory Mapped Architecture Schematic.png`](Memory%20Mapped%20Architecture%20Schematic.png).
+The original root-level schematic drawings are now together under
+[`Schematics`](Schematics/Readme.md), including the
+[`SBC schematic (PDF)`](Schematics/SBC_Schematic.pdf),
+[`SBC schematic (PNG)`](Schematics/SBC_Schematic.png),
+[`Memory Mapping Schematic`](Schematics/Memory%20Mapping%20Schematic.png), and
+[`Memory Mapped Architecture Schematic`](Schematics/Memory%20Mapped%20Architecture%20Schematic.png).
 
 These reference materials are not inputs to `MAKE_SYSTEM.bat`. The old
 `Disc_Monitor` source folder remains consolidated under `SRC/DISC_MONITOR`,
