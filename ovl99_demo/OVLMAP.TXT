@@ -1,0 +1,17 @@
+# OVLMAP.TXT -- the overlay map for the OVL99 demo (OVLDEMO).
+# Read by link99 -Y on Windows and by LINK99 -Y on the SBC.
+#
+#   module   the object file's base name (OVLHELLO.R99)
+#   page     the physical page it is loaded on (1-15)
+#   overlay  modules with the same name are one overlay, mapped together.
+#            IDs follow first appearance: GREET=1, BYE=2.
+#   entries  the functions other modules call.  Each gets a resident
+#            thunk of the same name; the overlay's copy becomes ~name.
+#
+# The segment is not here: it comes from each module's own AORG
+# (OVLHELLO and OVLBYE at >8000, OVLGRET2 at >9000).
+#
+#   module     page  overlay  entries
+OVLHELLO      4     GREET    hello greet
+OVLGRET2      6     GREET    shout
+OVLBYE        5     BYE      farewell count

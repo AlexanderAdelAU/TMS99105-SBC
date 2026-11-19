@@ -47,6 +47,7 @@ this build, with its original directory names:
 - [`Schematics`](Schematics/) — SBC schematic PDFs, including versions 2–5.
 - [`Memory Structure`](Memory%20Structure/) — architecture and memory-map drawings.
 - [`Overlay Tutorial`](Overlay%20Tutorial/) — separate overlay tutorial and example tools.
+- [`ovl99_demo`](ovl99_demo/) — OVLDEMO, a minimal OVL99 overlay application: sources, map, runtime, tools and a one-step Windows build.
 - [`images`](images/) — hardware photographs and illustrations.
 
 The root also contains [`SBC_Schematic.pdf`](SBC_Schematic.pdf),
