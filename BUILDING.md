@@ -19,11 +19,11 @@ From the repository root, run `MAKE_SYSTEM.bat`.
 4. Assemble `SHELLV65.A99` and generate `Build/CORE.INC` from its listing
    using MKCINC.
 5. Assemble all ten Shell command-page `.A99` files.
-6. Pack the fourteen OS files into `Build/PAYLOAD65.HEX` using SYSGEN.
-7. Assemble `BDTEST62`, `IDE_DEBUG`, `MAPDEBUG`, and `MEMTEST` from
+6. Assemble `BDTEST62`, `IDE_DEBUG`, `MAPDEBUG`, and `MEMTEST` from
    `SRC/Utilities` into standalone `.H99` files; these are **not** passed to SYSGEN.
-8. After a successful build, copy the completed payload and four utility
-   `.H99` files to `MONITOR/` for upload to the SBC.
+7. Pack the fourteen OS files into `Build/PAYLOAD65.HEX` using SYSGEN.
+8. After a successful build, copy the four utility `.H99` files and then
+   the completed payload to `MONITOR/` for upload to the SBC.
 
 **Important:** The packer must keep `SHELL.SYS` and `BDOS.SYS` as the first
 two directory entries because the bootloader locates them by position.

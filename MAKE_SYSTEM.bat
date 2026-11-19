@@ -111,13 +111,14 @@ IF ERRORLEVEL 1 GOTO FAILED
 IF NOT EXIST "%OUT%" GOTO FAILED
 
 REM --- 7. Publish only after the complete build succeeds ------------
-COPY /Y "%OUT%" "%DEST%\%OUT%" > NUL || GOTO FAILED
-IF NOT EXIST "%DEST%\%OUT%" GOTO FAILED
 REM Utility .H99 files are loaded individually with the Disc Monitor.
 FOR %%U IN (%UTILITIES%) DO (
     COPY /Y "%%U.H99" "%DEST%\%%U.H99" > NUL || GOTO FAILED
     IF NOT EXIST "%DEST%\%%U.H99" GOTO FAILED
 )
+REM Publish the OS payload last, once utility staging has succeeded.
+COPY /Y "%OUT%" "%DEST%\%OUT%" > NUL || GOTO FAILED
+IF NOT EXIST "%DEST%\%OUT%" GOTO FAILED
 
 POPD
 SET "IN_BUILD="
