@@ -34,6 +34,11 @@ Do not execute `500G` until the transfer has finished. If `SUCCESS` does
 not appear, investigate the upload or system-generation error before
 attempting to boot.
 
+![Tera Term 5 upload and successful SBC boot](images/TeraTerm5_Payload_Upload_and_Boot.png)
+
+*Example Tera Term session: upload progress dots, `500G` producing `SUCCESS`,
+then `Q` booting Shell 6.5 and `DIR` listing the installed system files.*
+
 ## Repository layout
 
 | Folder | Purpose |
