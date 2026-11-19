@@ -1,0 +1,51 @@
+FILESTAT -- memory map
+======================
+
+Virtual address space
+---------------------
+
+>1000  +--------------------------------------------------+
+       | Resident FILESTAT program                        |
+       |                                                  |
+       | FILESTAT   command line / lifetime control       |
+       | FILEIO     persistent file handle / file API     |
+       | FILEDATA   persistent counters / longest word    |
+       | OVLMGR     page mapper                            |
+       | OVLAPI     overlay dispatch wrappers             |
+       | IOLIB / CLIB runtime                             |
+>7FFF  +--------------------------------------------------+
+
+>8000  +--------------------------------------------------+
+       | One 4 KB overlay page is visible here at a time  |
+       |                                                  |
+       | OVL_WORD   or                                    |
+       | OVL_CHAR   or                                    |
+       | OVL_RPT                                           |
+>8FFF  +--------------------------------------------------+
+
+>9000  +--------------------------------------------------+
+       | Unused by FILESTAT.                              |
+       | The SBC can use additional mapped pages through  |
+       | >BFFF if a larger application needs them.        |
+>BFFF  +--------------------------------------------------+
+
+>C000  +--------------------------------------------------+
+       | System / shell / monitor reserved                |
+>FFFF  +--------------------------------------------------+
+
+Physical page assignment
+------------------------
+
+Page 2  OVL_WORD
+Page 3  OVL_CHAR
+Page 4  OVL_RPT
+
+All three overlay modules are assembled for the same virtual address (>8000).
+LINK99 stores them in different physical pages.  OVLMGR changes the physical
+page mapped into virtual segment 8.
+
+Persistent data
+---------------
+After OVL_WORD returns, page 2 may immediately disappear from >8000.  Values
+needed later therefore live in resident FILEDATA storage.  OVL_CHAR can replace
+the code page while the word count and longest-word result remain intact.

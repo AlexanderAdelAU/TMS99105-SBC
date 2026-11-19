@@ -1,0 +1,56 @@
+FILESTAT -- native SBC build sequence
+=====================================
+
+The commands below show the application build using the existing SBC tools.
+Generated files are shown explicitly so the resident/overlay relationship is
+visible.
+
+1. Compile the executable entry module normally:
+
+   SMALLC99 FILESTAT
+
+2. Compile resident helper modules and overlay modules with -M:
+
+   SMALLC99 FILEIO   -M
+   SMALLC99 FILEDATA -M
+   SMALLC99 OVL_WORD -M
+   SMALLC99 OVL_CHAR -M
+   SMALLC99 OVL_RPT  -M
+
+3. Assemble the generated A99 modules:
+
+   R99 FILESTAT
+   R99 FILEIO
+   R99 FILEDATA
+   R99 OVL_WORD
+   R99 OVL_CHAR
+   R99 OVL_RPT
+
+4. Validate the overlay objects and generate the overlay include files:
+
+   DREL -i OVLADDR.INC ^
+     OVL_WORD.R99=2,1,wordscan:O_WORD ^
+     OVL_CHAR.R99=3,2,charscan:O_CHAR ^
+     OVL_RPT.R99=4,3,report:O_RPT
+
+   The three assignments mean:
+
+     OVL_WORD -> physical page 2, overlay ID 1
+     OVL_CHAR -> physical page 3, overlay ID 2
+     OVL_RPT  -> physical page 4, overlay ID 3
+
+   DREL creates OVLADDR.INC and OVLTABLE.INC.
+
+5. Assemble the resident overlay support after those generated files exist:
+
+   R99 OVLMGR
+   R99 OVLAPI
+
+6. Link the resident modules, runtime libraries and physical overlay pages.
+   The exact LINK99 command depends on the local library set; build.ps1 shows
+   the reference command used by this project.
+
+The important distinction is normal mode versus -M:
+
+   FILESTAT        normal mode -> executable startup is emitted
+   other C files   -M          -> module output, no startup branch
