@@ -1,0 +1,183 @@
+;*******************************************************************
+;  OVCALL.A99 - the overlay call gate.  APPLICATION-INDEPENDENT.
+;
+;  This file, OVLMGR.A99 and the OVLGLUE module LINK99 -Y builds are the whole
+;  overlay runtime.  Nothing here names an application function, an
+;  overlay or a page: all of that arrives in R1/R2 from a generated
+;  thunk.  An application is linked against this file unchanged.
+;
+;  ---------------------------------------------------------------
+;  HOW A CALL REACHES HERE
+;
+;  LINK99 -Y emits, for each entry an overlay publishes, a 12-byte
+;  thunk that carries the entry's OWN PUBLIC NAME, and renames the
+;  real routine in the overlay ~hello:
+;
+;      hello:  LI   R1,1             ;ID of the overlay that holds it
+;              LI   R2,~hello        ;its address in the window
+;              B    @OVCALL
+;
+;  So application code calls hello() with an ordinary CALL and does
+;  not know an overlay exists.  No shim, no R_xxx name, no extern.
+;  (After 2.11BSD's ovld, which generated one such thunk per
+;  overlaid routine so that C code - and function pointers - needed
+;  no knowledge of the overlay structure.)
+;
+;  The thunk is entered by an XOP6 CALL, so on arrival at OVCALL
+;      *SP     = the caller's return word
+;      @2(SP)  = the callee's argument 1, if any
+;  and the thunk BRANCHES here, so the stack is exactly as the
+;  callee's own calling convention expects.
+;
+;  ---------------------------------------------------------------
+;  WHAT IT DOES
+;
+;  FAST PATH - the wanted overlay already owns the window:
+;      B *R2.  No frame, no mapping, nothing saved.  The callee's
+;      RET returns straight to the original caller.  This is the
+;      BSD thunk's "cmp r0,__ovno / beq" test, and it is why a call
+;      between two routines of the SAME overlay costs 3 extra
+;      instructions rather than two mapping passes.
+;
+;  SLOW PATH - a real overlay switch:
+;      1. bounds-check OVSTACK, push (caller return word, caller ID)
+;      2. map the callee's overlay
+;      3. call it
+;      4. pop the frame, map the caller's overlay back
+;      5. re-push the caller's return word and RET
+;
+;  The caller's return word is taken OFF the stack before the callee
+;  is entered, so the callee sees argument 1 at the normal @2(SP);
+;  it is put back after the caller's overlay has been restored, so
+;  the RET lands in code that is mapped.
+;
+;  ---------------------------------------------------------------
+;  THE OWNERSHIP RULE THIS DEPENDS ON
+;
+;  CUR_WINA_ID is set by OVLMGR when a row maps virtual segment 8,
+;  and it names the logical owner of the whole window.  So:
+;
+;      every executable overlay must map segment 8, and should list
+;      it first in its row.
+;
+;  A data-only bank may map other segments, but must never be
+;  entered as code.  LINK99 checks this for every table row, so
+;  the rule is enforced by the build rather than by comment.
+;
+;  ---------------------------------------------------------------
+;  REGISTERS
+;    uses    R0, R1, R2 and, on the slow path only (inside OVLMGR),
+;            R3, R5, R12
+;    keeps   R4 (the C return value), R6-R9, R11, R13-R15
+;    fast path additionally keeps R3, R5, R12
+;
+;  ---------------------------------------------------------------
+;  THE ONE RULE FOR APPLICATION CODE
+;
+;  Never pass the address of overlay data - a string literal, an
+;  overlay array, &overlay_variable - to a routine in another
+;  overlay.  The callee's overlay can occupy the same segment, so
+;  the pointer would then refer to the callee's own bytes.  Put such
+;  data in the resident part, or copy it to a local first.
+;*******************************************************************
+
+	DXOP	CALL,6
+	DXOP	RET,7
+	DXOP	WHEX,10
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+SP	EQU	10
+
+	EXT	OVLMGR
+	EXT	OVLMGR_INIT
+	EXT	CUR_WINA_ID
+
+;*******************************************************************
+;  OVSTACK - one 2-word frame per LIVE cross-overlay call.
+;
+;  Depth needed is the longest chain of calls that are simultaneously
+;  in flight AND each cross an overlay boundary; a same-overlay call
+;  takes the fast path and uses no frame.  16 frames is ample for a
+;  recursive-descent program; raise OVDEPTH if a design needs more.
+;
+;  Overflow is checked BEFORE the frame is written.  There is no
+;  sensible recovery - every cross-overlay return address in flight
+;  is already suspect - so OVPANIC prints >DEAD and stops.
+;*******************************************************************
+OVDEPTH	EQU	16
+
+OVSTACK:
+	BSS	OVDEPTH*4
+OVSTKEND:
+OVSP:
+	WORD	OVSTACK
+
+;*******************************************************************
+;  ovlinit - bring the overlay runtime up.  THE APPLICATION CALLS
+;  THIS ONCE, from C, before anything in an overlay:
+;
+;      main() { ovlinit(); ... }
+;
+;  OVLMGR_INIT clears the per-segment page caches and, importantly,
+;  CUR_WINA_ID: no owner may survive from an earlier run of the
+;  program, or the first thunk would take the fast path into an
+;  overlay that is not mapped.  The frame stack is reset here.
+;
+;  Lower case, and no arguments, so C can call it by name.
+;*******************************************************************
+ovlinit:
+	CALL	@OVLMGR_INIT
+	LI	R0,OVSTACK
+	MOV	R0,@OVSP
+	RET
+
+;*******************************************************************
+;  OVPANIC - frame stack exhausted.
+;*******************************************************************
+OVPANIC:
+	LI	R1,0DEADH
+	WHEX	R1
+	JMP	OVPANIC
+
+;*******************************************************************
+;  OVCALL - entered by BRANCH from a generated thunk.
+;    R1  = overlay ID holding the routine
+;    R2  = the routine's address inside the window
+;    *SP = caller's return word, arguments above it
+;*******************************************************************
+OVCALL:
+	C	R1,@CUR_WINA_ID		;already the window owner?
+	JNE	OVC1
+	B	*R2			;FAST: plain tail-branch
+
+OVC1:
+	MOV	@OVSP,R0
+	CI	R0,OVSTKEND
+	JL	OVC2
+	B	@OVPANIC
+OVC2:
+	MOV	*SP+,*R0+		;frame: caller's return word
+	MOV	@CUR_WINA_ID,*R0+	;frame: caller's overlay ID
+	MOV	R0,@OVSP
+	DECT	SP			;OVLMGR clobbers R0/R2/R3/R5/R12,
+	MOV	R2,*SP			;so park the entry address
+	CALL	@OVLMGR			;map the callee (R1 = its ID)
+	MOV	*SP+,R2			;SP back at argument 1
+	CALL	*R2			;callee sees argument 1 at @2(SP)
+	MOV	@OVSP,R2		;R2 clobbered by the callee: reload
+	DECT	R2
+	MOV	*R2,R1			;caller's overlay ID
+	DECT	R2
+	MOV	R2,@OVSP		;frame popped
+	CALL	@OVLMGR			;map the caller's overlay back
+	MOV	@OVSP,R2		;R2 clobbered by OVLMGR: reload
+	DECT	SP
+	MOV	*R2,*SP			;re-push the caller's return word
+	RET
+
+	ENT	OVCALL
+	ENT	ovlinit
+
+	END

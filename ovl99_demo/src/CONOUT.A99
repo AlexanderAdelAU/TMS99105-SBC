@@ -1,0 +1,40 @@
+;*******************************************************************
+;  CONOUT.A99 - console output for the demo.  NOT part of the overlay
+;  runtime; it is here so the demo needs no file I/O or C library.
+;
+;  pstr(s) writes a NUL-terminated string through the monitor's
+;  WRITE XOP.  smallcp emits a C newline as LF (10), and the terminal
+;  needs CR+LF, so a CR is written before every LF.
+;
+;  C convention: the XOP6 CALL has pushed the return word, so on
+;  entry *SP is the return address and @2(SP) is argument 1.
+;*******************************************************************
+
+	DXOP	WRITE,12
+	DXOP	RET,7
+
+R1	EQU	1
+R2	EQU	2
+R3	EQU	3
+SP	EQU	10
+
+pstr:
+	MOV	@2(SP),R1		;argument 1: char *
+PSTR1:
+	MOVB	*R1+,R2
+	JEQ	PSTR9
+	ANDI	R2,0FF00H		;MOVB set only the high byte: clear
+					;whatever the low byte held before
+	CI	R2,0A00H		;LF?
+	JNE	PSTR2
+	LI	R3,0D00H		;then CR first
+	WRITE	R3
+PSTR2:
+	WRITE	R2
+	JMP	PSTR1
+PSTR9:
+	RET
+
+	ENT	pstr
+
+	END

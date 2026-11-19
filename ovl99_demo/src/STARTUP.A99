@@ -1,0 +1,38 @@
+;*******************************************************************
+;  STARTUP.A99 - program entry for the demo.  NOT part of the overlay
+;  runtime.
+;
+;  smallcp's main module begins with
+;
+;       STWP WP
+;       B    @_main
+;
+;  so _main is the C startup: it establishes a workspace and a stack,
+;  calls main(), and returns to the shell.  The full C runtime
+;  (iocore/cbdos/iolib) supplies one, along with file I/O that this
+;  demo does not use, so the demo supplies its own instead.  The
+;  sequence is SKELTEST's, which is proven on the hardware.
+;
+;  An application with real I/O links the normal C runtime and drops
+;  this file; the overlay runtime is indifferent either way.
+;*******************************************************************
+
+	DXOP	CALL,6
+	DXOP	RET,7
+
+SP		EQU	10
+
+WORKSP:		EQU	0230H		;workspace in common memory
+STACKTOP:	EQU	1000H		;stack grows down from the TPA base
+SHELL_PTR:	EQU	0080H		;BLWP vector back to the shell
+
+_main:
+	LWPI	WORKSP
+	LI	SP,STACKTOP
+	CALL	@main
+	BLWP	@SHELL_PTR
+
+	ENT	_main
+	EXT	main
+
+	END
