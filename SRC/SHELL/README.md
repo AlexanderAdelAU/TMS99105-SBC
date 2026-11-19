@@ -397,6 +397,18 @@ pages nor applications can disturb it between lines.
 
 ---
 
+## Standalone DIR2.COM
+
+`DIR2.A99` is kept alongside the Shell sources in `SRC/SHELL/` because it
+is a Shell-related directory utility. Unlike the built-in `DIR` command
+page, it is a separately assembled program loaded at `>0500` and packaged
+by SYSGEN as `DIR2.COM`. It displays filename, type, size in bytes and load
+address using BDOS directory-search functions.
+
+`MAKE_SYSTEM.bat` assembles `DIR2.A99` before the Shell core. It is **not**
+added to the ten-command page list (`PAGES`) and does not generate a `.SHC`
+file.
+
 ## Building
 
 The maintained Shell source files live in `SRC/SHELL/`. Shared declarations

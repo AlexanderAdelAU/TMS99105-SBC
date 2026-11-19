@@ -14,7 +14,8 @@ From the repository root, run `MAKE_SYSTEM.bat`.
 1. Copy the tools, maintained include files, and all required source files
    from their `SRC/<component>` folders into the `Build` directory.
 2. Compile `SRC/SYSGEN/sysgen.c` into `Build/SYSGEN.EXE`.
-3. Assemble `DSKINIT62.A99`, `BDOS61.A99`, `XMODEM59.A99` and `DIR2.A99`.
+3. Assemble `DSKINIT62.A99`, `BDOS61.A99`, `XMODEM59.A99` and the
+   standalone `DIR2.A99` from `SRC/SHELL`.
 4. Assemble `SHELLV65.A99` and generate `Build/CORE.INC` from its listing
    using MKCINC.
 5. Assemble all ten Shell command-page `.A99` files.
