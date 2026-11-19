@@ -11,10 +11,28 @@ MAKE_SYSTEM.bat
 ```
 
 The script stages every component in `Build`, assembles all modules,
-generates the Shell address include, runs SYSGEN and publishes the resulting
-`PAYLOAD65.HEX` to the sibling `../MONITOR` directory. It also builds the standalone utilities
-from `SRC/Utilities` and copies their `.H99` files to `../MONITOR` for individual
-upload; they are not included in the SYSGEN volume.
+generates the Shell address include, runs SYSGEN and copies the resulting
+`PAYLOAD65.HEX` to the sibling `../MONITOR` upload-staging directory. It also
+builds the standalone utilities in `SRC/Utilities` and copies their `.H99`
+files to the same directory; these are not included in the SYSGEN volume.
+
+## Upload and boot the SBC
+
+After `MAKE_SYSTEM.bat` reports `BUILD OK`, the payload is ready to transfer:
+
+1. Open **Tera Term 5** and connect to the SBC's Disc Monitor over the
+   serial connection.
+2. At the Disc Monitor prompt, enter **`U`** to start an Intel HEX upload.
+3. From Tera Term, send **`PAYLOAD65.HEX`** from the sibling `../MONITOR`
+   staging directory. Wait until the complete file has transferred.
+4. At the monitor prompt, enter **`500G`** to execute the system generator
+   loaded at address **`>0500`** (`0x0500`).
+5. Confirm that the generator displays **`SUCCESS`**. Then enter **`Q`**
+   at the Disc Monitor prompt to boot the **Shell and BDOS**.
+
+Do not execute `500G` until the transfer has finished. If `SUCCESS` does
+not appear, investigate the upload or system-generation error before
+attempting to boot.
 
 ## Repository layout
 
