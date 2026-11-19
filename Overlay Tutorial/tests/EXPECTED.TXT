@@ -1,0 +1,15 @@
+FILESTAT report for SAMPLE.TXT (without /L)
+
+Lines: 3
+Words: 14
+Characters: 97
+Letters: 77
+Digits: 3
+Whitespace: 14
+Punctuation: 3
+Longest word: Resident (8)
+
+Notes:
+- Character count is the logical text stream seen through IOLIB fgetc().
+  CR/LF, CR-only and LF-only input are normalized to one line-ending character.
+- A word is a run of A-Z, a-z, 0-9 or underscore.

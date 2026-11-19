@@ -38,5 +38,22 @@ from the operating-system payload and is **not** included by SYSGEN.
 Each source component has its own README beside its source files.
 See [BUILDING.md](BUILDING.md) for the complete build instructions.
 
-The hardware drawings and historical project material remain available
-in the repository's earlier `main` history while this refactor is tested.
+## Hardware drawings and project references
+
+The original hardware and reference material has been restored alongside
+this build, with its original directory names:
+
+- [`Documents`](Documents/) — processor manuals and reference documents.
+- [`Schematics`](Schematics/) — SBC schematic PDFs, including versions 2–5.
+- [`Memory Structure`](Memory%20Structure/) — architecture and memory-map drawings.
+- [`Overlay Tutorial`](Overlay%20Tutorial/) — separate overlay tutorial and example tools.
+- [`images`](images/) — hardware photographs and illustrations.
+
+The root also contains [`SBC_Schematic.pdf`](SBC_Schematic.pdf),
+[`SBC_Schematic.png`](SBC_Schematic.png),
+[`Memory Mapping Schematic.png`](Memory%20Mapping%20Schematic.png), and
+[`Memory Mapped Architecture Schematic.png`](Memory%20Mapped%20Architecture%20Schematic.png).
+
+These reference materials are not inputs to `MAKE_SYSTEM.bat`. The old
+`Disc_Monitor` source folder remains consolidated under `SRC/DISC_MONITOR`,
+and the previously separated SmallC99 project is not duplicated here.
