@@ -19,8 +19,11 @@ From the repository root, run `MAKE_SYSTEM.bat`.
 4. Assemble `SHELLV65.A99` and generate `Build/CORE.INC` from its listing
    using MKCINC.
 5. Assemble all ten Shell command-page `.A99` files.
-6. Pack the fourteen files into `Build/PAYLOAD65.HEX` using SYSGEN.
-7. Copy the completed payload to `MONITOR/PAYLOAD65.HEX`.
+6. Pack the fourteen OS files into `Build/PAYLOAD65.HEX` using SYSGEN.
+7. Assemble `BDTEST62`, `IDE_DEBUG`, `MAPDEBUG`, and `MEMTEST` from
+   `SRC/Utilities` into standalone `.H99` files; these are **not** passed to SYSGEN.
+8. After a successful build, copy the completed payload and four utility
+   `.H99` files to `MONITOR/` for upload to the SBC.
 
 **Important:** The packer must keep `SHELL.SYS` and `BDOS.SYS` as the first
 two directory entries because the bootloader locates them by position.
@@ -29,18 +32,24 @@ The script deletes each previous assembler output before rebuilding it,
 checks A99's success message, and stops if any component fails. No payload
 is published unless the entire build succeeds.
 
-`SRC/BDOS/BDTEST62.A99` is supplied as a regression-test program; it is
-not part of the fourteen-file operating-system payload.
+`SRC/Utilities` contains the standalone uploadable test/debug programs.
+`BDTEST62.A99` and `IDE_DEBUG.A99` are copied from their original component
+folders to keep these utilities together without removing the original files.
+The utility outputs remain outside the fourteen-file operating-system payload.
+
+`BDTEST62.H99` is intended for execution by the Shell at `>1000`; the debug
+and memory-test utilities use the Disc Monitor entry address `>0500`.
+See [the Utilities README](SRC/Utilities/README.md) before running them.
 
 ## Disc Monitor and upload staging
 
-`SRC/DISC_MONITOR` holds `DISC_MONITOR_V56F.A99` and `IDE_DEBUG.A99`.
-These are the independent Disc Monitor ROM sources. They are **not** part of
-SYSGEN's fourteen-file OS payload and are not assembled by `MAKE_SYSTEM.bat`.
+`SRC/DISC_MONITOR` holds the independent ROM monitor source and its existing
+`IDE_DEBUG.A99` reference copy. The monitor ROM is **not** part of SYSGEN
+and is not assembled by `MAKE_SYSTEM.bat`; the utility copy of `IDE_DEBUG`
+under `SRC/Utilities` **is** assembled as a standalone uploadable program.
 
 The separate `MONITOR/` directory is the upload-staging location for files
 to be transferred to the SBC. It is not the monitor's source directory.
 
 `Build` and `MONITOR` outputs are generated locally and excluded from Git.
-The source build must be verified on Windows before merging the refactor
-into `main`.
+The complete build requires Windows and should be verified there.

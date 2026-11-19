@@ -1,0 +1,763 @@
+;*******************************************************************
+;  MEMTEST_SHELLMAP.A99 - Banked/Paged RAM Integrity Test
+;
+;  Mapper model taken from SHELLV62:
+;    virtual CPU address = segment:offset
+;    each segment mapper register selects the RAM BANK/PAGE extension.
+;    PAGE 0 is the normal flat 64K image.
+;
+;  IMPORTANT: the page value does NOT replace the CPU segment number.
+;  Therefore SEG2/PAGE2 and SEG3/PAGE2 are different physical 4K regions.
+;  Cross-segment alias tests are invalid on this hardware.
+;
+;  WHAT THIS VERSION PROVES
+;    S1 BANK    - SEG2/P survives switching SEG2 away to Q and back.
+;    S2 MOVE    - copies SEG2/P -> SEGH/Q, then verifies BOTH endpoints
+;                 through their own segment windows after remap cycles.
+;    S3 ISOLATE - SEG2/P and SEG2/Q hold complementary data and remain
+;                 independent while repeatedly switching the same segment.
+;
+;  Mapper programming matches SHELLV62 MAP_SET exactly:
+;    R12 = >80C0 + segment*2
+;    page shifted into high byte
+;    LDCR ...,2
+;  Mapper readback follows MAPDEBUG: STCR ...,2 then SRL 8.
+;*******************************************************************
+
+;--- XOP / MONITOR SERVICES (as used by the POC) ---
+	DXOP	PSEL_DIS,0
+	DXOP	PSEL_EN,1
+	DXOP	CALL,6
+	DXOP	RET,7
+	DXOP	WHEX,10
+	DXOP	WRITE,12
+
+R0	EQU	0
+R1	EQU	1
+R2	EQU	2
+R3	EQU	3
+R4	EQU	4
+R5	EQU	5
+R6	EQU	6
+R7	EQU	7
+R8	EQU	8
+R9	EQU	9
+R11	EQU	11
+R12	EQU	12
+SP	EQU	10
+
+SHELL_PTR:	EQU	0080H		;return-to-shell BLWP vector
+
+;*******************************************************************
+;  HARDWARE / TEST CONFIGURATION
+;*******************************************************************
+MAP_WIN_BASE:	EQU	080C0H		;CRU base of the segment map window
+MAPWIDTH:	EQU	2		;LDCR/STCR count, exactly as POC BYTEWIDE=2
+					;(count 2 = full page byte on this board)
+
+SEG_LO:		EQU	2		;low test segment -> 0x2000 (SEG1 avoided)
+SEG_HI:		EQU	3		;high test segment -> 0x3000
+SEG_LO_ADR:	EQU	2000H
+SEG_HI_ADR:	EQU	3000H		;was 0B000H
+CRU_LO:		EQU	MAP_WIN_BASE+(SEG_LO*2)
+CRU_HI:		EQU	MAP_WIN_BASE+(SEG_HI*2)
+
+PAGE_P:		EQU	2		;free scratch physical page P
+PAGE_Q:		EQU	3		;free scratch physical page Q (distinct)
+
+TESTLEN:	EQU	1000H		;bytes tested per page (full 4K)
+WCOUNT:		EQU	0800H		;=TESTLEN/2 words (keep in sync)
+
+SEED:		EQU	0ACE1H		;LFSR / pattern seed
+SEED2:		EQU	01234H		;(reserved)
+
+USE_HARDCODE:	EQU	0		;0=STCR save/restore, 1=use HARD_*
+HARD_LO:	EQU	0		;original SEG2 page if USE_HARDCODE
+HARD_HI:	EQU	0BH		;original SEG3 page if USE_HARDCODE (SET THIS)
+
+	AORG	0500H			;standard test load address
+;*******************************************************************
+START:
+	PSEL_DIS			;known-safe state: paging only enabled around accesses
+
+	LI	R1,TXT_BANNER
+	CALL	@PRINT
+
+	BL	@SAVE_MAPS		;stash SEG2 & SEGH original pages
+	LI	R1,TXT_ORIG
+	CALL	@PRINT
+	MOV	@SAVE_LO,R2
+	WHEX	R2
+	LI	R1,TXT_ORIG2
+	CALL	@PRINT
+	MOV	@SAVE_HI,R2
+	WHEX	R2
+	LI	R1,TXT_CRLF
+	CALL	@PRINT
+
+	CALL	@PROBE			;<-- direct mapper diagnostics
+
+	CLR	@PASSCNT
+	CLR	@FAILCNT
+
+	CALL	@SC1			;ALIAS
+	CALL	@SC2			;MOVE
+	CALL	@SC3			;ISOLATE
+
+	BL	@RESTORE_HI		;restore both map registers before monitor output
+	BL	@RESTORE_LO
+;--- SUMMARY ---
+	LI	R1,TXT_SUM
+	CALL	@PRINT
+	MOV	@PASSCNT,R2
+	WHEX	R2
+	LI	R1,TXT_SUM2
+	CALL	@PRINT
+	MOV	@FAILCNT,R2
+	WHEX	R2
+	LI	R1,TXT_DONE
+	CALL	@PRINT
+
+	PSEL_DIS			;return to shell with paging disabled
+	BLWP	@SHELL_PTR		;both test segment maps restored
+
+;*******************************************************************
+;  PROBE - mapper register + same-segment bank switch diagnostic
+;    reg= expected PAGE_Q
+;    p0/p1 expected AA55/1234 after P->Q->P switching
+;    q0 expected 5678 from SEG2/PAGE_Q
+;*******************************************************************
+PROBE:
+	PSEL_DIS
+
+	;--- register write/readback using canonical MAP_SET/MAP_GET ---
+	LI	R9,SEG_LO
+	LI	R0,PAGE_Q
+	BL	@MAP_SET
+	LI	R9,SEG_LO
+	BL	@MAP_GET
+	MOV	R0,@PRB_RAW
+
+	;--- SEG2 / PAGE_P sentinels ---
+	LI	R9,SEG_LO
+	LI	R0,PAGE_P
+	BL	@MAP_SET
+	PSEL_EN
+	LI	R1,SEG_LO_ADR
+	LI	R2,0AA55H
+	MOV	R2,*R1
+	LI	R2,01234H
+	MOV	R2,@2(R1)
+	PSEL_DIS
+
+	;--- switch SAME segment to PAGE_Q and write different sentinel ---
+	LI	R9,SEG_LO
+	LI	R0,PAGE_Q
+	BL	@MAP_SET
+	PSEL_EN
+	LI	R1,SEG_LO_ADR
+	LI	R2,05678H
+	MOV	R2,*R1
+	PSEL_DIS
+
+	;--- switch back to P and prove original values survived ---
+	LI	R9,SEG_LO
+	LI	R0,PAGE_P
+	BL	@MAP_SET
+	PSEL_EN
+	LI	R1,SEG_LO_ADR
+	MOV	*R1,R2
+	MOV	R2,@PRB_AL0
+	MOV	@2(R1),R2
+	MOV	R2,@PRB_AL1
+	PSEL_DIS
+
+	;--- switch to Q and prove its value survived independently ---
+	LI	R9,SEG_LO
+	LI	R0,PAGE_Q
+	BL	@MAP_SET
+	PSEL_EN
+	LI	R1,SEG_LO_ADR
+	MOV	*R1,R2
+	MOV	R2,@PRB_REV
+	PSEL_DIS
+
+	BL	@RESTORE_HI
+	BL	@RESTORE_LO
+
+	LI	R1,TXT_PRB1
+	CALL	@PRINT
+	MOV	@PRB_RAW,R2
+	WHEX	R2
+	LI	R1,TXT_PRB2
+	CALL	@PRINT
+	MOV	@PRB_AL0,R2
+	WHEX	R2
+	LI	R1,TXT_PRB2B
+	CALL	@PRINT
+	MOV	@PRB_AL1,R2
+	WHEX	R2
+	LI	R1,TXT_PRB3
+	CALL	@PRINT
+	MOV	@PRB_REV,R2
+	WHEX	R2
+	LI	R1,TXT_CRLF
+	CALL	@PRINT
+	RET
+
+;*******************************************************************
+;  SCENARIO 1 : BANK persistence on one virtual segment
+;*******************************************************************
+SC1:
+	LI	R1,TXT_SC1
+	CALL	@PRINT
+	CLR	@CURPAT
+SC1_L:
+	CLR	@CFLAG
+	LI	R9,SEG_LO
+	LI	R0,PAGE_P
+	BL	@MAP_SET
+	LI	R0,SEG_LO_ADR
+	MOV	@CURPAT,R1
+	LI	R4,SEED
+	CALL	@FILL
+
+	; force a bank change, then return to P
+	LI	R9,SEG_LO
+	LI	R0,PAGE_Q
+	BL	@MAP_SET
+	LI	R9,SEG_LO
+	LI	R0,PAGE_P
+	BL	@MAP_SET
+
+	LI	R0,SEG_LO_ADR
+	MOV	@CURPAT,R1
+	LI	R4,SEED
+	CALL	@VERIFY
+	MOV	R8,@FAILFLG
+	MOV	R2,@FAILOFF
+	MOV	R5,@FAILEXP
+	MOV	R6,@FAILGOT
+	BL	@RESTORE_HI
+	BL	@RESTORE_LO
+
+	MOV	@CURPAT,R3
+	SLA	R3,1
+	MOV	@PATNAMES(R3),R1
+	CALL	@PRINT
+	CALL	@PR_RES
+	INC	@CURPAT
+	MOV	@CURPAT,R1
+	CI	R1,6
+	JLT	SC1_L
+	RET
+
+;*******************************************************************
+;  SCENARIO 2 : MOVE SEG2/P -> SEGH/Q, verify each endpoint correctly
+;*******************************************************************
+SC2:
+	LI	R1,TXT_SC2
+	CALL	@PRINT
+	CLR	@CURPAT
+SC2_L:
+	CLR	@CFLAG
+	LI	R9,SEG_LO
+	LI	R0,PAGE_P
+	BL	@MAP_SET
+	LI	R0,SEG_LO_ADR
+	MOV	@CURPAT,R1
+	LI	R4,SEED
+	CALL	@FILL
+
+	LI	R9,SEG_HI
+	LI	R0,PAGE_Q
+	BL	@MAP_SET
+	PSEL_EN
+	LI	R0,SEG_LO_ADR
+	LI	R1,SEG_HI_ADR
+	LI	R3,WCOUNT
+SC2_CPY:
+	MOV	*R0+,*R1+
+	DEC	R3
+	JNE	SC2_CPY
+	PSEL_DIS
+
+	; cycle both mapper entries away and back
+	LI	R9,SEG_LO
+	LI	R0,PAGE_Q
+	BL	@MAP_SET
+	LI	R9,SEG_HI
+	LI	R0,PAGE_P
+	BL	@MAP_SET
+	LI	R9,SEG_LO
+	LI	R0,PAGE_P
+	BL	@MAP_SET
+	LI	R9,SEG_HI
+	LI	R0,PAGE_Q
+	BL	@MAP_SET
+
+	; verify source at SEG2/P
+	LI	R0,SEG_LO_ADR
+	MOV	@CURPAT,R1
+	LI	R4,SEED
+	CALL	@VERIFY
+	MOV	R8,@FLGP
+	MOV	R2,@OFFP
+	MOV	R5,@EXPP
+	MOV	R6,@GOTP
+
+	; verify destination at SEGH/Q
+	LI	R0,SEG_HI_ADR
+	MOV	@CURPAT,R1
+	LI	R4,SEED
+	CALL	@VERIFY
+	MOV	R8,@FLGQ
+	MOV	R2,@OFFQ
+	MOV	R5,@EXPQ
+	MOV	R6,@GOTQ
+
+	; report first failure, source takes priority
+	MOV	@FLGP,R0
+	JEQ	SC2_USE_Q
+	MOV	R0,@FAILFLG
+	MOV	@OFFP,R0
+	MOV	R0,@FAILOFF
+	MOV	@EXPP,R0
+	MOV	R0,@FAILEXP
+	MOV	@GOTP,R0
+	MOV	R0,@FAILGOT
+	JMP	SC2_REP
+SC2_USE_Q:
+	MOV	@FLGQ,R0
+	MOV	R0,@FAILFLG
+	MOV	@OFFQ,R0
+	MOV	R0,@FAILOFF
+	MOV	@EXPQ,R0
+	MOV	R0,@FAILEXP
+	MOV	@GOTQ,R0
+	MOV	R0,@FAILGOT
+SC2_REP:
+	BL	@RESTORE_HI
+	BL	@RESTORE_LO
+	MOV	@CURPAT,R3
+	SLA	R3,1
+	MOV	@PATNAMES(R3),R1
+	CALL	@PRINT
+	CALL	@PR_RES
+	INC	@CURPAT
+	MOV	@CURPAT,R1
+	CI	R1,6
+	JLT	S2_AGN
+	RET
+S2_AGN:
+	B	@SC2_L
+
+;*******************************************************************
+;  SCENARIO 3 : ISOLATE PAGE_P vs PAGE_Q in the SAME segment
+;*******************************************************************
+SC3:
+	LI	R1,TXT_SC3
+	CALL	@PRINT
+	CLR	@CURPAT
+SC3_L:
+	CLR	@CFLAG
+	LI	R9,SEG_LO
+	LI	R0,PAGE_P
+	BL	@MAP_SET
+	LI	R0,SEG_LO_ADR
+	MOV	@CURPAT,R1
+	LI	R4,SEED
+	CALL	@FILL
+
+	SETO	@CFLAG
+	LI	R9,SEG_LO
+	LI	R0,PAGE_Q
+	BL	@MAP_SET
+	LI	R0,SEG_LO_ADR
+	MOV	@CURPAT,R1
+	LI	R4,SEED
+	CALL	@FILL
+
+	CLR	@CFLAG
+	LI	R9,SEG_LO
+	LI	R0,PAGE_P
+	BL	@MAP_SET
+	LI	R0,SEG_LO_ADR
+	MOV	@CURPAT,R1
+	LI	R4,SEED
+	CALL	@VERIFY
+	MOV	R8,@FLGP
+	MOV	R2,@OFFP
+	MOV	R5,@EXPP
+	MOV	R6,@GOTP
+
+	SETO	@CFLAG
+	LI	R9,SEG_LO
+	LI	R0,PAGE_Q
+	BL	@MAP_SET
+	LI	R0,SEG_LO_ADR
+	MOV	@CURPAT,R1
+	LI	R4,SEED
+	CALL	@VERIFY
+	MOV	R8,@FLGQ
+	MOV	R2,@OFFQ
+	MOV	R5,@EXPQ
+	MOV	R6,@GOTQ
+
+	BL	@RESTORE_HI
+	BL	@RESTORE_LO
+	MOV	@CURPAT,R3
+	SLA	R3,1
+	MOV	@PATNAMES(R3),R1
+	CALL	@PRINT
+	LI	R1,TXT_TAGP
+	CALL	@PRINT
+	MOV	@FLGP,R0
+	MOV	R0,@FAILFLG
+	MOV	@OFFP,R0
+	MOV	R0,@FAILOFF
+	MOV	@EXPP,R0
+	MOV	R0,@FAILEXP
+	MOV	@GOTP,R0
+	MOV	R0,@FAILGOT
+	CALL	@PR_RES
+	LI	R1,TXT_TAGQ
+	CALL	@PRINT
+	MOV	@FLGQ,R0
+	MOV	R0,@FAILFLG
+	MOV	@OFFQ,R0
+	MOV	R0,@FAILOFF
+	MOV	@EXPQ,R0
+	MOV	R0,@FAILEXP
+	MOV	@GOTQ,R0
+	MOV	R0,@FAILGOT
+	CALL	@PR_RES
+	INC	@CURPAT
+	MOV	@CURPAT,R1
+	CI	R1,6
+	JLT	S3_AGN
+	RET
+S3_AGN:
+	B	@SC3_L
+
+;*******************************************************************
+;  FILL  - write WCOUNT words of pattern to [R0..]
+;    In : R0=base, R1=patid, R4=seed(lfsr).  @CFLAG!=0 -> store ~value
+;    Uses R2,R3,R5,R7,R11.  Preserves nothing needed by caller.
+;    PSEL is enabled only for the direct paged-memory loop.
+;*******************************************************************
+FILL:
+	PSEL_EN
+	LI	R3,WCOUNT
+	CLR	R2
+FIL_L:
+	BL	@GENVAL			;R5 = value (R4 advances for lfsr)
+	MOV	@CFLAG,R7
+	JEQ	FIL_NC
+	INV	R5
+FIL_NC:
+	MOV	R5,*R0+
+	AI	R2,2
+	DEC	R3
+	JNE	FIL_L
+	PSEL_DIS
+	RET
+
+;*******************************************************************
+;  VERIFY - read WCOUNT words at [R0..], compare to pattern
+;    In : R0=base, R1=patid, R4=seed.  @CFLAG!=0 -> expect ~value
+;    Out: R8=0 pass / R8=FFFF fail; on fail R2=byte off, R5=exp, R6=got
+;    PSEL is enabled only for the direct paged-memory loop.
+;*******************************************************************
+VERIFY:
+	PSEL_EN
+	LI	R3,WCOUNT
+	CLR	R2
+	CLR	R8
+VER_L:
+	BL	@GENVAL			;R5 = expected
+	MOV	@CFLAG,R7
+	JEQ	VER_NC
+	INV	R5
+VER_NC:
+	MOV	*R0+,R6			;got
+	C	R6,R5
+	JNE	VER_F
+	AI	R2,2
+	DEC	R3
+	JNE	VER_L
+	PSEL_DIS
+	RET				;R8=0
+VER_F:
+	SETO	R8
+	PSEL_DIS
+	RET
+
+;*******************************************************************
+;  GENVAL - value generator (LEAF, BL-called)
+;    In : R1=patid, R2=byte offset, R4=lfsr state
+;    Out: R5=value ; R4 advanced for lfsr ; uses R7
+;    Does NOT touch R0/R3/R6/R8 (caller pointer/count/got/flag safe).
+;*******************************************************************
+GENVAL:
+	CI	R1,0
+	JEQ	GV_Z
+	CI	R1,1
+	JEQ	GV_O
+	CI	R1,2
+	JEQ	GV_A
+	CI	R1,3
+	JEQ	GV_D
+	CI	R1,4
+	JEQ	GV_I
+;--- pattern 5 : 16-bit Galois LFSR (mask 0xB400) ---
+	MOV	R4,R5			;output = current state
+	MOV	R4,R7
+	SRL	R4,1
+	ANDI	R7,1			;ST = old LSB
+	JEQ	GV_L2
+	XOR	@LFSRMSK,R4
+GV_L2:
+	B	*R11
+GV_Z:	CLR	R5
+	B	*R11
+GV_O:	SETO	R5
+	B	*R11
+GV_A:	LI	R5,0AA55H
+	B	*R11
+GV_D:	MOV	R2,R5			;value = byte offset
+	B	*R11
+GV_I:	MOV	R2,R5
+	INV	R5			;value = ~offset
+	B	*R11
+
+;*******************************************************************
+;  MAP_SET / MAP_GET - exact SHELLV62/MAPDEBUG programming model
+;    MAP_SET: R9=segment, R0=page; clobbers R9,R0,R12
+;    MAP_GET: R9=segment; returns decoded page in R0
+;*******************************************************************
+MAP_SET:
+	LI	R12,MAP_WIN_BASE
+	SLA	R9,1
+	A	R9,R12
+	SLA	R0,8
+	LDCR	R0,MAPWIDTH
+	B	*R11
+
+MAP_GET:
+	LI	R12,MAP_WIN_BASE
+	SLA	R9,1
+	A	R9,R12
+	CLR	R0
+	STCR	R0,MAPWIDTH
+	SRL	R0,8
+	B	*R11
+
+;*******************************************************************
+;  SAVE / RESTORE the two mapper entries used by this test
+;*******************************************************************
+SAVE_MAPS:
+	MOV	R11,@RSAVE
+	LI	R9,SEG_LO
+	BL	@MAP_GET
+	MOV	R0,@SAVE_LO
+	LI	R9,SEG_HI
+	BL	@MAP_GET
+	MOV	R0,@SAVE_HI
+	MOV	@RSAVE,R11
+	B	*R11
+
+RESTORE_HI:
+	LI	R12,MAP_WIN_BASE+(SEG_HI*2)
+	MOV	@SAVE_HI,R0
+	SLA	R0,8
+	LDCR	R0,MAPWIDTH
+	B	*R11
+
+RESTORE_LO:
+	LI	R12,MAP_WIN_BASE+(SEG_LO*2)
+	MOV	@SAVE_LO,R0
+	SLA	R0,8
+	LDCR	R0,MAPWIDTH
+	B	*R11
+
+;*******************************************************************
+;  PR_RES - print PASS / FAIL(+diagnostics) from the FAIL* cells
+;    Reached by CALL (depth 1 from a scenario, depth 2 to PRINT).
+;*******************************************************************
+PR_RES:
+	MOV	@FAILFLG,R0
+	JNE	PRR_FAIL
+	LI	R1,TXT_PASS
+	CALL	@PRINT
+	INC	@PASSCNT
+	RET
+PRR_FAIL:
+	LI	R1,TXT_FAIL
+	CALL	@PRINT
+	MOV	@FAILOFF,R2
+	WHEX	R2
+	LI	R1,TXT_EXP
+	CALL	@PRINT
+	MOV	@FAILEXP,R2
+	WHEX	R2
+	LI	R1,TXT_GOT
+	CALL	@PRINT
+	MOV	@FAILGOT,R2
+	WHEX	R2
+	LI	R1,TXT_CRLF
+	CALL	@PRINT
+	INC	@FAILCNT
+	RET
+
+;*******************************************************************
+;  PRINT - null-terminated string at R1 (exact POC routine)
+;*******************************************************************
+PRINT:	MOVB	*R1+,R2
+	JEQ	PRINT1
+	WRITE	R2
+	JMP	PRINT
+PRINT1:	RET
+
+;*******************************************************************
+;  DATA
+;*******************************************************************
+LFSRMSK:	WORD	0B400H
+
+SAVE_LO:	WORD	0
+SAVE_HI:	WORD	0
+RSAVE:		WORD	0
+CURPAT:		WORD	0
+CFLAG:		WORD	0
+PASSCNT:	WORD	0
+FAILCNT:	WORD	0
+
+FAILFLG:	WORD	0
+FAILOFF:	WORD	0
+FAILEXP:	WORD	0
+FAILGOT:	WORD	0
+
+PRB_RAW:	WORD	0		;decoded mapper readback (expect PAGE_Q)
+PRB_AL0:	WORD	0		;SEG2/P word0 expect AA55
+PRB_AL1:	WORD	0		;SEG2/P word1 expect 1234
+PRB_REV:	WORD	0		;SEG2/Q word0 expect 5678
+FLGP:		WORD	0
+OFFP:		WORD	0
+EXPP:		WORD	0
+GOTP:		WORD	0
+FLGQ:		WORD	0
+OFFQ:		WORD	0
+EXPQ:		WORD	0
+GOTQ:		WORD	0
+
+PATNAMES:
+	WORD	PN0,PN1,PN2,PN3,PN4,PN5
+
+PN0:	TEXT	'  [zeros] '
+	BYTE	0
+	EVEN
+PN1:	TEXT	'  [ones ] '
+	BYTE	0
+	EVEN
+PN2:	TEXT	'  [aa55 ] '
+	BYTE	0
+	EVEN
+PN3:	TEXT	'  [addr ] '
+	BYTE	0
+	EVEN
+PN4:	TEXT	'  [~addr] '
+	BYTE	0
+	EVEN
+PN5:	TEXT	'  [lfsr ] '
+	BYTE	0
+	EVEN
+
+TXT_BANNER:
+	BYTE	0DH,0AH
+	TEXT	'MEMTEST: Paged Memory Integrity  SEG2=$2000 SEGH=$3000'
+	BYTE	0DH,0AH,0
+	EVEN
+TXT_ORIG:
+	TEXT	'orig pages: seg1='
+	BYTE	0
+	EVEN
+TXT_ORIG2:
+	TEXT	'  segH='
+	BYTE	0
+	EVEN
+TXT_SC1:
+	BYTE	0DH,0AH
+	TEXT	'S1 BANK   (SEG2 P -> Q -> P persistence)'
+	BYTE	0DH,0AH,0
+	EVEN
+TXT_SC2:
+	BYTE	0DH,0AH
+	TEXT	'S2 MOVE   (SEG2/P -> SEGH/Q, verify both)'
+	BYTE	0DH,0AH,0
+	EVEN
+TXT_SC3:
+	BYTE	0DH,0AH
+	TEXT	'S3 ISOLATE (SEG2 PAGE_P vs PAGE_Q)'
+	BYTE	0DH,0AH,0
+	EVEN
+TXT_TAGP:
+	TEXT	' P:'
+	BYTE	0
+	EVEN
+TXT_TAGQ:
+	TEXT	'  Q:'
+	BYTE	0
+	EVEN
+TXT_PASS:
+	TEXT	'PASS'
+	BYTE	0DH,0AH,0
+	EVEN
+TXT_FAIL:
+	TEXT	'FAIL off='
+	BYTE	0
+	EVEN
+TXT_EXP:
+	TEXT	' exp='
+	BYTE	0
+	EVEN
+TXT_GOT:
+	TEXT	' got='
+	BYTE	0
+	EVEN
+TXT_CRLF:
+	BYTE	0DH,0AH,0
+	EVEN
+TXT_PRB1:
+	BYTE	0DH,0AH
+	TEXT	'PROBE reg='
+	BYTE	0
+	EVEN
+TXT_PRB2:
+	TEXT	'  p0='
+	BYTE	0
+	EVEN
+TXT_PRB2B:
+	TEXT	' p1='
+	BYTE	0
+	EVEN
+TXT_PRB3:
+	TEXT	' q0='
+	BYTE	0
+	EVEN
+TXT_SUM:
+	BYTE	0DH,0AH
+	TEXT	'SUMMARY  pass='
+	BYTE	0
+	EVEN
+TXT_SUM2:
+	TEXT	'  fail='
+	BYTE	0
+	EVEN
+TXT_DONE:
+	BYTE	0DH,0AH
+	TEXT	'MEMTEST COMPLETE'
+	BYTE	0DH,0AH,0
+	EVEN
+
+;	ENT	START
+	END
