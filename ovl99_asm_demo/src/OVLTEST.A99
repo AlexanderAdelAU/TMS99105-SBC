@@ -24,8 +24,11 @@
 
 	DXOP	CALL,6
 	DXOP	RET,7
+	DXOP	WRITE,12
 
 R1	EQU	1
+R2	EQU	2
+R3	EQU	3
 SP	EQU	10
 
 WORKSP:		EQU	0230H		;workspace in common memory
@@ -33,7 +36,6 @@ STACKTOP:	EQU	1000H		;stack grows down from the TPA base
 SHELL_PTR:	EQU	0080H		;BLWP vector back to the shell
 
 	EXT	ovlinit			;OVCALL.A99: bring the runtime up
-	EXT	pstr			;CONOUT.A99: print a C string
 	EXT	afunc1			;overlay OVLA (thunks)
 	EXT	afunc2
 	EXT	bfunc1			;overlay OVLB (thunks)
@@ -69,23 +71,30 @@ START:
 	BLWP	@SHELL_PTR		;back to the shell
 
 ;*******************************************************************
-;  say - print the NUL-terminated string at R1.
+;  say - print the NUL-terminated string at R1 through the monitor's
+;  WRITE XOP, writing a CR before each LF.
 ;
-;  A register-argument wrapper around pstr(), which takes its one
-;  argument on the stack as C does.  Resident, so the overlays can
-;  call it too, with a string of their own: the calling overlay
-;  stays mapped while a resident routine runs.
+;  Resident, so the overlays can call it too, with a string of their
+;  own: the calling overlay stays mapped while a resident routine
+;  runs.
 ;
 ;  Uses R1-R3.
 ;*******************************************************************
 say:
-	DECT	SP
-	MOV	R1,*SP			;argument 1 for pstr
-	CALL	@pstr
-	INCT	SP			;drop the argument
+	MOVB	*R1+,R2
+	JEQ	say9
+	ANDI	R2,0FF00H		;MOVB sets only the high byte
+	CI	R2,0A00H		;LF?
+	JNE	say2
+	LI	R3,0D00H		;then CR first
+	WRITE	R3
+say2:
+	WRITE	R2
+	JMP	say
+say9:
 	RET
 
-;--- Messages: C-style, LF only; pstr writes CR before each LF ---
+;--- Messages: LF only; say writes CR before each LF ---
 TXT_START:
 	BYTE	0AH
 	TEXT	'OVL99 assembler overlay demo'

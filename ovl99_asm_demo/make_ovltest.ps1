@@ -3,11 +3,10 @@
 #   cd <this folder>
 #   .\make_ovltest.ps1
 #
-# Uses the OVL99 demo's own toolchain and runtime, one folder up, so
-# this folder holds no executables and no second copy of the runtime:
-#   ..\tools\     r99.exe (assembler), link99.exe (linker), pack99.ps1
-#   ..\runtime\   OVLMGR.A99, OVCALL.A99
-#   ..\src\       CONOUT.A99 (pstr)
+# Shared with the C demo, so this folder holds no executables and no
+# copy of the runtime:
+#   ..\Toolchain\      r99.exe (assembler), link99.exe (linker), pack99.ps1
+#   ..\ovl99_runtime\  OVLMGR.A99, OVCALL.A99 (the OVL99 runtime)
 #
 # Writes into .\build:
 #   OVLTEST.EXE   the program.  XMODEM it to the SBC and type OVLTEST.
@@ -18,8 +17,9 @@
 # $env:SBC_MONITOR_DIR, or a TMS99105_SBC\MONITOR folder above this one.
 $ErrorActionPreference = "Stop"
 $Here  = if($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-$Demo  = Split-Path -Parent $Here
-$Tools = Join-Path $Demo "tools"
+$Root  = Split-Path -Parent $Here
+$Tools = Join-Path $Root "Toolchain"
+$Runtime = Join-Path $Root "ovl99_runtime"
 $Build = Join-Path $Here "build"
 
 foreach($f in @("r99.exe", "link99.exe", "pack99.ps1")) {
@@ -42,19 +42,18 @@ if(Test-Path -LiteralPath $Build) { Remove-Item -LiteralPath $Build -Recurse -Fo
 New-Item -ItemType Directory -Path $Build | Out-Null
 Copy-Item (Join-Path $Tools "r99.exe"), (Join-Path $Tools "link99.exe") $Build -Force
 Copy-Item (Join-Path $Here "src\*") $Build -Force
-Copy-Item (Join-Path $Demo "runtime\*") $Build -Force
-Copy-Item (Join-Path $Demo "src\CONOUT.A99") $Build -Force
+Copy-Item (Join-Path $Runtime "*.A99") $Build -Force
 Copy-Item (Join-Path $Here "OVLMAP.TXT"), (Join-Path $Here "OVLTEST.LNK") $Build -Force
 
 Push-Location $Build
 [Environment]::CurrentDirectory = (Get-Location).Path
 try {
-    # 1. assemble the program, its overlays, CONOUT and the OVL99 runtime.
+    # 1. assemble the program, its overlays and the OVL99 runtime.
     #    r99's S and H flags name the DOS drive for the source and the
     #    output (SCHC = drive C:), so use the drive this folder is on.
     $drive = ([IO.Path]::GetPathRoot((Get-Location).Path)).Substring(0,1).ToUpperInvariant()
     $r99Flags = "S${drive}H${drive}"
-    $asm = @("OVLTEST","OVLA","OVLB","CONOUT","OVLMGR","OVCALL")
+    $asm = @("OVLTEST","OVLA","OVLB","OVLMGR","OVCALL")
     foreach($a in $asm) {
         $o = & .\r99.exe $a $r99Flags 2>&1 | Out-String
         if($o -notmatch "No error\(s\)") { Write-Output $o; throw "assemble failed: $a" }
@@ -75,7 +74,7 @@ try {
     Write-Output ("OVLTEST.EXE  {0} bytes" -f $exe.Length)
 
     # 3. the same inputs in one archive, for linking on the SBC
-    $pak = @("OVLTEST.R99","OVLMGR.R99","OVCALL.R99","CONOUT.R99",
+    $pak = @("OVLTEST.R99","OVLMGR.R99","OVCALL.R99",
              "OVLA.R99","OVLB.R99","OVLMAP.TXT","OVLTEST.LNK")
     & (Join-Path $Tools "pack99.ps1") "OVLTEST.PAK" @pak
 

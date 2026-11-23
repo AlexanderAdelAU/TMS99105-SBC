@@ -51,7 +51,7 @@ then `Q` booting Shell 6.5 and `DIR` listing the installed system files.*
 | [`SRC/SHELL`](SRC/SHELL/README.md) | Shell 6.5 core, ten command pages, and standalone DIR2 |
 | [`SRC/SYSGEN`](SRC/SYSGEN/README.md) | Host-side system volume packer (`sysgen.c`) |
 | `Includes` | Maintained assembler include files |
-| `Toolchain` | Windows A99 assembler and MKCINC utility |
+| `Toolchain` | Windows A99 assembler and MKCINC utility; R99, LINK99, Small-C and PACK99 for the OVL99 demos |
 | `Build` | Generated working files; created automatically |
 | `../MONITOR` | Sibling upload-staging directory for `PAYLOAD65.HEX` and utility `.H99` files; created automatically |
 
@@ -70,7 +70,9 @@ this build, with its original directory names:
 - [`Schematics`](Schematics/) — SBC schematic PDFs, including versions 2–5.
 - [`Memory Structure`](Memory%20Structure/) — architecture and memory-map drawings.
 - [`Memory Mapper`](Memory%20Mapper/) — how the memory mapper hardware works, with links to the overlay system that uses it.
-- [`ovl99_demo`](ovl99_demo/) — OVLDEMO, a minimal OVL99 overlay application: sources, map, runtime, tools and a one-step Windows build.
+- [`ovl99_c_demo`](ovl99_c_demo/) — OVLDEMO, a minimal OVL99 overlay application in C, with a one-step Windows build.
+- [`ovl99_asm_demo`](ovl99_asm_demo/) — OVLTEST, the same overlay mechanism with every module written in assembler.
+- [`ovl99_runtime`](ovl99_runtime/) — the OVL99 runtime (`OVLMGR.A99`, `OVCALL.A99`) that both demos link unchanged.
 - [`images`](images/) — hardware photographs and illustrations.
 
 The original root-level schematic drawings are now together under
