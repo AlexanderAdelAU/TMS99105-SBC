@@ -1,0 +1,16 @@
+# OVLMAP.TXT -- the overlay map for the assembler overlay demo (OVLTEST).
+# Read by link99 -Y on Windows and by LINK99 -Y on the SBC.
+#
+#   module   the object file's base name (OVLA.R99)
+#   page     the physical page it is loaded on (1-15)
+#   overlay  modules with the same name are one overlay, mapped together.
+#            IDs follow first appearance: OVLA=1, OVLB=2.
+#   entries  the routines other modules call.  Each gets a resident
+#            thunk of the same name; the overlay's copy becomes ~name.
+#
+# The segment is not here: it comes from each module's own AORG
+# (both at >8000).
+#
+#   module   page  overlay  entries
+OVLA         2     OVLA     afunc1 afunc2
+OVLB         3     OVLB     bfunc1 bfunc2

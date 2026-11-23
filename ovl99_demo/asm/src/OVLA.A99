@@ -1,0 +1,51 @@
+;*******************************************************************
+;  OVLA.A99 - overlay OVLA, one 4K page at virtual segment 8.
+;
+;  The AORG is the module's own declaration of where it runs: every
+;  executable overlay runs at >8000.  OVLMAP.TXT gives the physical
+;  page.  The routines named in the map (afunc1, afunc2) are renamed
+;  ~afunc1 and ~afunc2 by LINK99 -Y; everyone outside this module
+;  reaches them through the resident thunks that keep the plain
+;  names.
+;
+;  A routine is entered by CALL (through OVCALL) and ends with RET.
+;  It may use R0-R3, R5 and R12 freely; anything else it changes it
+;  must save and restore.
+;
+;  The strings live in this page.  Passing one to the resident say
+;  is safe, because OVLA stays mapped while say runs.  Passing one to
+;  a routine in OVLB would not be: OVLB is mapped over this page.
+;*******************************************************************
+
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R1	EQU	1
+
+	EXT	say			;resident, in OVLTEST
+
+	AORG	8000H
+
+afunc1:
+	LI	R1,TXT_A1
+	CALL	@say
+	RET
+
+afunc2:
+	LI	R1,TXT_A2
+	CALL	@say
+	RET
+
+TXT_A1:
+	TEXT	'  Overlay A - function 1'
+	BYTE	0AH,0
+	EVEN
+TXT_A2:
+	TEXT	'  Overlay A - function 2'
+	BYTE	0AH,0
+	EVEN
+
+	ENT	afunc1
+	ENT	afunc2
+
+	END

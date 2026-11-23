@@ -1,0 +1,52 @@
+;*******************************************************************
+;  OVLB.A99 - overlay OVLB, one 4K page at virtual segment 8.
+;
+;  Shares segment 8 with OVLA on a different physical page, so only
+;  one of the two is mapped at a time.
+;
+;  bfunc2 calls afunc1 in OVLA.  The call goes through afunc1's
+;  thunk: OVCALL saves OVLB as the caller, maps OVLA, runs afunc1,
+;  then maps OVLB back before returning here, so the code and the
+;  string after the call are this page's again.
+;*******************************************************************
+
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R1	EQU	1
+
+	EXT	say			;resident, in OVLTEST
+	EXT	afunc1			;overlay OVLA, through its thunk
+
+	AORG	8000H
+
+bfunc1:
+	LI	R1,TXT_B1
+	CALL	@say
+	RET
+
+bfunc2:
+	LI	R1,TXT_B2
+	CALL	@say
+	CALL	@afunc1			;cross-overlay call
+	LI	R1,TXT_B3
+	CALL	@say
+	RET
+
+TXT_B1:
+	TEXT	'  Overlay B - function 1'
+	BYTE	0AH,0
+	EVEN
+TXT_B2:
+	TEXT	'  Overlay B - function 2, calling A'
+	BYTE	0AH,0
+	EVEN
+TXT_B3:
+	TEXT	'  Overlay B - back from A, my page is mapped again'
+	BYTE	0AH,0
+	EVEN
+
+	ENT	bfunc1
+	ENT	bfunc2
+
+	END
