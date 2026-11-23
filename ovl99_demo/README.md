@@ -32,6 +32,8 @@ your own overlay application.
 - `lib/` — `CALL.R99` and `CLIB99.LIB`/`.NDX` from the C run-time
 - `tools/` — `smallcp.exe` (Small-C compiler), `r99.exe` (assembler),
   `link99.exe` 3.10.3 (linker), `pack99.ps1`
+- `asm/` — the same mechanism with every module written in assembler (OVLTEST),
+  built with this folder's `tools/` and `runtime/`
 
 ## Build on Windows
 

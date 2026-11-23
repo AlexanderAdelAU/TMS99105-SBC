@@ -1,0 +1,119 @@
+;*******************************************************************
+;  OVLTEST.A99 - the resident program of the assembler overlay demo.
+;
+;  Linked first, so it starts at the load address >1000 and START is
+;  the first instruction the shell runs.
+;
+;  The overlay routines are called by their own names.  LINK99 -Y
+;  writes a resident thunk under each name in OVLMAP.TXT, and the
+;  thunk maps the overlay through OVCALL, so this file holds no
+;  overlay IDs, no page numbers and no fixed overlay addresses.
+;
+;  The only overlay-aware line is CALL @ovlinit, which must come
+;  before anything in an overlay is called.
+;
+;  When an overlay routine returns, OVCALL maps back the overlay that
+;  owned the window when it was called.  So after Test 3, OVLA is
+;  mapped again without being asked for.
+;
+;  Calling convention (the same as the C code's, so assembler and C
+;  overlays can be mixed): XOP 6 CALL pushes the return word on SP
+;  (R10), XOP 7 RET pops it.  OVCALL keeps R4, R6-R9, R11 and
+;  R13-R15 across an overlay call; it may change R0-R3, R5, R12.
+;*******************************************************************
+
+	DXOP	CALL,6
+	DXOP	RET,7
+
+R1	EQU	1
+SP	EQU	10
+
+WORKSP:		EQU	0230H		;workspace in common memory
+STACKTOP:	EQU	1000H		;stack grows down from the TPA base
+SHELL_PTR:	EQU	0080H		;BLWP vector back to the shell
+
+	EXT	ovlinit			;OVCALL.A99: bring the runtime up
+	EXT	pstr			;CONOUT.A99: print a C string
+	EXT	afunc1			;overlay OVLA (thunks)
+	EXT	afunc2
+	EXT	bfunc1			;overlay OVLB (thunks)
+	EXT	bfunc2
+
+START:
+	LWPI	WORKSP
+	LI	SP,STACKTOP
+	CALL	@ovlinit		;before any overlay call
+
+	LI	R1,TXT_START
+	CALL	@say
+
+	LI	R1,TXT_T1
+	CALL	@say
+	CALL	@afunc1			;maps OVLA
+
+	LI	R1,TXT_T2
+	CALL	@say
+	CALL	@afunc2			;OVLA owns the window: fast path
+
+	LI	R1,TXT_T3
+	CALL	@say
+	CALL	@bfunc1			;maps OVLB; OVLA is mapped back after
+
+	LI	R1,TXT_T4
+	CALL	@say
+	CALL	@bfunc2			;OVLB, which calls into OVLA
+
+	LI	R1,TXT_DONE
+	CALL	@say
+
+	BLWP	@SHELL_PTR		;back to the shell
+
+;*******************************************************************
+;  say - print the NUL-terminated string at R1.
+;
+;  A register-argument wrapper around pstr(), which takes its one
+;  argument on the stack as C does.  Resident, so the overlays can
+;  call it too, with a string of their own: the calling overlay
+;  stays mapped while a resident routine runs.
+;
+;  Uses R1-R3.
+;*******************************************************************
+say:
+	DECT	SP
+	MOV	R1,*SP			;argument 1 for pstr
+	CALL	@pstr
+	INCT	SP			;drop the argument
+	RET
+
+;--- Messages: C-style, LF only; pstr writes CR before each LF ---
+TXT_START:
+	BYTE	0AH
+	TEXT	'OVL99 assembler overlay demo'
+	BYTE	0AH,0
+	EVEN
+TXT_T1:
+	TEXT	'Test 1: afunc1 (maps OVLA)'
+	BYTE	0AH,0
+	EVEN
+TXT_T2:
+	TEXT	'Test 2: afunc2 (OVLA already mapped)'
+	BYTE	0AH,0
+	EVEN
+TXT_T3:
+	TEXT	'Test 3: bfunc1 (maps OVLB, then OVLA back)'
+	BYTE	0AH,0
+	EVEN
+TXT_T4:
+	TEXT	'Test 4: bfunc2 (OVLB calls into OVLA)'
+	BYTE	0AH,0
+	EVEN
+TXT_DONE:
+	BYTE	0AH
+	TEXT	'demo complete'
+	BYTE	0AH,0
+	EVEN
+
+	ENT	START
+	ENT	say
+
+	END
