@@ -10,7 +10,7 @@
 ** are mapped whenever this code runs.  Passing one to pstr() is safe
 ** because pstr() is resident: this overlay stays mapped across the
 ** call.  Passing one to count(), which is in another overlay, would
-** NOT be safe - see "THE ONE RULE" in runtime\OVCALL.A99.
+** NOT be safe - see "THE ONE RULE" in ovl99_runtime\OVCALL.A99.
 */
 
 #asm

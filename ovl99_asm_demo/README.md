@@ -1,7 +1,7 @@
 # OVL99 assembler demo (OVLTEST) — overlays written in assembler
 
-The same overlay mechanism as the C demo one folder up, with every module written in
-TMS99105 assembler. Use it as a template when an overlay, or the whole program, is
+The same overlay mechanism as the [C demo](../ovl99_c_demo/), with every module
+written in TMS99105 assembler. Use it as a template when an overlay, or the whole program, is
 hand-written rather than compiled.
 
 ## What it shows
@@ -22,17 +22,16 @@ hand-written rather than compiled.
 - `src/`
   - `OVLTEST.A99` — the resident program, and `say`, a print routine the overlays share
   - `OVLA.A99`, `OVLB.A99` — the two overlays
-- **Shared with the C demo:** the build takes these from `..` rather than keeping
-  copies, so this folder holds no executables:
-  - `..\tools\` — `r99.exe`, `link99.exe` 3.10.3, `pack99.ps1`
-  - `..\runtime\` — `OVLMGR.A99`, `OVCALL.A99`
-  - `..\src\CONOUT.A99` — `pstr()`
+- **Shared with the C demo**, so this folder holds no executables and no copy of the
+  runtime:
+  - [`../ovl99_runtime/`](../ovl99_runtime/) — `OVLMGR.A99`, `OVCALL.A99`
+  - `../Toolchain/` — `r99.exe`, `link99.exe` 3.10.3, `pack99.ps1`
 
 ## Build on Windows
 
 - In PowerShell:
   ```
-  cd ovl99_demo\asm
+  cd ovl99_asm_demo
   .\make_ovltest.ps1
   ```
 - Output in `build\`: `OVLTEST.EXE`, and `OVLTEST.PAK` for linking on the SBC. Both are
@@ -83,7 +82,7 @@ hand-written rather than compiled.
   the window at the call. After Test 3 above, OVLA is mapped again although the
   program never asked for it.
 - The rest of the rules, checked by the linker or yours to keep, are in the
-  [C demo's README](../README.md#rules).
+  [C demo's README](../ovl99_c_demo/README.md#rules).
 
 ## What changed from the original OVLMGR proof of concept
 
@@ -98,4 +97,4 @@ to the current OVL99 runtime:
 | Jump table at the top of each overlay | Each entry point is `ENT`ed and published in the map |
 | A print routine reached through a vector at `>02A0` | `say`, a resident routine the overlays call by name |
 | `link99 -P2 ... -P3 ...` | `link99 -O1000 -S -YOVLMAP.TXT`, as the C demo |
-| `a99.exe`, `r99.exe`, `link99.exe`, `drel.exe` in the folder | The demo's shared `..\tools\` |
+| `a99.exe`, `r99.exe`, `link99.exe`, `drel.exe` in the folder | The repository's `Toolchain` folder |

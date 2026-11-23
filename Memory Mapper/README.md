@@ -90,8 +90,9 @@ entire address space.
   (`link99 -Y`) reads one overlay map and builds the overlay table and a small
   resident thunk per published function, so a call into an overlay is an
   ordinary C call.
-- **Start here:** [`ovl99_demo`](../ovl99_demo/) — OVLDEMO, the smallest
+- **Start here:** [`ovl99_c_demo`](../ovl99_c_demo/) — OVLDEMO, the smallest
   complete OVL99 program, with a one-step Windows build.
+  [`ovl99_asm_demo`](../ovl99_asm_demo/) is the same thing written in assembler.
 - **Full implementations**, in the
   [TMS99105-Native-Toolchain](https://github.com/AlexanderAdelAU/TMS99105-Native-Toolchain):
   - FileEdit — the screen editor

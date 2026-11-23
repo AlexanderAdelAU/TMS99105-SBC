@@ -1,4 +1,4 @@
-# OVL99 demo (OVLDEMO) — building an overlay application for the TMS99105 SBC
+# OVL99 C demo (OVLDEMO) — building an overlay application for the TMS99105 SBC
 
 The smallest complete OVL99 program: a C `main()` that calls functions living in
 three overlay modules, as if they were ordinary functions. Use it as a template for
@@ -26,20 +26,20 @@ your own overlay application.
   - `OVLBYE.C` — overlay BYE
   - `STARTUP.A99`, `CONOUT.A99` — a minimal C start-up and `pstr()`, so the demo
     needs no file I/O. A real application links the normal C run-time instead.
-- `runtime/` — the OVL99 runtime, linked unchanged into every overlay program
-  - `OVLMGR.A99` — maps one overlay's row of `OVL_TABLE`
-  - `OVCALL.A99` — the call gate, and `ovlinit()`
 - `lib/` — `CALL.R99` and `CLIB99.LIB`/`.NDX` from the C run-time
-- `tools/` — `smallcp.exe` (Small-C compiler), `r99.exe` (assembler),
-  `link99.exe` 3.10.3 (linker), `pack99.ps1`
-- `asm/` — the same mechanism with every module written in assembler (OVLTEST),
-  built with this folder's `tools/` and `runtime/`
+- **Shared with the [assembler demo](../ovl99_asm_demo/)**, so not kept here:
+  - [`../ovl99_runtime/`](../ovl99_runtime/) — the OVL99 runtime, linked unchanged
+    into every overlay program:
+    - `OVLMGR.A99` — maps one overlay's row of `OVL_TABLE`
+    - `OVCALL.A99` — the call gate, and `ovlinit()`
+  - `../Toolchain/` — `smallcp.exe` (Small-C compiler), `r99.exe` (assembler),
+    `link99.exe` 3.10.3 (linker), `pack99.ps1`
 
 ## Build on Windows
 
 - In PowerShell:
   ```
-  cd ovl99_demo
+  cd ovl99_c_demo
   .\make_ovldemo.ps1
   ```
 - Output in `build\`:

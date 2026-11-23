@@ -8,6 +8,10 @@
 #   OVLDEMO.PAK   everything LINK99 needs to link OVLDEMO.EXE on the SBC
 #               itself, in one file:  UNPACK OVLDEMO  then  LINK99 @OVLDEMO.LNK
 #
+# Shared with the assembler demo, so not kept in this folder:
+#   ..\Toolchain\      smallcp.exe, r99.exe, link99.exe, pack99.ps1
+#   ..\ovl99_runtime\  OVLMGR.A99, OVCALL.A99 (the OVL99 runtime)
+#
 # OVLDEMO.EXE and OVLDEMO.PAK are also copied to the SBC MONITOR folder if
 # one is found: $env:SBC_MONITOR_DIR, or a TMS99105_SBC\MONITOR folder
 # above this one.
@@ -17,6 +21,12 @@
 $ErrorActionPreference = "Stop"
 $Here  = if($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $Build = Join-Path $Here "build"
+$Root  = Split-Path -Parent $Here
+$Tools = Join-Path $Root "Toolchain"
+$Runtime = Join-Path $Root "ovl99_runtime"
+foreach($f in @("smallcp.exe", "r99.exe", "link99.exe", "pack99.ps1")) {
+    if(-not (Test-Path -LiteralPath (Join-Path $Tools $f))) { throw "missing $Tools\$f" }
+}
 
 $MonitorDir = $env:SBC_MONITOR_DIR
 if(-not $MonitorDir) {
@@ -32,10 +42,10 @@ if(-not $MonitorDir) {
 
 if(Test-Path -LiteralPath $Build) { Remove-Item -LiteralPath $Build -Recurse -Force }
 New-Item -ItemType Directory -Path $Build | Out-Null
-Copy-Item (Join-Path $Here "tools\*.exe") $Build -Force
+Copy-Item (Join-Path $Tools "smallcp.exe"), (Join-Path $Tools "r99.exe"), (Join-Path $Tools "link99.exe") $Build -Force
 Copy-Item (Join-Path $Here "lib\*") $Build -Force
 Copy-Item (Join-Path $Here "src\*") $Build -Force
-Copy-Item (Join-Path $Here "runtime\*") $Build -Force
+Copy-Item (Join-Path $Runtime "*.A99") $Build -Force
 Copy-Item (Join-Path $Here "OVLMAP.TXT"), (Join-Path $Here "OVLDEMO.LNK") $Build -Force
 
 Push-Location $Build
@@ -77,7 +87,7 @@ try {
     $pak = @("STARTUP.R99","MAIN.R99","OVLMGR.R99","OVCALL.R99","CONOUT.R99","CALL.R99",
              "OVLHELLO.R99","OVLGRET2.R99","OVLBYE.R99","CLIB99.LIB","CLIB99.NDX",
              "OVLMAP.TXT","OVLDEMO.LNK")
-    & (Join-Path $Here "tools\pack99.ps1") "OVLDEMO.PAK" @pak
+    & (Join-Path $Tools "pack99.ps1") "OVLDEMO.PAK" @pak
 
     if($MonitorDir -and (Test-Path -LiteralPath $MonitorDir -PathType Container)) {
         Copy-Item ".\OVLDEMO.EXE", ".\OVLDEMO.PAK" $MonitorDir -Force
