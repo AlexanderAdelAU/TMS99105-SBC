@@ -53,10 +53,11 @@ then `Q` booting Shell 6.5 and `DIR` listing the installed system files.*
 | `Includes` | Maintained assembler include files |
 | `Toolchain` | Windows A99 assembler and MKCINC utility; R99, LINK99, Small-C and PACK99 for the OVL99 demos |
 | `Build` | Generated working files; created automatically |
-| `../MONITOR` | Sibling upload-staging directory for `PAYLOAD65.HEX` and utility `.H99` files; created automatically |
+| `../MONITOR` | Sibling staging directory for `PAYLOAD65.HEX`, utility `.H99` files and the Disc Monitor ROM `.H99`; created automatically |
 
-`SRC/DISC_MONITOR` contains the Disc Monitor source. It is built separately
-from the operating-system payload and is **not** included by SYSGEN.
+`SRC/DISC_MONITOR` contains the Disc Monitor source. `MAKE_SYSTEM.bat`
+assembles it on every build and stages its `.H99` for the ROM programmer,
+but it is **not** included by SYSGEN.
 
 Each source component has its own README beside its source files.
 See [BUILDING.md](BUILDING.md) for the complete build instructions.

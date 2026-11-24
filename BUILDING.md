@@ -19,11 +19,16 @@ From the repository root, run `MAKE_SYSTEM.bat`.
 4. Assemble `SHELLV65.A99` and generate `Build/CORE.INC` from its listing
    using MKCINC.
 5. Assemble all ten Shell command-page `.A99` files.
-6. Assemble `BDTEST62`, `IDE_DEBUG`, `MAPDEBUG`, and `MEMTEST` from
-   `SRC/Utilities` into standalone `.H99` files; these are **not** passed to SYSGEN.
-7. Pack the fourteen OS files into `Build/PAYLOAD65.HEX` using SYSGEN.
-8. After a successful build, copy the four utility `.H99` files and then
-   the completed payload to the sibling `../MONITOR/` directory for SBC upload.
+6. Assemble **every** `.A99` in `SRC/Utilities` (currently `BDTEST62`,
+   `IDE_DEBUG`, `MAPDEBUG` and `MEMTEST`) into standalone `.H99` files; these
+   are **not** passed to SYSGEN. A new utility added to that folder is built
+   without editing the script.
+7. Assemble the Disc Monitor ROM, `SRC/DISC_MONITOR/DISC_MONITOR_V55F.A99`,
+   into `DISC_MONITOR_V55F.H99`. The version is set by `MONITOR_ROM` at the
+   top of `MAKE_SYSTEM.bat`.
+8. Pack the fourteen OS files into `Build/PAYLOAD65.HEX` using SYSGEN.
+9. After a successful build, copy the utility `.H99` files, the Disc Monitor
+   `.H99` and then the completed payload to the sibling `../MONITOR/` directory.
 
 **Important:** The packer must keep `SHELL.SYS` and `BDOS.SYS` as the first
 two directory entries because the bootloader locates them by position.
@@ -44,9 +49,11 @@ See [the Utilities README](SRC/Utilities/README.md) before running them.
 ## Disc Monitor and upload staging
 
 `SRC/DISC_MONITOR` holds the independent ROM monitor source and its existing
-`IDE_DEBUG.A99` reference copy. The monitor ROM is **not** part of SYSGEN
-and is not assembled by `MAKE_SYSTEM.bat`; the utility copy of `IDE_DEBUG`
-under `SRC/Utilities` **is** assembled as a standalone uploadable program.
+`IDE_DEBUG.A99` reference copy. `MAKE_SYSTEM.bat` assembles the monitor on
+every build and stages `DISC_MONITOR_V55F.H99` in `../MONITOR/` for the ROM
+programmer, but it is **not** part of SYSGEN and is not uploaded to the SBC.
+Only the monitor source is copied into `Build`, so the reference copy of
+`IDE_DEBUG` never replaces the `SRC/Utilities` copy, which is the one built.
 
 The sibling `../MONITOR/` directory is the upload-staging location for files
 to be transferred to the SBC. It is not the monitor's source directory.
