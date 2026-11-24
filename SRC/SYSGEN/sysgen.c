@@ -10,6 +10,15 @@ unsigned char used_mem[MEMSIZE];
 unsigned char temp_mem[MEMSIZE];
 long lowest, highest;
 
+/* Folder Alias Table (disk block 7, LBA 112): one 16-byte slot per
+   folder - byte 0 the folder ID, bytes 1-11 the name as an FCB name.
+   A target written FOLDER/NAME.EXT goes into FOLDER.  Folders get IDs
+   1, 2, ... in order of first use, exactly as MKDIR numbers its slots. */
+#define ALIAS_LBA   112
+#define MAXFOLDERS  32
+char folder_names[MAXFOLDERS][12];
+int  nfolders = 0;
+
 int hexval(int c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'A' && c <= 'F') return c - 'A' + 10;
@@ -57,6 +66,18 @@ void format_name(const char *input, char *out) {
     }
 }
 
+/* Folder ID for a folder name, adding it to the table on first use. */
+int folder_id(const char *name) {
+    char fcb[11];
+    format_name(name, fcb);
+    for (int k = 0; k < nfolders; k++)
+        if (memcmp(folder_names[k], fcb, 11) == 0) return k + 1;
+    if (nfolders == MAXFOLDERS) { puts("Error: too many folders"); exit(1); }
+    memcpy(folder_names[nfolders], fcb, 11);
+    folder_names[nfolders][11] = '\0';
+    return ++nfolders;
+}
+
 int get_type(const char *ext) {
     if (strncmp(ext, "SYS", 3) == 0) return 0;
     if (strncmp(ext, "COM", 3) == 0) return 1;
@@ -100,6 +121,15 @@ int main(int argc, char **argv) {
         strcpy(target_name, argv[i]);
         strcpy(hex_file, eq + 1);
 
+        /* FOLDER/NAME.EXT (or FOLDER\NAME.EXT) puts the file in FOLDER */
+        int fld = 0;
+        char *sep = strpbrk(target_name, "/\\");
+        if (sep) {
+            *sep = '\0';
+            fld = folder_id(target_name);
+            memmove(target_name, sep + 1, strlen(sep + 1) + 1);
+        }
+
         memset(temp_mem, 0, MEMSIZE);
         load_hex(hex_file, temp_mem, NULL);
 
@@ -122,7 +152,7 @@ int main(int argc, char **argv) {
         mem[dir_ptr + 15] = sectors & 0xFF;
         mem[dir_ptr + 16] = (lowest >> 8) & 0xFF;
         mem[dir_ptr + 17] = lowest & 0xFF;
-        mem[dir_ptr + 18] = 0; /* Explicit Root Folder ID */
+        mem[dir_ptr + 18] = fld; /* Folder ID: 0 = Root */
         dir_ptr += 32;
 
         /* BAT Chain */
@@ -144,6 +174,23 @@ int main(int argc, char **argv) {
 
         staging_ptr += sectors * 512;
         next_free_block += blocks;
+    }
+
+    /* Folder Alias Table: written after DSKINIT has wiped block 7 */
+    if (nfolders > 0) {
+        for (int j = 0; j < 512; j++) { mem[staging_ptr + j] = 0; used_mem[staging_ptr + j] = 1; }
+        for (int k = 0; k < nfolders; k++) {
+            mem[staging_ptr + k*16] = k + 1;
+            memcpy(&mem[staging_ptr + k*16 + 1], folder_names[k], 11);
+            printf("Folder %d: %.11s\n", k + 1, folder_names[k]);
+        }
+        mem[table_ptr] = (staging_ptr >> 8) & 0xFF; used_mem[table_ptr++] = 1;
+        mem[table_ptr] = staging_ptr & 0xFF;        used_mem[table_ptr++] = 1;
+        mem[table_ptr] = (ALIAS_LBA >> 8) & 0xFF;   used_mem[table_ptr++] = 1;
+        mem[table_ptr] = ALIAS_LBA & 0xFF;          used_mem[table_ptr++] = 1;
+        mem[table_ptr] = 0;                         used_mem[table_ptr++] = 1;
+        mem[table_ptr] = 1;                         used_mem[table_ptr++] = 1;
+        staging_ptr += 512;
     }
 
     mem[table_ptr] = 0; used_mem[table_ptr++] = 1;

@@ -185,6 +185,9 @@ SUBMARK	BYTE	'$'		; '$'
 SYSFILE	BYTE	'*'		; '*'
 DOSCMD	BYTE	'+'		; '+'
 ROOTID	BYTE	0FEH		; FCB+18 target: explicit Root fallback
+SHCFLD	BYTE	1		; FCB+18 target: the SHC folder.  SYSGEN numbers
+				; folders in order of first use, and SHC is
+				; the first folder on the MAKE_SYSTEM SYSGEN line
 CONSOLE	EQU	0
 DEFDRV	EQU	0
 	EVEN
@@ -1355,7 +1358,7 @@ MAP_SET:
 ; LDCMDS - load each internal command into its own page   (6.5)
 ;
 ; Walks ICLIST.  For every entry whose page byte is not 0 it opens
-; <NAME>.SHC in the root folder, reads it a sector at a time into
+; <NAME>.SHC in the SHC folder, reads it a sector at a time into
 ; STAGING with the BDOS running flat, and copies each sector into
 ; segment D with that page mapped and PSEL on.  A file that is
 ; missing, empty, larger than 4096 bytes, or does not start with
@@ -1378,7 +1381,7 @@ LDC_BL:	MOVB	@SPACE,*R4+
 LDC_CL:	CLR	*R4+
 	DEC	R2
 	JNE	LDC_CL
-	MOVB	@ROOTID,@FCB+18		; the command files live in root
+	MOVB	@SHCFLD,@FCB+18		; the command files live in folder SHC
 	MOV	@LDC_ENT,R1		; name from the table, up to its 0
 	LI	R4,FCB
 LDC_NM:	MOVB	*R1+,R0

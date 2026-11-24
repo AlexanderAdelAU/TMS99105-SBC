@@ -238,8 +238,10 @@ System files are added or removed only by rebuilding the volume with SYSGEN.
 ## Internal commands in pages
 
 Each internal command is its own source file, assembled at `AORG >D000` and
-stored on the disk as `NAME.SHC` in the Root folder. At cold start `LDCMDS`
-reads each one into its own physical page of segment D:
+stored on the disk as `NAME.SHC` in the `SHC` folder, so the root `DIR` stays
+short; `CHDIR SHC` then `DIR` lists them. At cold start `LDCMDS` opens them
+from that folder (ID 1, `SHCFLD`) and reads each one into its own physical page
+of segment D:
 
 | Page | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -283,8 +285,9 @@ on the shell's own page.
 1. Write `NAME.A99` following the rules above.
 2. Add an entry to `ICLIST` in `SHELLV65.A99` with the next free page number,
    and increment `CMDCNT`.
-3. Add the name to `PAGES` and the `NAME.SHC=NAME.H99` pair to the SYSGEN line
-   in `MAKE_SYSTEM.bat`.
+3. Add the name to `PAGES` and the `SHC/NAME.SHC=NAME.H99` pair to the SYSGEN
+   line in `MAKE_SYSTEM.bat`. Keep `SHC` the first folder on that line: SYSGEN
+   numbers folders in order of first use, and the Shell looks for folder 1.
 
 ---
 

@@ -27,6 +27,7 @@ Compile the utility using your preferred C compiler.
 *   **output_file:** The final combined Hex file to be generated.
 *   **boot_initializer:** The bare-metal initialization program (e.g., `DSKINIT`). This file is passed without an alias because it executes directly from memory and does not get written to the file system.
 *   **TARGET_NAME=SOURCE_FILE:** The OS modules to be written to disk. The `TARGET_NAME` is the final 11-character name (e.g., `SHELL.SYS`) that `DSKINIT` will write to the disk directory. The `SOURCE_FILE` is your local assembly output (e.g., `SHELLV65.H99`).
+*   **FOLDER/TARGET_NAME=SOURCE_FILE:** Puts the file in a folder instead of the root (`\` works too). SYSGEN creates each folder the first time it is named, giving the folders IDs 1, 2, ... in that order, and writes the Folder Alias Table (block 7, LBA 112) through the write table, after `DSKINIT` has wiped it. `MAKE_SYSTEM.bat` uses this to put the ten `.SHC` command pages in folder `SHC`, which must therefore be the first folder named.
 
 ### Example
 
