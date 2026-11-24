@@ -11,7 +11,7 @@ calls this a BDOS 6.0 test; this repository builds it alongside **BDOS61**.
 
 - The source is assembled at **`>1000`**, the Shell transient-program area.
 - `MAKE_SYSTEM.bat` creates `BDTEST62.H99` in `Build` and copies it to the
-  sibling `../MONITOR` upload-staging directory. It is **not** in SYSGEN.
+  sibling `../STAGING` upload-staging directory. It is **not** in SYSGEN.
 - Load the Intel HEX image with the Disc Monitor `U` command, then run at
   `>1000` **with the Shell and BDOS environment present**. Alternatively,
   install it as a Shell-loadable program on the SBC disk. Staging an `.H99`

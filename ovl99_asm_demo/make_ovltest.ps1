@@ -13,8 +13,9 @@
 #   OVLTEST.PAK   everything LINK99 needs to link OVLTEST.EXE on the SBC:
 #                 UNPACK OVLTEST  then  LINK99 @OVLTEST.LNK
 #
-# Both are also copied to the SBC MONITOR folder if one is found:
-# $env:SBC_MONITOR_DIR, or a TMS99105_SBC\MONITOR folder above this one.
+# OVLTEST.EXE and OVLTEST.PAK are also copied to the staging folder:
+# $env:SBC_STAGING_DIR if it is set, otherwise STAGING next to the
+# repository (the folder MAKE_SYSTEM.bat uses).
 $ErrorActionPreference = "Stop"
 $Here  = if($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $Root  = Split-Path -Parent $Here
@@ -26,17 +27,8 @@ foreach($f in @("r99.exe", "link99.exe", "pack99.ps1")) {
     if(-not (Test-Path -LiteralPath (Join-Path $Tools $f))) { throw "missing $Tools\$f" }
 }
 
-$MonitorDir = $env:SBC_MONITOR_DIR
-if(-not $MonitorDir) {
-    $up = $Here
-    while($up) {
-        $c = Join-Path $up "TMS99105_SBC\MONITOR"
-        if(Test-Path -LiteralPath $c -PathType Container) { $MonitorDir = $c; break }
-        $next = Split-Path -Parent $up
-        if(-not $next -or $next -eq $up) { break }
-        $up = $next
-    }
-}
+$Staging = $env:SBC_STAGING_DIR
+if(-not $Staging) { $Staging = Join-Path (Split-Path -Parent $Root) "STAGING" }
 
 if(Test-Path -LiteralPath $Build) { Remove-Item -LiteralPath $Build -Recurse -Force }
 New-Item -ItemType Directory -Path $Build | Out-Null
@@ -78,12 +70,9 @@ try {
              "OVLA.R99","OVLB.R99","OVLMAP.TXT","OVLTEST.LNK")
     & (Join-Path $Tools "pack99.ps1") "OVLTEST.PAK" @pak
 
-    if($MonitorDir -and (Test-Path -LiteralPath $MonitorDir -PathType Container)) {
-        Copy-Item ".\OVLTEST.EXE", ".\OVLTEST.PAK" $MonitorDir -Force
-        Write-Output ("Copied OVLTEST.EXE and OVLTEST.PAK to " + $MonitorDir)
-    } else {
-        Write-Output ("No MONITOR folder found; OVLTEST.EXE and OVLTEST.PAK are in " + $Build)
-    }
+    New-Item -ItemType Directory -Path $Staging -Force | Out-Null
+    Copy-Item ".\OVLTEST.EXE", ".\OVLTEST.PAK" $Staging -Force
+    Write-Output ("Copied OVLTEST.EXE and OVLTEST.PAK to " + $Staging)
 }
 finally {
     Pop-Location

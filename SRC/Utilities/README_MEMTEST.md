@@ -11,7 +11,7 @@ standalone hardware test alongside the current Shell 6.5 build.
 ## Running it
 
 The master build creates `MEMTEST.H99` and stages it under sibling
-`../MONITOR`. The program assembles at **`>0500`**; upload with the Disc
+`../STAGING`. The program assembles at **`>0500`**; upload with the Disc
 Monitor `U` command and run at `500G` when the Shell is present. On normal
 completion it uses **`BLWP @>0080`** to return through the Shell entry
 vector. Do not assume a monitor-only environment without that Shell vector

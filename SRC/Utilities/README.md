@@ -5,7 +5,7 @@ the operating system, but **does not include them in `PAYLOAD65.HEX` or the
 SYSGEN volume**. A new utility only needs its source placed here, so don't keep
 reference or scratch copies of `.A99` files in this folder.
 It stages their individual Intel HEX (`.H99`) files in the sibling
-`../MONITOR` directory so that you can upload only the utility you need.
+`../STAGING` directory so that you can upload only the utility you need.
 
 | Source | Output staged for upload | Description and usage |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ It stages their individual Intel HEX (`.H99`) files in the sibling
    source files under `Build`, invokes A99 and checks that each `.H99` was
    generated successfully.
 2. After the system image and all utilities have built successfully, it
-   copies the utility `.H99` files and `PAYLOAD65.HEX` to `../MONITOR`.
+   copies the utility `.H99` files and `PAYLOAD65.HEX` to `../STAGING`.
 3. Upload the selected `.H99` with the SBC Disc Monitor's `U` command. Read
    the linked program guide before executing it.
 
