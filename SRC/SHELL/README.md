@@ -424,7 +424,7 @@ MAKE_SYSTEM.bat
 The master script assembles DSKINIT62, BDOS61, XMODEM59 and standalone DIR2,
 then the Shell core and all ten command pages. It compiles SYSGEN and packages
 the fourteen-file volume as `Build/PAYLOAD65.HEX`, copying the finished
-payload to the `MONITOR/` upload-staging directory only on success.
+payload to the `STAGING` upload-staging directory only on success.
 
 - `SHELL.SYS` and `BDOS.SYS` must stay directory entries 0 and 1.
 - Changes to the core require regenerating `CORE.INC` and rebuilding pages.

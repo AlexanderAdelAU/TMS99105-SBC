@@ -35,8 +35,8 @@ hand-written rather than compiled.
   .\make_ovltest.ps1
   ```
 - Output in `build\`: `OVLTEST.EXE`, and `OVLTEST.PAK` for linking on the SBC. Both are
-  copied to your SBC `MONITOR` folder if `$env:SBC_MONITOR_DIR` is set, or a
-  `TMS99105_SBC\MONITOR` folder is found above this one.
+  copied to the staging folder: `$env:SBC_STAGING_DIR` if it is set, otherwise
+  `STAGING` next to the repository, the same folder `MAKE_SYSTEM.bat` uses.
 - The script passes r99 the drive the folder is on (`SCHC` on C:, `SDHD` on D:), so it
   builds from any drive.
 

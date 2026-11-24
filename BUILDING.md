@@ -28,7 +28,7 @@ From the repository root, run `MAKE_SYSTEM.bat`.
    top of `MAKE_SYSTEM.bat`.
 8. Pack the fourteen OS files into `Build/PAYLOAD65.HEX` using SYSGEN.
 9. After a successful build, copy the utility `.H99` files, the Disc Monitor
-   `.H99` and then the completed payload to the sibling `../MONITOR/` directory.
+   `.H99` and then the completed payload to the sibling `../STAGING/` directory.
 
 **Important:** The packer must keep `SHELL.SYS` and `BDOS.SYS` as the first
 two directory entries because the bootloader locates them by position.
@@ -50,14 +50,20 @@ See [the Utilities README](SRC/Utilities/README.md) before running them.
 
 `SRC/DISC_MONITOR` holds the independent ROM monitor source and its existing
 `IDE_DEBUG.A99` reference copy. `MAKE_SYSTEM.bat` assembles the monitor on
-every build and stages `DISC_MONITOR_V55F.H99` in `../MONITOR/` for the ROM
+every build and stages `DISC_MONITOR_V55F.H99` in `../STAGING/` for the ROM
 programmer, but it is **not** part of SYSGEN and is not uploaded to the SBC.
 Only the monitor source is copied into `Build`, so the reference copy of
 `IDE_DEBUG` never replaces the `SRC/Utilities` copy, which is the one built.
 
-The sibling `../MONITOR/` directory is the upload-staging location for files
-to be transferred to the SBC. It is not the monitor's source directory.
+The `../STAGING/` directory, next to the repository, is where finished files
+are put for transfer to the SBC or the ROM programmer. To use a different
+folder, set the `SBC_STAGING_DIR` environment variable; `MAKE_SYSTEM.bat` and
+both OVL99 demo builds use it. For example, in PowerShell:
 
-`Build/` is generated and ignored by Git; the `../MONITOR/` staging
+```powershell
+[Environment]::SetEnvironmentVariable("SBC_STAGING_DIR", "C:\Path\To\STAGING", "User")
+```
+
+`Build/` is generated and ignored by Git; the `../STAGING/` staging
 folder is outside the repository.
 The complete build requires Windows and should be verified there.

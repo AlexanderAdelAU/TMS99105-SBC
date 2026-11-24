@@ -9,7 +9,7 @@ each segment selects a physical RAM page. The source uses Monitor XOPs
 
 ## Load and parameters
 
-The build stages `MAPDEBUG.H99` in the sibling `../MONITOR` directory.
+The build stages `MAPDEBUG.H99` in the sibling `../STAGING` directory.
 Upload it using the Disc Monitor `U` command, edit the parameter words
 and execute **`500G`**. Each run performs one command and normally returns
 to the Disc Monitor; it does not prompt for input.

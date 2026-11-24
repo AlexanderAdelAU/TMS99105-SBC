@@ -9,7 +9,7 @@ this interface, whereas a BDOS sector is **512 bytes** (two IDE LBAs).
 
 ## Load and select a command
 
-The generated `IDE_DEBUG.H99` is staged in the sibling `../MONITOR` directory
+The generated `IDE_DEBUG.H99` is staged in the sibling `../STAGING` directory
 and is not included in SYSGEN. Upload it with the Disc Monitor `U` command.
 It has a parameter block and entry trampoline at **`>0500`**, while the
 main routine is assembled at **`>1000`**. Edit the command/parameters in

@@ -12,7 +12,7 @@ MAKE_SYSTEM.bat
 
 The script stages every component in `Build`, assembles all modules,
 generates the Shell address include, runs SYSGEN and copies the resulting
-`PAYLOAD65.HEX` to the sibling `../MONITOR` upload-staging directory. It also
+`PAYLOAD65.HEX` to the sibling `../STAGING` upload-staging directory. It also
 builds the standalone utilities in `SRC/Utilities` and copies their `.H99`
 files to the same directory; these are not included in the SYSGEN volume.
 
@@ -23,7 +23,7 @@ After `MAKE_SYSTEM.bat` reports `BUILD OK`, the payload is ready to transfer:
 1. Open **Tera Term 5** and connect to the SBC's Disc Monitor over the
    serial connection.
 2. At the Disc Monitor prompt, enter **`U`** to start an Intel HEX upload.
-3. From Tera Term, send **`PAYLOAD65.HEX`** from the sibling `../MONITOR`
+3. From Tera Term, send **`PAYLOAD65.HEX`** from the sibling `../STAGING`
    staging directory. Wait until the complete file has transferred.
 4. At the monitor prompt, enter **`500G`** to execute the system generator
    loaded at address **`>0500`** (`0x0500`).
@@ -53,7 +53,7 @@ then `Q` booting Shell 6.5 and `DIR` listing the installed system files.*
 | `Includes` | Maintained assembler include files |
 | `Toolchain` | Windows A99 assembler and MKCINC utility; R99, LINK99, Small-C and PACK99 for the OVL99 demos |
 | `Build` | Generated working files; created automatically |
-| `../MONITOR` | Sibling staging directory for `PAYLOAD65.HEX`, utility `.H99` files and the Disc Monitor ROM `.H99`; created automatically |
+| `../STAGING` | Staging directory for `PAYLOAD65.HEX`, utility `.H99` files, the Disc Monitor ROM `.H99` and the OVL99 demo programs; created automatically. Set `SBC_STAGING_DIR` to use another folder |
 
 `SRC/DISC_MONITOR` contains the Disc Monitor source. `MAKE_SYSTEM.bat`
 assembles it on every build and stages its `.H99` for the ROM programmer,

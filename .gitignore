@@ -1,6 +1,7 @@
 # All generated assembly, listings, logs and payload files live here.
 Build/
 MONITOR/
+STAGING/
 
 # Generated files should never be committed alongside master sources.
 *.H99
