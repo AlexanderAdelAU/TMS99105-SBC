@@ -53,6 +53,24 @@ Common segments matter more than they look. Code that changes the map cannot
 live in a segment it is changing, so the gates that switch pages sit in segment
 0, and the BDOS stays reachable whatever the mapper is doing.
 
+### The schematic
+
+![Memory mapper schematic: the HM628512 SRAM pair, the 6116 map, the 74LS157, the GAL 22V10 and the 74LS245 CRU interface](MemoryMapper.jpg)
+
+The parts in the diagram above, as they appear on the schematic:
+
+| Diagram | Schematic |
+| --- | --- |
+| HM628512 pair | U41 and U43, "Paged Memory High Byte" (`D0-D7`) and "Low Byte" (`D8-D15`). `SA0-SA3` drive their `A0-A3`; the CPU's `A0-A14` drive the rest |
+| 6116 | "Virtual Memory - Paged Memory Mapper": the 16 segment entries, written from the PIO data bus |
+| 74LS157 | U26: passes `A0-A3` to the 6116 normally, and `A11-A14` when `MAP_REG` selects a map write |
+| GAL 22V10 | U44: decodes `MAP_SEL`, `ROM_SEL`, `RAM_SEL`, `WAIT` and `SA0-SA3` |
+| CRU write path | U31, the 74LS245 "CRU Based IO Interface", which puts the new page on the PIO data bus |
+
+The two 6116s marked "Not Populated" (IC1, IC2) are unused footprints. U9 and U27
+are the AT28C16 ROMs selected by `ROM_SEL`. The full schematic is in
+[TMS99105-SBC-V4-Paged-Memory-System](https://github.com/AlexanderAdelAU/TMS99105-SBC-V4-Paged-Memory-System).
+
 ### Free of charge, in the shadow of the address latch
 
 ```mermaid
