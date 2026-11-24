@@ -30,7 +30,6 @@
 ;	VERSION 5.0	BYTES PER SECTOR NOW 256
 ;	VERSION 5.2	ADDED PAGING INITIALISATION
 ;	VERSION 5.2	IMPROVED BOOTING BY DISABLING PSEL
-;	VERSION 5.6	ADDED PSEL_CALL USING XOP 0
 ;---------------------------------------------------------------------------------------------------------
 ;
 R0	EQU	0
@@ -570,10 +569,7 @@ MRDREC:	BL	@READ_SECTOR
 ;
 ;*****************************
 ;
-	;WORD	WORKSP		;0250H
-	;WORD	READ_DBR
-MRDDBR:	;BLWP	@MRDDBR-4
-	BL	@READ_DBR
+MRDDBR:	BL	@READ_DBR
 	RET
 ;****************************
 ;
@@ -1289,26 +1285,19 @@ XOP1:	ORI	XR15,EN_PSEL	;NOW BRING /PSEL LOW TO EFFECT SEGMENT CHANGE
 ;======================================================================
 ;
 ;
-;   PSEL_CALL   @ROUTINE
-;   SET THE MAP REGISTER AND MAKE A CALL TO A PHYSICAL PAGED ADDRESS
-;   PAGE TO SET IN IN R0 OF THE CALLER'S WORKSPACE
+;   SETS OR CLEARS THE PSEL BIT BASED ON THE VALUE OF R9
+;   R9 = 0 DISABLE
+;   R9 > 0 ENABLE
 ;
 ;
 ;=======================================================================
 ;
-XOP2:	MOV	@2*R0(XR13),XR0		;GET PAGE NUMBER
-	MOV	XR11,R14		;MOVE EA INTO R14 FOR CALl
-	MOV	XR11, XR9		;COPY TO XR9
-	MOV	@2*SP(XR13),XR10 	;GET STACK POINTER FROM CALLING WP IN R13
-	DECT	XR10
-	MOV	XR14,*XR10		;PUSH SAVED PC ONTO STACK
-	MOV	XR10,@2*SP(XR13)	;UPDATE STACK POINTER IN CALLING WORKSPACE
-;
-;   PROGRAMME THE SEGMENT PAGE REGISTER, SEGMENT in XR11 and PAGE IN XR0
-;
-	BL	MAP_SET
-
+XOP2:	MOV	@2*R9(XR13),XR9
+	JEQ	DIS_MAP
+	ORI	XR15,EN_PSEL	;NOW BRING /PSEL LOW TO EFFECT SEGMENT CHANGE
 	RTWP
+DIS_MAP	ANDI	R15,DISABLE_PSEL
+	RTWP		;DISABLE /PSEL TO KEEP EXCUTION STABLE WHILE SWITCHING
 
 ;
 ;========================================
@@ -1347,7 +1336,7 @@ XOP5A	MOV	*SP+,*R11		;GET FIRST REGISTER
 ;	CALLING METHOD:   CALL SUBROUTINE_ADDRESS
 ;*************************************************
 ;
-XOP6	MOV	@2*SP(XR13),XR10 	;GET STACK POINTER FROM CALLING WP IN R13
+XOP6	MOV	@2*R10(XR13),XR10 	;GET STACK POINTER FROM CALLING WP IN R13
 	DECT	XR10
 	MOV	XR14,*XR10		;PUSH SAVED PC ONTO STACK
 	MOV	XR11,R14		;MOVE EA INTO R14 FOR CALL
@@ -1915,7 +1904,8 @@ BDMATCH	LDCR	*R7,12 		;INT RECV/TXMT DATA RATE
 INITIAL1	B	@BANNER
 
 
-;
+
+
 ;*******************************************************************
 ; INIT_MAP - Initialise 6116 mapping table on reset
 ; Must run from ROM before jump to Shell
@@ -1940,21 +1930,6 @@ MCLR_L:	LDCR	R1,BYTEWIDE
 	DEC	R2
 	JNE	MCLR_L
 	RT
-
-;*******************************************************************
-;	MAP_SET - program one 6116 map register
-;	Entry: R9=segment (0-15), R0=page (0-3)
-;	Exit:  R9 clobbered (segment*2), R0 clobbered, R12=CRU addr
-;	Note:  R8 is safe - use R8 to preserve values across MAP_SET
-;*******************************************************************
-MAP_SET:
-	LI	XR12,MAP_WIN_BASE
-	SLA	R9,1			;SEGMENT * 2 = CRU BIT OFFSET
-	A	R9,R12
-	SLA	R0,8			;MOVE PAGE TO HIGH BYTE (LDCR BYTE TRANSFER USES HIGH BYTE)
-	LDCR	R0,BYTEWIDE
-	RT
-
 ;
 ;---Place load vectors into FFFC & FFFE AND BANNER RETURN POINT
 ;

@@ -1,7 +1,9 @@
 # Utilities — standalone programs for the TMS99105 SBC
 
-The root `MAKE_SYSTEM.bat` assembles these programs alongside the operating
-system, but **does not include them in `PAYLOAD65.HEX` or the SYSGEN volume**.
+The root `MAKE_SYSTEM.bat` assembles **every `.A99` in this folder** alongside
+the operating system, but **does not include them in `PAYLOAD65.HEX` or the
+SYSGEN volume**. A new utility only needs its source placed here, so don't keep
+reference or scratch copies of `.A99` files in this folder.
 It stages their individual Intel HEX (`.H99`) files in the sibling
 `../MONITOR` directory so that you can upload only the utility you need.
 
