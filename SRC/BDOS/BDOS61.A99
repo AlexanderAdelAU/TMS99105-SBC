@@ -1021,7 +1021,9 @@ DIRBLK:	INC	@DIRENT			; Increment slot index
 	MOV	R1,R1
 	JLT	DIRB03
 
-	SETO	@DIRENT			; Reset slot index to 0
+	CLR	@DIRENT			; Slot index 0: R3 below returns slot 0.
+					; (SETO left -1, so the next call
+					; returned slot 0 a second time)
 	LI	R3,DIRBUFF
 DIRB01:	CLR	R1
 DIRB02:	MOV	R1,R1
