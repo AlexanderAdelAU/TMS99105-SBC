@@ -36,6 +36,38 @@ receives it and writes it to disk using BDOS.
 with the same name before creating the new one. Choose the filename
 carefully—this is an overwrite operation.
 
+The file is written into the **current folder**: run XMODEM from
+`[TOOLS]%` and the file lands in `TOOLS`.
+
+## Receiving a PACK99 archive (`.PAK`)
+
+From version 1.9R, a file received with the extension `.PAK` is
+unpacked straight away:
+
+```text
+[TOOLS]%XMODEM JOB.PAK
+MODEM VERSION 1.9R - READY.
+LOAD ADDRESS: 1000
+CCCCCCCCCC...SUCCESS.
+UNPACKING:
+  FILE1.R99
+  CLIB99.LIB
+  CLIB99.NDX
+3 FILE(S) UNPACKED.
+  JOB.PAK ERASED.
+```
+
+- The files are written into the same folder as the archive, the
+  current one, each replacing any file of the same name.
+- If every file is written, `JOB.PAK` is erased. After any error
+  (a damaged archive, a full disk) the files written so far are kept,
+  `JOB.PAK` is kept, and `** ARCHIVE KEPT ... **` is printed, so
+  `UNPACK JOB` can be run on it later.
+- Archives are made on Windows with `pack99.ps1` from the
+  [TMS99105-Native-Toolchain](https://github.com/AlexanderAdelAU/TMS99105-Native-Toolchain/tree/main/pack99)
+  repository. The unpacking code is `UNPACK.A99`'s, from the same
+  folder; `UNPACK.COM` is still useful for a `.PAK` already on disk.
+
 ## Supported transfer behaviour
 
 The implementation:
