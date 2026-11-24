@@ -15,6 +15,22 @@ long lowest, highest;
    A target written FOLDER/NAME.EXT goes into FOLDER.  Folders get IDs
    1, 2, ... in order of first use, exactly as MKDIR numbers its slots. */
 #define ALIAS_LBA   112
+
+/* Payload limits.  SYSGEN writes ONE directory sector and ONE BAT sector,
+   and the monitor's U command loads the payload flat (PSEL off) below the
+   ROM.  Going past any of these used to corrupt the payload silently. */
+#define BAT_BASE      0x2000      /* DSKINIT must end below this        */
+#define DIR_BASE      0x2200
+#define DIR_ENTRIES   16          /* 512-byte sector / 32-byte entries  */
+#define TABLE_BASE    0x2400
+#define STAGING_BASE  0x3000
+#define STAGING_LIMIT 0xF000      /* Disc Monitor ROM starts here       */
+#define BAT_BLOCKS    256         /* 512-byte BAT sector / 2-byte slots */
+
+void fail(const char *what, const char *detail) {
+    printf("*** SYSGEN ERROR: %s%s\n", what, detail ? detail : "");
+    exit(1);
+}
 #define MAXFOLDERS  32
 char folder_names[MAXFOLDERS][12];
 int  nfolders = 0;
@@ -96,10 +112,11 @@ int main(int argc, char **argv) {
     memset(used_mem, 0, MEMSIZE);
 
     /* --- SAFE MEMORY MAP FOR PAYLOADS --- */
-    int bat_ptr = 0x2000;
-    int dir_ptr = 0x2200;
-    int table_ptr = 0x2400;
-    int staging_ptr = 0x3000;
+    int bat_ptr = BAT_BASE;
+    int dir_ptr = DIR_BASE;
+    int table_ptr = TABLE_BASE;
+    int staging_ptr = STAGING_BASE;
+    char msg[256];
     int next_free_block = 8;
 
     /* Initialize full 512-byte BAT Sector to 0000 (Free) and reserve blocks 0-7 */
@@ -111,6 +128,11 @@ int main(int argc, char **argv) {
 
     /* Pass DSKINIT straight through into the memory map (runs at >0500) */
     load_hex(argv[2], mem, used_mem);
+    if (lowest < 0) fail("no data in ", argv[2]);
+    if (highest >= BAT_BASE) {
+        sprintf(msg, "%s ends at >%04lX, into SYSGEN's tables at >%04X", argv[2], highest, BAT_BASE);
+        fail(msg, NULL);
+    }
 
     for (int i = 3; i < argc; i++) {
         char target_name[32], hex_file[128];
@@ -130,12 +152,28 @@ int main(int argc, char **argv) {
             memmove(target_name, sep + 1, strlen(sep + 1) + 1);
         }
 
+        if (dir_ptr >= DIR_BASE + DIR_ENTRIES * 32) {
+            sprintf(msg, "more than %d files - SYSGEN writes one directory sector (at %s)", DIR_ENTRIES, target_name);
+            fail(msg, NULL);
+        }
+
         memset(temp_mem, 0, MEMSIZE);
         load_hex(hex_file, temp_mem, NULL);
+        if (lowest < 0) fail("no data in ", hex_file);
 
         int size_bytes = highest - lowest + 1;
         int sectors = (size_bytes + 511) / 512;
         int blocks = (sectors + 7) / 8;
+
+        if (staging_ptr + sectors * 512 > STAGING_LIMIT) {
+            sprintf(msg, "payload too large: %s would end at >%04X, past the ROM at >%04X",
+                    target_name, staging_ptr + sectors * 512, STAGING_LIMIT);
+            fail(msg, NULL);
+        }
+        if (next_free_block + blocks > BAT_BLOCKS) {
+            sprintf(msg, "out of disk blocks in the BAT sector at %s", target_name);
+            fail(msg, NULL);
+        }
 
         /* Pack flat binary data into Staging Area AND tag padded zeroes as used */
         memcpy(&mem[staging_ptr], &temp_mem[lowest], size_bytes);
@@ -178,6 +216,8 @@ int main(int argc, char **argv) {
 
     /* Folder Alias Table: written after DSKINIT has wiped block 7 */
     if (nfolders > 0) {
+        if (staging_ptr + 512 > STAGING_LIMIT)
+            fail("payload too large: no room for the folder table below the ROM", NULL);
         for (int j = 0; j < 512; j++) { mem[staging_ptr + j] = 0; used_mem[staging_ptr + j] = 1; }
         for (int k = 0; k < nfolders; k++) {
             mem[staging_ptr + k*16] = k + 1;
@@ -216,5 +256,7 @@ int main(int argc, char **argv) {
     fclose(out);
 
     printf("Successfully packed %d files into %s\n", argc - 3, argv[1]);
+    printf("  directory %d of %d entries, payload data >%04X-%04X (limit >%04X)\n",
+           (dir_ptr - DIR_BASE) / 32, DIR_ENTRIES, STAGING_BASE, staging_ptr - 1, STAGING_LIMIT);
     return 0;
 }

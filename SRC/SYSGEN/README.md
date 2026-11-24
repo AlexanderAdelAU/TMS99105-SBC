@@ -29,6 +29,19 @@ Compile the utility using your preferred C compiler.
 *   **TARGET_NAME=SOURCE_FILE:** The OS modules to be written to disk. The `TARGET_NAME` is the final 11-character name (e.g., `SHELL.SYS`) that `DSKINIT` will write to the disk directory. The `SOURCE_FILE` is your local assembly output (e.g., `SHELLV65.H99`).
 *   **FOLDER/TARGET_NAME=SOURCE_FILE:** Puts the file in a folder instead of the root (`\` works too). SYSGEN creates each folder the first time it is named, giving the folders IDs 1, 2, ... in that order, and writes the Folder Alias Table (block 7, LBA 112) through the write table, after `DSKINIT` has wiped it. `MAKE_SYSTEM.bat` uses this to put the ten `.SHC` command pages in folder `SHC`, which must therefore be the first folder named.
 
+### Limits
+
+SYSGEN stops with `*** SYSGEN ERROR` (and `MAKE_SYSTEM.bat` reports `BUILD FAILED`) rather than produce a payload that would silently corrupt:
+
+| Limit | Value | Why |
+| --- | --- | --- |
+| Files | 16 | One 512-byte directory sector holds 16 entries |
+| Payload data | `>3000`–`>EFFF` | The monitor's `U` loads the payload flat, below the ROM at `>F000` |
+| DSKINIT | must end below `>2000` | SYSGEN's BAT, directory and write table start there |
+| Disk blocks | 256 | One BAT sector |
+
+Each build prints how much it used, e.g. `directory 14 of 16 entries, payload data >3000-75FF (limit >F000)`.
+
 ### Example
 
 To build a fresh OS payload consisting of the initializer, Shell, BDOS, XMODEM, and Directory utilities:
