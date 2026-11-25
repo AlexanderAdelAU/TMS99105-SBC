@@ -1,5 +1,8 @@
 # SYSGEN: TMS99105 SBC V4 OS Generation Utility
 
+> For the whole system build — `MAKE_SYSTEM.bat`, uploading and booting — see
+> [SYSTEM_BUILD.md](SYSTEM_BUILD.md). This page covers the SYSGEN packer itself.
+
 The current source is `SRC/SYSGEN/sysgen.c`. Run `MAKE_SYSTEM.bat` at the
 repository root to compile SYSGEN and package the entire fourteen-file
 Shell 6.5 volume. The shorter usage example below illustrates the packer
