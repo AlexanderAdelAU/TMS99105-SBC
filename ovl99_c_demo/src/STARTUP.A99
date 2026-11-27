@@ -21,6 +21,7 @@
 	DXOP	RET,7
 
 SP		EQU	10
+WP		EQU	13
 
 WORKSP:		EQU	0230H		;workspace in common memory
 STACKTOP:	EQU	1000H		;stack grows down from the TPA base
@@ -28,6 +29,8 @@ SHELL_PTR:	EQU	0080H		;BLWP vector back to the shell
 
 _main:
 	LWPI	WORKSP
+	STWP	WP			;R13 = the workspace: Small-C stores a char
+					;by MOVB @2*Rn+1(WP), the register's low byte
 	LI	SP,STACKTOP
 	CALL	@main
 	BLWP	@SHELL_PTR
