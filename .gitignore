@@ -1,5 +1,6 @@
 # All generated assembly, listings, logs and payload files live here.
 Build/
+build/
 MONITOR/
 STAGING/
 
