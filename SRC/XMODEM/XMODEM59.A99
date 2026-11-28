@@ -21,6 +21,12 @@
 ;	              the same folder; the .PAK is erased if every file
 ;	              unpacked, kept otherwise.  UNPACKIT below is
 ;	              UNPACK.A99's routine (TMS99105-Native-Toolchain).
+;	version 1.9S - CLOSE_FILE no longer writes the last sector twice.
+;	              REC_COUNT is reset to 4 after every full sector, so
+;	              it is 4 (buffer empty), never 0, at close: a file of
+;	              a whole number of sectors gained a copy of its last
+;	              512 bytes.  A part sector is now padded with ^Z
+;	              instead of the previous sector's tail.
 ;
 ;
 ; -------- 3. MESSAGE BLOCK LEVEL PROTOCOL
@@ -329,8 +335,17 @@ CMDERR:	LI	R0,CMDMSG
 ;=======================================================
 CLOSE_FILE:
 	MOV	@REC_COUNT,R0
+	CI	R0,4		;4 = BUFFER EMPTY: LAST SECTOR ALREADY WRITTEN
 	JEQ	CLS_1
-	CALL	@WRITE_SECTOR	;FLUSH REMAINDER
+	MOV	@DISK_PTR,R0	;PAD THE PART SECTOR WITH ^Z, NOT OLD DATA
+	MOV	@SECTOR_BUFFER,R1
+	AI	R1,BYTSEC
+	LI	R2,1A00H
+CLS_PAD:	C	R0,R1
+	JHE	CLS_W
+	MOVB	R2,*R0+
+	JMP	CLS_PAD
+CLS_W:	CALL	@WRITE_SECTOR	;FLUSH REMAINDER
 
 CLS_1:	LI	R2,FCLOSE	 	;NOW CLOSE THE FILE
 	MOV	@FCB,R3
@@ -395,7 +410,7 @@ END_MESSAGE
 	TEXT	"LOAD_END"
 	BYTE	0DH,0AH,0
 	EVEN
-VERSION	TEXT	"MODEM VERSION 1.9R - READY."
+VERSION	TEXT	"MODEM VERSION 1.9S - READY."
 	BYTE	0DH,0AH,0
 	EVEN
 SAVING	TEXT	"SAVING FILE.."
